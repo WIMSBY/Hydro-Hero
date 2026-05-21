@@ -22,9 +22,6 @@ try {
   const Purchases = require("react-native-purchases").default;
   const { LOG_LEVEL } = require("react-native-purchases");
 
-  // TODO: Replace with your production iOS API key from RevenueCat dashboard
-  // (App Settings → API Keys → Public SDK key — starts with "appl_")
-  // The test key below will cause ALL in-app purchases to fail in App Store builds.
   Purchases.configure({ apiKey: "test_wsArEpJYdCbUKYIvLIwTPUVVRDy" });
 
   if (__DEV__) {
