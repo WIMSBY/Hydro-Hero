@@ -12,6 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.wimsby.hydrationstation",
+      "appleTeamId": "2GPWB6H7M2",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Hydration Station reads health data to provide personalized hydration insights",
         "NSHealthUpdateUsageDescription": "Hydration Station saves your water intake to Apple Health to keep all your health data in one place",
