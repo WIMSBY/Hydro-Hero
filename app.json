@@ -1,17 +1,32 @@
 {
   "expo": {
-    "name": "MyFirstApp",
-    "slug": "MyFirstApp",
+    "name": "Hydration Station",
+    "slug": "hydration-station",
+    "description": "Track your daily water intake with Hydration Station",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myfirstapp",
+    "scheme": "hydrationstation",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wimsby.hydrationstation",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "Hydration Station reads health data to provide personalized hydration insights",
+        "NSHealthUpdateUsageDescription": "Hydration Station saves your water intake to Apple Health to keep all your health data in one place",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.wimsby.hydrationstation"
+        ],
+        "com.apple.developer.healthkit": true,
+        "com.apple.developer.healthkit.background-delivery": true
+      }
     },
     "android": {
+      "package": "com.wimsby.hydrationstation",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -38,11 +53,30 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#FFD700",
+          "defaultChannel": "hydration-reminders",
+          "sounds": []
+        }
+      ],
+      "react-native-health",
+      "@bacons/apple-targets",
+      "./plugins/withWidgetData",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "0e008050-c62f-466f-bfd8-9310a7504fc8"
+      }
     }
   }
 }

@@ -1,98 +1,6079 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BevCategory, BevDef, BEVERAGES } from "../../constants/beverages";
+import Achievements from "../../components/Achievements";
+import Onboarding from "../../components/Onboarding";
+import {
+  initSounds, teardownSounds, reloadSounds, setSoundEnabled,
+  playButtonTapSound, playSpinSound, stopSpinSound, playReelStopSound,
+  playWaterLogSound, playWaterFillSound, playJackpotSound,
+  playBadgeUnlockSound, playStreakSound, playMorningResetSound,
+  setActivePack, previewPack, stopPreview, ALL_SOUND_PACKS, DEFAULT_PACK_ID,
+} from "../../utils/SoundManager";
+import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
+import { syncWidgetData } from "../../utils/WidgetDataSync";
+import { initWatch, teardownWatch, sendHydrationUpdate, setWatchMessageHandler } from "../../utils/WatchManager";
+import { useIsFocused } from "@react-navigation/native";
+import { File as FSFile, Paths as FSPaths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import * as Location from "expo-location";
+import * as Notifications from "expo-notifications";
+import * as Haptics from "expo-haptics";
+import { useTheme } from "../../contexts/ThemeContext";
+import { useProContext } from "../../contexts/ProContext";
+import { useAuth } from "../../contexts/AuthContext";
+import AuthModal from "../../components/AuthModal";
+import {
+  debouncedSyncTodayLog, syncBeverageEntry, syncAchievements,
+  pullCloudData, syncAllHistory, cancelPendingSync,
+} from "../../utils/CloudSync";
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  AppState,
+  Dimensions,
+  Easing,
+  FlatList,
+  InputAccessoryView,
+  Keyboard,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View
+} from "react-native";
+import Svg, { Circle, ClipPath, Defs, Ellipse, G, Line, LinearGradient, Path, RadialGradient, Rect, Stop, Text as SvgText } from "react-native-svg";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+  }),
+});
 
-export default function HomeScreen() {
+const DEFAULT_GOAL = 64;
+const QUICK_ADD_DEFAULTS = [8, 12, 16, 16.9, 20, 24];
+function formatOz(oz: number): string {
+  return Number.isInteger(oz) ? String(oz) : oz.toFixed(1);
+}
+const POPULAR_PRESETS = [
+  { oz: 8,    label: "8oz",   sub: "small glass" },
+  { oz: 12,   label: "12oz",  sub: "can" },
+  { oz: 16,   label: "16oz",  sub: "med bottle" },
+  { oz: 16.9, label: "16.9oz",sub: "std bottle" },
+  { oz: 20,   label: "20oz",  sub: "lg bottle" },
+  { oz: 24,   label: "24oz",  sub: "lg cup" },
+  { oz: 32,   label: "32oz",  sub: "Stanley sm" },
+  { oz: 40,   label: "40oz",  sub: "Stanley lg" },
+  { oz: 64,   label: "64oz",  sub: "half gallon" },
+];
+
+interface Preset { id: string; label: string; oz: number; category: BevCategory; }
+interface DrinkEntry { oz: number; category: BevCategory; timestamp: number; hydrated: number; }
+
+const CATEGORIES = BEVERAGES;
+
+const DEFAULT_VISIBLE_BEVS: BevCategory[] = ["water", "coffee", "soda", "juice", "sports", "beer", "cocktail"];
+
+// Build lookup maps for O(1) access
+const BEV_MAP = new Map<string, BevDef>(CATEGORIES.map((c) => [c.key, c]));
+function getBev(key: string): BevDef {
+  return BEV_MAP.get(key) ?? { key: "water" as BevCategory, label: key, emoji: "🥤", color: "#888888", eff: 1.0 };
+}
+
+const EMPTY_BREAKDOWN: Record<BevCategory, number> = {
+  water: 0, coffee: 0, tea: 0, icedtea: 0, soda: 0, flavored: 0, coconut: 0,
+  juice: 0, lemonade: 0, fruit: 0, sports: 0, milk: 0, protein: 0,
+  beer: 0, wine: 0, cocktail: 0, energy: 0, energyshot: 0, hotchoc: 0, spirits: 0,
+};
+
+function calcHydratedOz(oz: number, category: BevCategory): number {
+  return Math.round(oz * getBev(category).eff * 10) / 10;
+}
+
+/** Safely merge stored breakdown (may have only 7 old keys) with the full 20-key default */
+function mergeBreakdown(stored: Record<string, number>): Record<BevCategory, number> {
+  return { ...EMPTY_BREAKDOWN, ...stored } as Record<BevCategory, number>;
+}
+
+// --- Water Drop Trackers ---
+const WATER_DROP_PATH = "M 100 12 C 68 52 20 92 20 132 C 20 165 57 190 100 190 C 143 190 180 165 180 132 C 180 92 132 52 100 12 Z";
+const DROP_SIZE = 210;
+
+interface TrueHydrationDropProps { pct: number; oz: number; goal: number }
+function TrueHydrationDrop({ pct, oz, goal }: TrueHydrationDropProps) {
+  const fillH = Math.round(200 * pct);
+  const fillY = 200 - fillH;
+  const pctLabel = Math.round(pct * 100);
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <View style={{ width: DROP_SIZE, height: DROP_SIZE }}>
+      <Svg width={DROP_SIZE} height={DROP_SIZE} viewBox="0 0 200 200">
+        <Defs>
+          <ClipPath id="leftDropClip">
+            <Path d={WATER_DROP_PATH} />
+          </ClipPath>
+          <LinearGradient id="rainbowGradDrop" x1="0" y1="1" x2="0" y2="0">
+            <Stop offset="0" stopColor="#FF0000" stopOpacity="1" />
+            <Stop offset="0.2" stopColor="#FF7700" stopOpacity="1" />
+            <Stop offset="0.4" stopColor="#FFEE00" stopOpacity="1" />
+            <Stop offset="0.6" stopColor="#00CC44" stopOpacity="1" />
+            <Stop offset="0.8" stopColor="#0088FF" stopOpacity="1" />
+            <Stop offset="1" stopColor="#8800FF" stopOpacity="1" />
+          </LinearGradient>
+        </Defs>
+        <Rect x={0} y={0} width={200} height={200} fill="rgba(255,255,255,0.12)" clipPath="url(#leftDropClip)" />
+        {fillH > 0 && (
+          <Rect x={0} y={fillY} width={200} height={fillH} fill="url(#rainbowGradDrop)" clipPath="url(#leftDropClip)" />
+        )}
+        <Path d={WATER_DROP_PATH} fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth={3} />
+      </Svg>
+      <View style={dropStyles.overlay} pointerEvents="none">
+        <Text style={dropStyles.pctText}>{pctLabel}%</Text>
+        <Text style={dropStyles.ozText}>{oz.toFixed(1)} oz</Text>
+        <Text style={dropStyles.mlText}>{ozToMl(oz)} ml</Text>
+        <Text style={dropStyles.goalSubText}>of {Math.round(goal)} oz goal</Text>
+      </View>
+    </View>
+  );
+}
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+
+const dropStyles = StyleSheet.create({
+  overlay: { position: "absolute", top: 0, left: 0, width: DROP_SIZE, height: DROP_SIZE, alignItems: "center", justifyContent: "center" },
+  pctText: { fontSize: 28, fontWeight: "bold", color: "#ffffff", textShadowColor: "rgba(0,0,0,0.6)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  ozText: { fontSize: 13, fontWeight: "700", color: "#ffffff", textShadowColor: "rgba(0,0,0,0.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  mlText: { fontSize: 11, color: "rgba(255,255,255,0.85)", textShadowColor: "rgba(0,0,0,0.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  goalSubText: { fontSize: 11, color: "rgba(255,255,255,0.75)", textShadowColor: "rgba(0,0,0,0.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3, marginTop: 2 },
+});
+
+const brkStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 24, marginTop: 14, gap: 7 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8 },
+  dot: { width: 9, height: 9, borderRadius: 5 },
+  name: { fontSize: 12, color: "rgba(255,255,255,0.9)", width: 58 },
+  barTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.15)", overflow: "hidden" },
+  barFill: { height: "100%", borderRadius: 4 },
+  oz: { fontSize: 12, color: "rgba(255,255,255,0.75)", width: 44, textAlign: "right" },
+  pct: { fontSize: 12, fontWeight: "700", color: "#ffffff", width: 34, textAlign: "right" },
+});
+
+function ozToMl(oz: number) {
+  return Math.round(oz * 29.5735);
+}
+
+// --- Waterfall Celebration ---
+const SCREEN_W = Dimensions.get("window").width;
+const STREAM_COLORS = ["#64B5F6", "#1E88E5", "#0D47A1", "#42A5F5", "#1565C0", "#90CAF9"];
+const STREAM_COUNT = 14;
+
+interface WaterfallProps {
+  visible: boolean;
+  goal: number;
+  stageColor: string;
+  onDismiss: () => void;
+}
+function WaterfallCelebration({ visible, goal, stageColor, onDismiss }: WaterfallProps) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const streamAnims = useRef(
+    Array.from({ length: STREAM_COUNT }, () => new Animated.Value(0))
+  ).current;
+
+  const goalTime = useRef("");
+
+  useEffect(() => {
+    if (visible) {
+      const now = new Date();
+      const h = now.getHours();
+      const m = now.getMinutes().toString().padStart(2, "0");
+      const ampm = h >= 12 ? "PM" : "AM";
+      goalTime.current = `Reached at ${h % 12 || 12}:${m} ${ampm}`;
+
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+      streamAnims.forEach((anim, i) => {
+        anim.setValue(0);
+        Animated.loop(
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 1200 + (i % 5) * 180,
+            delay: i * 80,
+            useNativeDriver: true,
+          })
+        ).start();
+      });
+    } else {
+      streamAnims.forEach((a) => a.stopAnimation());
+    }
+  }, [visible]);
+
+  function dismiss() {
+    Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+      streamAnims.forEach((a) => a.stopAnimation());
+      onDismiss();
+    });
+  }
+
+  if (!visible) return null;
+
+  const screenH = Dimensions.get("window").height;
+
+  return (
+    <Animated.View style={[celebStyles.overlay, { opacity: fadeAnim }]} pointerEvents="box-none">
+      {streamAnims.map((anim, i) => {
+        const x = (SCREEN_W / (STREAM_COUNT + 1)) * (i + 1) + (Math.sin(i * 1.7) * 18);
+        const color = STREAM_COLORS[i % STREAM_COLORS.length];
+        const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-60, screenH + 60] });
+        return (
+          <Animated.View key={i} style={[celebStyles.stream, { left: x, transform: [{ translateY }] }]}>
+            {Array.from({ length: 8 }).map((_, j) => (
+              <View key={j} style={[celebStyles.droplet, { backgroundColor: color, marginTop: j * 28 + (i % 3) * 8 }]} />
+            ))}
+          </Animated.View>
+        );
+      })}
+      <View style={celebStyles.card}>
+        <Text style={celebStyles.cardEmoji}>💧</Text>
+        <Text style={celebStyles.cardTitle}>Hydration Goal Achieved!</Text>
+        <Text style={[celebStyles.cardGoal, { color: stageColor }]}>
+          {Math.round(goal)} oz / {ozToMl(goal)} ml
+        </Text>
+        <Text style={celebStyles.cardTime}>{goalTime.current}</Text>
+        <Text style={celebStyles.cardEmojis}>💧🌊💦🎉</Text>
+        <TouchableOpacity style={[celebStyles.dismissBtn, { backgroundColor: stageColor }]} onPress={dismiss}>
+          <Text style={celebStyles.dismissBtnText}>Amazing!</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+const celebStyles = StyleSheet.create({
+  overlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(10,20,80,0.92)", zIndex: 9999,
+    alignItems: "center", justifyContent: "center",
+  },
+  stream: { position: "absolute", top: 0, alignItems: "center" },
+  droplet: { width: 8, height: 10, borderRadius: 4, opacity: 0.85 },
+  card: {
+    backgroundColor: "#F0F7FF", borderRadius: 24, padding: 28,
+    alignItems: "center", width: "82%",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16,
+    elevation: 20, zIndex: 10000,
+  },
+  cardEmoji: { fontSize: 48, marginBottom: 8 },
+  cardTitle: { fontSize: 26, fontWeight: "bold", color: "#1A1A2E", textAlign: "center", marginBottom: 8 },
+  cardGoal: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
+  cardTime: { fontSize: 13, color: "#888888", marginBottom: 12 },
+  cardEmojis: { fontSize: 24, letterSpacing: 4, marginBottom: 20 },
+  dismissBtn: { paddingHorizontal: 40, paddingVertical: 14, borderRadius: 16 },
+  dismissBtnText: { color: "#ffffff", fontSize: 18, fontWeight: "bold" },
+});
+
+// --- Trophy System ---
+interface Trophy {
+  days: number;
+  emoji: string;
+  title: string;
+  subtitle: string;
+}
+
+const STREAK_TROPHIES: Trophy[] = [
+  { days: 3,  emoji: "🌱", title: "First Steps",       subtitle: "3 day streak"   },
+  { days: 7,  emoji: "💧", title: "One Week",          subtitle: "7 day streak"   },
+  { days: 14, emoji: "⭐", title: "Two Weeks",         subtitle: "14 day streak"  },
+  { days: 21, emoji: "🔥", title: "Three Weeks",       subtitle: "21 day streak"  },
+  { days: 28, emoji: "💪", title: "Four Weeks",        subtitle: "28 day streak"  },
+  { days: 35, emoji: "🏅", title: "Five Weeks",        subtitle: "35 day streak"  },
+  { days: 42, emoji: "🥉", title: "Six Weeks",         subtitle: "42 day streak"  },
+  { days: 49, emoji: "🥈", title: "Seven Weeks",       subtitle: "49 day streak"  },
+  { days: 56, emoji: "🥇", title: "Eight Weeks",       subtitle: "56 day streak"  },
+  { days: 63, emoji: "🏆", title: "Nine Weeks",        subtitle: "63 day streak"  },
+  { days: 70, emoji: "👑", title: "Ten Weeks",         subtitle: "70 day streak"  },
+  { days: 84, emoji: "💎", title: "Twelve Weeks",      subtitle: "84 day streak"  },
+];
+
+function calcMaxStreak(goalHistory: Record<string, number>): number {
+  const completedKeys = Object.keys(goalHistory).filter((k) => goalHistory[k] >= 1.0);
+  if (completedKeys.length === 0) return 0;
+  const dates = completedKeys
+    .map((k) => { const [, y, m, d] = k.split("_"); return new Date(parseInt(y), parseInt(m) - 1, parseInt(d)); })
+    .sort((a, b) => a.getTime() - b.getTime());
+  let max = 1, cur = 1;
+  for (let i = 1; i < dates.length; i++) {
+    const diff = (dates[i].getTime() - dates[i - 1].getTime()) / 86400000;
+    if (diff === 1) { cur++; if (cur > max) max = cur; }
+    else cur = 1;
+  }
+  return max;
+}
+
+function TrophyCase({ goalHistory }: { goalHistory: Record<string, number> }) {
+  const [expanded, setExpanded] = useState(false);
+  const maxStreak = useMemo(() => calcMaxStreak(goalHistory), [goalHistory]);
+  const earned = STREAK_TROPHIES.filter((t) => maxStreak >= t.days);
+  const locked = STREAK_TROPHIES.filter((t) => maxStreak < t.days);
+  const next = locked[0];
+
+  return (
+    <View style={trophyStyles.wrapper}>
+      <TouchableOpacity style={trophyStyles.header} onPress={() => setExpanded((e) => !e)} activeOpacity={0.8}>
+        <Text style={trophyStyles.headerTitle}>🏆 Trophy Case</Text>
+        <View style={trophyStyles.headerRight}>
+          <Text style={trophyStyles.earnedCount}>{earned.length}/{STREAK_TROPHIES.length}</Text>
+          <Text style={trophyStyles.chevron}>{expanded ? "▲" : "▼"}</Text>
+        </View>
+      </TouchableOpacity>
+
+      {!expanded && earned.length > 0 && (
+        <View style={trophyStyles.previewRow}>
+          {earned.slice(-5).map((t) => (
+            <Text key={t.days} style={trophyStyles.previewEmoji}>{t.emoji}</Text>
+          ))}
+          {locked.length > 0 && <Text style={trophyStyles.previewLocked}>+{locked.length} locked</Text>}
+        </View>
+      )}
+
+      {expanded && (
+        <View>
+          {next && (
+            <View style={trophyStyles.nextCard}>
+              <Text style={trophyStyles.nextLabel}>Next trophy in</Text>
+              <Text style={trophyStyles.nextDays}>{next.days - maxStreak} more day{next.days - maxStreak !== 1 ? "s" : ""}</Text>
+              <Text style={trophyStyles.nextName}>{next.emoji} {next.title}</Text>
+            </View>
+          )}
+          <Text style={trophyStyles.sectionLabel}>Earned</Text>
+          {earned.length === 0
+            ? <Text style={trophyStyles.emptyText}>Hit a 3-day streak to earn your first trophy!</Text>
+            : (
+              <View style={trophyStyles.grid}>
+                {earned.map((t) => (
+                  <View key={t.days} style={trophyStyles.trophyCard}>
+                    <Text style={trophyStyles.trophyEmoji}>{t.emoji}</Text>
+                    <Text style={trophyStyles.trophyTitle}>{t.title}</Text>
+                    <Text style={trophyStyles.trophySub}>{t.subtitle}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          <Text style={trophyStyles.sectionLabel}>Locked</Text>
+          <View style={trophyStyles.grid}>
+            {locked.map((t) => (
+              <View key={t.days} style={[trophyStyles.trophyCard, trophyStyles.trophyLocked]}>
+                <Text style={[trophyStyles.trophyEmoji, { opacity: 0.25 }]}>{t.emoji}</Text>
+                <Text style={[trophyStyles.trophyTitle, { color: "rgba(255,255,255,0.3)" }]}>{t.title}</Text>
+                <Text style={[trophyStyles.trophySub, { color: "rgba(255,255,255,0.2)" }]}>{t.subtitle}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const trophyStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 24, marginTop: 20, marginBottom: 8 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  headerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  earnedCount: { color: "rgba(255,255,255,0.7)", fontSize: 13 },
+  chevron: { color: "#ffffff", fontSize: 12 },
+  previewRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  previewEmoji: { fontSize: 24 },
+  previewLocked: { fontSize: 12, color: "rgba(255,255,255,0.4)", marginLeft: 4 },
+  nextCard: { backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, marginBottom: 14, alignItems: "center" },
+  nextLabel: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginBottom: 2 },
+  nextDays: { color: "#ffffff", fontSize: 22, fontWeight: "800" },
+  nextName: { color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 2 },
+  sectionLabel: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8, marginTop: 4 },
+  emptyText: { color: "rgba(255,255,255,0.55)", fontSize: 13, fontStyle: "italic" },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
+  trophyCard: { width: "28%", backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 12, padding: 10, alignItems: "center", gap: 4 },
+  trophyLocked: { backgroundColor: "rgba(255,255,255,0.05)" },
+  trophyEmoji: { fontSize: 28 },
+  trophyTitle: { color: "#ffffff", fontSize: 11, fontWeight: "700", textAlign: "center" },
+  trophySub: { color: "rgba(255,255,255,0.6)", fontSize: 9, textAlign: "center" },
+});
+
+// --- Goal History Calendar ---
+function getDateKey(d: Date) {
+  return `water_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
+}
+
+function getDayColor(pct: number | undefined): string {
+  if (pct === undefined) return "transparent";
+  if (pct >= 1.0) return "#0D6EE8";
+  if (pct >= 0.75) return "#1E9E4A";
+  if (pct >= 0.50) return "#E8920A";
+  if (pct >= 0.25) return "#D94E00";
+  if (pct > 0) return "#C0152A";
+  return "transparent";
+}
+
+interface GoalHistoryProps {
+  goalHistory: Record<string, number>;
+  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[];
+}
+
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+function GoalHistory({ goalHistory, history }: GoalHistoryProps) {
+  const today = new Date();
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-indexed
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // Navigate months
+  function prevMonth() {
+    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
+    else setViewMonth(m => m - 1);
+  }
+  function nextMonth() {
+    const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+    if (isCurrentMonth) return;
+    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
+    else setViewMonth(m => m + 1);
+  }
+
+  // Build full month grid
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDOW = new Date(viewYear, viewMonth, 1).getDay();
+  type DayItem = { date: Date; key: string } | null;
+  const cells: DayItem[] = [
+    ...Array(firstDOW).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => {
+      const d = new Date(viewYear, viewMonth, i + 1);
+      return { date: d, key: getDateKey(d) };
+    }),
+  ];
+
+  // Streak (always from today backwards) — memoized to avoid 366 Date constructions per render
+  const streak = useMemo(() => {
+    let s = 0;
+    const base = new Date();
+    for (let i = 0; i <= 365; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() - i);
+      if ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) s++;
+      else break;
+    }
+    return s;
+  }, [goalHistory]);
+
+  const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
+  const selectedEntry = selectedDate ? history.find((h) => h.date === selectedDate) : null;
+  const selectedPct = selectedDate ? (goalHistory[selectedDate] ?? 0) : 0;
+
+  const { width: screenWidth } = useWindowDimensions();
+  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const CELL = Math.max(38, Math.floor((screenWidth - 32) / 7));
+  const GAP = 4;
+
+  return (
+    <View style={calStyles.wrapper}>
+      {/* Header row: prev / month+year / next */}
+      <View style={calStyles.monthNav}>
+        <TouchableOpacity onPress={prevMonth} style={calStyles.navBtn}>
+          <Text style={calStyles.navArrow}>‹</Text>
+        </TouchableOpacity>
+        <Text style={calStyles.monthTitle}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
+        <TouchableOpacity onPress={nextMonth} style={[calStyles.navBtn, isCurrentMonth && { opacity: 0.3 }]} disabled={isCurrentMonth}>
+          <Text style={calStyles.navArrow}>›</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Streak */}
+      <View style={calStyles.streakRow}>
+        <Text style={calStyles.streakText}>
+          {streak > 0 ? `🔥 ${streak} Day Streak!` : "Start your streak today! 💧"}
+        </Text>
+      </View>
+
+      {/* Day of week labels */}
+      <View style={calStyles.dowRow}>
+        {DOW.map((d) => <Text key={d} style={[calStyles.dowLabel, { width: CELL }]}>{d}</Text>)}
+      </View>
+
+      {/* Calendar grid */}
+      <View style={calStyles.grid}>
+        {cells.map((item, idx) => {
+          if (!item) return <View key={`pad-${idx}`} style={{ width: CELL, height: CELL, margin: GAP / 2 }} />;
+          const pct = goalHistory[item.key];
+          const bgColor = getDayColor(pct);
+          const dayNum = item.date.getDate();
+          const isFuture = item.date > today;
+          const isToday = item.key === getDateKey(today);
+          const hasData = pct !== undefined && !isFuture;
+          const isSelected = selectedDate === item.key;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              onPress={() => !isFuture && setSelectedDate(isSelected ? null : item.key)}
+              activeOpacity={isFuture ? 1 : 0.7}
+              style={[
+                calStyles.dayCell,
+                { width: CELL, height: CELL, margin: GAP / 2, borderRadius: CELL / 2, backgroundColor: hasData ? bgColor : "transparent" },
+                !hasData && !isFuture && { borderWidth: 1.5, borderColor: "rgba(255,255,255,0.2)" },
+                isToday && { borderWidth: 2, borderColor: "rgba(255,255,255,0.9)" },
+                isSelected && { borderWidth: 2.5, borderColor: "#ffffff" },
+              ]}
+            >
+              <Text style={[calStyles.dayNum, { color: isFuture ? "rgba(255,255,255,0.15)" : hasData ? "#ffffff" : "rgba(255,255,255,0.35)" }]}>
+                {dayNum}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {/* Legend */}
+      <View style={calStyles.legendRow}>
+        {[
+          { color: "#0D6EE8", label: "100%" },
+          { color: "#1E9E4A", label: "75%" },
+          { color: "#E8920A", label: "50%" },
+          { color: "#D94E00", label: "25%" },
+          { color: "#C0152A", label: "<25%" },
+        ].map(({ color, label }) => (
+          <View key={label} style={calStyles.legendItem}>
+            <View style={[calStyles.legendDot, { backgroundColor: color }]} />
+            <Text style={calStyles.legendLabel}>{label}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Selected day detail */}
+      {selectedDate && (
+        <View style={calStyles.detailCard}>
+          <Text style={calStyles.detailDate}>{formatDate(selectedDate)}</Text>
+          <Text style={calStyles.detailItem}>
+            {selectedPct >= 1 ? "✅" : "❌"} Hydration: {selectedEntry ? selectedEntry.oz.toFixed(1) : "0"} oz ({Math.round(selectedPct * 100)}%)
+          </Text>
+          {selectedEntry?.breakdown && CATEGORIES.filter((c) => (selectedEntry.breakdown![c.key] || 0) > 0).map((cat) => (
+            <View key={cat.key} style={calStyles.detailBevRow}>
+              <View style={[calStyles.detailDot, { backgroundColor: cat.color }]} />
+              <Text style={calStyles.detailBevLabel}>{cat.label}</Text>
+              <Text style={calStyles.detailBevOz}>{(selectedEntry.breakdown![cat.key] || 0).toFixed(1)} oz</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const calStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 24, marginTop: 8 },
+  monthNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  navBtn: { padding: 6 },
+  navArrow: { fontSize: 28, color: "#ffffff", fontWeight: "300", lineHeight: 30 },
+  monthTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  sectionTitle: { color: "#ffffff", fontSize: 16, fontWeight: "600", marginBottom: 10 },
+  streakRow: { marginBottom: 10 },
+  streakText: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  dowRow: { flexDirection: "row", marginBottom: 4 },
+  dowLabel: { textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.6)", fontWeight: "600" },
+  grid: { flexDirection: "row", flexWrap: "wrap" },
+  dayCell: { alignItems: "center", justifyContent: "center" },
+  dayNum: { fontSize: 11, fontWeight: "700" },
+  legendRow: { flexDirection: "row", gap: 10, marginTop: 10, flexWrap: "wrap" },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendLabel: { fontSize: 10, color: "rgba(255,255,255,0.75)" },
+  detailCard: { marginTop: 12, backgroundColor: "rgba(0,0,0,0.2)", borderRadius: 12, padding: 12 },
+  detailDate: { color: "#ffffff", fontSize: 13, fontWeight: "700", marginBottom: 6 },
+  detailRow: { marginBottom: 2 },
+  detailItem: { color: "rgba(255,255,255,0.9)", fontSize: 12, marginBottom: 2 },
+  detailBevRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
+  detailDot: { width: 8, height: 8, borderRadius: 4 },
+  detailBevLabel: { flex: 1, fontSize: 11, color: "rgba(255,255,255,0.8)" },
+  detailBevOz: { fontSize: 11, color: "#ffffff", fontWeight: "600" },
+});
+
+type Stage = { color: string; bg: string; headerBg: string; label: string };
+
+function getStage(pct: number): Stage {
+  if (pct < 0.17) return { color: "#C0152A", bg: "#C0152A", headerBg: "#8B0E1E", label: "Parched" };
+  if (pct < 0.34) return { color: "#D94E00", bg: "#D94E00", headerBg: "#A33B00", label: "Dry" };
+  if (pct < 0.51) return { color: "#E8920A", bg: "#E8920A", headerBg: "#B87008", label: "Warm" };
+  if (pct < 0.67) return { color: "#7DB320", bg: "#7DB320", headerBg: "#5C8718", label: "Rising" };
+  if (pct < 0.84) return { color: "#1E9E4A", bg: "#1E9E4A", headerBg: "#157035", label: "Almost" };
+  return { color: "#0D6EE8", bg: "#0D6EE8", headerBg: "#0A52B0", label: "Hydrated" };
+}
+
+function getTodayKey() {
+  const d = new Date();
+  return `water_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
+}
+
+function formatDate(dateStr: string) {
+  const [, y, m, d] = dateStr.split("_");
+  return `${m}/${d}/${y}`;
+}
+
+// --- Scroll Picker ---
+const PICKER_ITEM_H = 36;
+const PICKER_VISIBLE = 3;
+
+interface ScrollPickerProps {
+  items: number[];
+  selectedIndex: number;
+  onIndexChange: (index: number) => void;
+  label: string;
+}
+
+function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPickerProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  const [activeIndex, setActiveIndex] = useState(selectedIndex);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: selectedIndex * PICKER_ITEM_H, animated: false });
+    }, 80);
+    return () => clearTimeout(t);
+  }, []);
+
+  const snapToIndex = (y: number) => {
+    const idx = Math.max(0, Math.min(items.length - 1, Math.round(y / PICKER_ITEM_H)));
+    setActiveIndex(idx);
+    onIndexChange(idx);
+  };
+
+  return (
+    <View style={pickerStyles.wrapper}>
+      <ScrollView
+        ref={scrollRef}
+        style={{ height: PICKER_ITEM_H * PICKER_VISIBLE }}
+        contentContainerStyle={{ paddingVertical: PICKER_ITEM_H * 2 }}
+        snapToInterval={PICKER_ITEM_H}
+        decelerationRate="fast"
+        showsVerticalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => snapToIndex(e.nativeEvent.contentOffset.y)}
+        onScrollEndDrag={(e) => snapToIndex(e.nativeEvent.contentOffset.y)}
+        onScroll={(e) => {
+          const idx = Math.max(0, Math.min(items.length - 1, Math.round(e.nativeEvent.contentOffset.y / PICKER_ITEM_H)));
+          if (idx !== activeIndex) setActiveIndex(idx);
+        }}
+        scrollEventThrottle={16}
+      >
+        {items.map((item, i) => {
+          const dist = Math.abs(i - activeIndex);
+          return (
+            <View key={i} style={pickerStyles.item}>
+              <Text style={[
+                pickerStyles.itemBase,
+                dist === 0 && pickerStyles.itemCenter,
+                dist === 1 && pickerStyles.itemNear,
+                dist >= 2 && pickerStyles.itemFar,
+              ]}>
+                {item}
+              </Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+      <View style={pickerStyles.highlight} pointerEvents="none" />
+      <Text style={pickerStyles.unitLabel}>{label}</Text>
+    </View>
+  );
+}
+
+const pickerStyles = StyleSheet.create({
+  wrapper: { alignItems: "center", backgroundColor: "#F0F2F5", borderRadius: 10, paddingHorizontal: 6 },
+  item: { height: PICKER_ITEM_H, justifyContent: "center", alignItems: "center", minWidth: 52 },
+  itemBase: { color: "#1A1A2E", fontSize: 13, opacity: 0.2 },
+  itemCenter: { fontSize: 16, fontWeight: "700", opacity: 1 },
+  itemNear: { fontSize: 14, opacity: 0.4 },
+  itemFar: { fontSize: 13, opacity: 0.15 },
+  highlight: {
+    position: "absolute",
+    top: PICKER_ITEM_H,
+    left: 0,
+    right: 0,
+    height: PICKER_ITEM_H,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "rgba(0,0,0,0.1)",
+    backgroundColor: "rgba(0,0,0,0.03)",
+  },
+  unitLabel: { color: "#888888", fontSize: 11, marginTop: 2, marginBottom: 4 },
+});
+
+// --- Pace Indicator ---
+const DAY_START_H = 7;
+const DAY_END_H = 22;
+
+function PaceIndicator({ intake, goal }: { intake: number; goal: number }) {
+  const now = new Date();
+  const nowH = now.getHours() + now.getMinutes() / 60;
+  const elapsed = Math.max(0, Math.min(1, (nowH - DAY_START_H) / (DAY_END_H - DAY_START_H)));
+  const paceTarget = elapsed * goal;
+  const deficit = paceTarget - intake;
+  const userFrac = intake / goal;
+
+  let label: string, color: string, icon: string;
+  if (userFrac >= 1.0)        { label = "Crushed It!";      color = "#0D6EE8"; icon = "🏆"; }
+  else if (deficit <= 4)      { label = "On Pace";          color = "#1E9E4A"; icon = "✅"; }
+  else if (deficit <= 12)     { label = "Slightly Behind";  color = "#E8920A"; icon = "⚠️"; }
+  else                        { label = "Well Behind";      color = "#C0152A"; icon = "🚨"; }
+
+
+  return (
+    <View style={paceStyles.row}>
+      <View style={[paceStyles.pill, { backgroundColor: color + "33", borderColor: color }]}>
+        <Text style={paceStyles.pillIcon}>{icon}</Text>
+        <Text style={[paceStyles.pillLabel, { color }]}>{label}</Text>
+      </View>
+      <Text style={paceStyles.sub}>
+        {userFrac >= 1 ? "Goal complete 🎉" : deficit > 0 ? `${deficit.toFixed(1)} oz behind pace` : `${Math.abs(deficit).toFixed(1)} oz ahead of pace`}
+      </Text>
+    </View>
+  );
+}
+
+const paceStyles = StyleSheet.create({
+  row: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 24, marginTop: 10 },
+  pill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1.5 },
+  pillIcon: { fontSize: 13 },
+  pillLabel: { fontSize: 13, fontWeight: "700" },
+  sub: { fontSize: 12, color: "rgba(255,255,255,0.7)", flexShrink: 1 },
+});
+
+// --- Weekly Summary Card ---
+function WeeklySummaryCard({ history, goalHistory }: {
+  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[];
+  goalHistory: Record<string, number>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { avgOz, bestDay, bestDayLabel, topBev, topBevTotal } = useMemo(() => {
+    const base = new Date();
+    const l7: typeof history = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() - i);
+      const entry = history.find((h) => h.date === getDateKey(d));
+      if (entry) l7.push(entry);
+    }
+    const avg = l7.length > 0 ? (l7.reduce((s, e) => s + e.oz, 0) / 7).toFixed(1) : "—";
+    const best = l7.reduce<typeof history[0] | null>((b, e) => (!b || e.oz > b.oz ? e : b), null);
+    const bDay = best ? `${best.oz.toFixed(0)} oz` : "—";
+    const bLabel = best ? (() => { const [,, m, d] = best.date.split("_"); return `${m}/${d}`; })() : "";
+    const totals: Record<string, number> = {};
+    CATEGORIES.forEach((c) => { totals[c.key] = 0; });
+    l7.forEach((e) => { if (e.breakdown) CATEGORIES.forEach((c) => { totals[c.key] += e.breakdown![c.key] || 0; }); });
+    const top = CATEGORIES.reduce((b, c) => (totals[c.key] || 0) > (totals[b.key] || 0) ? c : b, CATEGORIES[0]);
+    return { avgOz: avg, bestDay: bDay, bestDayLabel: bLabel, topBev: top, topBevTotal: totals[top.key] || 0 };
+  }, [history]);
+
+  const streak = useMemo(() => {
+    let s = 0;
+    const base = new Date();
+    for (let i = 0; i <= 365; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() - i);
+      if ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) s++; else break;
+    }
+    return s;
+  }, [goalHistory]);
+
+  return (
+    <View style={weeklyStyles.wrapper}>
+      <TouchableOpacity style={weeklyStyles.header} onPress={() => setExpanded((e) => !e)} activeOpacity={0.8}>
+        <Text style={weeklyStyles.title}>📊 Weekly Summary</Text>
+        <Text style={weeklyStyles.chevron}>{expanded ? "▲" : "▼"}</Text>
+      </TouchableOpacity>
+      {expanded && (
+        <View style={weeklyStyles.grid}>
+          <View style={weeklyStyles.tile}>
+            <Text style={weeklyStyles.tileValue}>{avgOz}</Text>
+            <Text style={weeklyStyles.tileLabel}>Avg oz/day</Text>
+          </View>
+          <View style={weeklyStyles.tile}>
+            <Text style={weeklyStyles.tileValue}>{bestDay}</Text>
+            <Text style={weeklyStyles.tileLabel}>Best day {bestDayLabel}</Text>
+          </View>
+          <View style={weeklyStyles.tile}>
+            <Text style={weeklyStyles.tileValue}>{topBevTotal > 0 ? topBev.emoji : "—"}</Text>
+            <Text style={weeklyStyles.tileLabel}>{topBevTotal > 0 ? topBev.label : "No data"}</Text>
+          </View>
+          <View style={weeklyStyles.tile}>
+            <Text style={weeklyStyles.tileValue}>{streak > 0 ? `🔥${streak}` : "—"}</Text>
+            <Text style={weeklyStyles.tileLabel}>Day streak</Text>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const weeklyStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 24, marginTop: 20 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  title: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  chevron: { color: "#ffffff", fontSize: 12 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
+  tile: { width: "46%", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 12, padding: 14, alignItems: "center" },
+  tileValue: { color: "#ffffff", fontSize: 22, fontWeight: "800" },
+  tileLabel: { color: "rgba(255,255,255,0.65)", fontSize: 11, marginTop: 2, textAlign: "center" },
+});
+
+// --- Beverage Trends Chart ---
+const SCREEN_W_CHART = Dimensions.get("window").width;
+
+function BevTrendsChart({ history }: {
+  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const today = new Date();
+
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today); d.setDate(today.getDate() - (6 - i));
+    const key = getDateKey(d);
+    const entry = history.find((h) => h.date === key);
+    const breakdown: Record<BevCategory, number> = entry?.breakdown ? mergeBreakdown(entry.breakdown) : { ...EMPTY_BREAKDOWN };
+    const total = Object.values(breakdown).reduce((s, v) => s + v, 0);
+    const label = ["Su","Mo","Tu","We","Th","Fr","Sa"][d.getDay()];
+    return { key, label, breakdown, total };
+  });
+
+  const maxOz = Math.max(8, ...days.map((d) => d.total));
+  const CHART_W = SCREEN_W_CHART - 48;
+  const CHART_H = 120;
+  const BAR_AREA_W = CHART_W - 28;
+  const BAR_W = (BAR_AREA_W / 7) * 0.65;
+  const BAR_GAP = BAR_AREA_W / 7;
+  const LEFT = 28;
+
+  return (
+    <View style={chartStyles.wrapper}>
+      <TouchableOpacity style={chartStyles.header} onPress={() => setExpanded((e) => !e)} activeOpacity={0.8}>
+        <Text style={chartStyles.title}>📈 Beverage Trends</Text>
+        <Text style={chartStyles.chevron}>{expanded ? "▲" : "▼"}</Text>
+      </TouchableOpacity>
+      {expanded && (
+        <View style={{ marginTop: 12 }}>
+          <Svg width={CHART_W} height={CHART_H + 24}>
+            {/* Y guide lines */}
+            {[0, 0.5, 1].map((frac) => {
+              const y = CHART_H - frac * CHART_H;
+              return (
+                <G key={frac}>
+                  <Line x1={LEFT} y1={y} x2={CHART_W} y2={y} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
+                  <SvgText x={LEFT - 4} y={y + 4} fontSize={8} fill="rgba(255,255,255,0.5)" textAnchor="end">
+                    {Math.round(frac * maxOz)}
+                  </SvgText>
+                </G>
+              );
+            })}
+            {/* Bars */}
+            {days.map((day, i) => {
+              const x = LEFT + i * BAR_GAP + (BAR_GAP - BAR_W) / 2;
+              let stackY = CHART_H;
+              return (
+                <G key={day.key}>
+                  {CATEGORIES.filter((c) => (day.breakdown[c.key] || 0) > 0).map((cat) => {
+                    const barH = (day.breakdown[cat.key] / maxOz) * CHART_H;
+                    stackY -= barH;
+                    return <Rect key={cat.key} x={x} y={stackY} width={BAR_W} height={barH} fill={cat.color} rx={2} />;
+                  })}
+                  <SvgText x={x + BAR_W / 2} y={CHART_H + 14} fontSize={9} fill="rgba(255,255,255,0.7)" textAnchor="middle">
+                    {day.label}
+                  </SvgText>
+                </G>
+              );
+            })}
+          </Svg>
+          <View style={chartStyles.legend}>
+            {CATEGORIES.filter((c) => days.some((d) => (d.breakdown[c.key] || 0) > 0)).map((cat) => (
+              <View key={cat.key} style={chartStyles.legendItem}>
+                <View style={[chartStyles.legendDot, { backgroundColor: cat.color }]} />
+                <Text style={chartStyles.legendLabel}>{cat.label}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+    </View>
+  );
+}
+
+const chartStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 24, marginTop: 20 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  title: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  chevron: { color: "#ffffff", fontSize: 12 },
+  legend: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendLabel: { fontSize: 10, color: "rgba(255,255,255,0.7)" },
+});
+
+// --- Weather Banner ---
+function WeatherBanner({ tempF, extraOz, onApply, onDismiss, stageColor }: {
+  tempF: number; extraOz: 8 | 16;
+  onApply: () => void; onDismiss: () => void; stageColor: string;
+}) {
+  return (
+    <View style={bannerStyles.wrapper}>
+      <Text style={bannerStyles.icon}>🌡️</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={bannerStyles.title}>{tempF.toFixed(0)}°F outside</Text>
+        <Text style={bannerStyles.sub}>Consider +{extraOz} oz to your goal today</Text>
+      </View>
+      <TouchableOpacity onPress={onApply} style={[bannerStyles.applyBtn, { backgroundColor: stageColor }]}>
+        <Text style={bannerStyles.applyText}>+{extraOz} oz</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onDismiss} style={bannerStyles.dismissBtn}>
+        <Text style={bannerStyles.dismissText}>✕</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const bannerStyles = StyleSheet.create({
+  wrapper: { flexDirection: "row", alignItems: "center", marginHorizontal: 16, marginTop: 8, borderRadius: 12, backgroundColor: "rgba(255,165,0,0.18)", borderWidth: 1, borderColor: "rgba(255,165,0,0.5)", padding: 10, gap: 8 },
+  icon: { fontSize: 22 },
+  title: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
+  sub: { color: "rgba(255,255,255,0.75)", fontSize: 11 },
+  applyBtn: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  applyText: { color: "#ffffff", fontSize: 12, fontWeight: "700" },
+  dismissBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  dismissText: { color: "rgba(255,255,255,0.6)", fontSize: 14 },
+});
+
+// --- Presets Row ---
+function PresetsRow({ presets, onSelect, onDelete }: {
+  presets: Preset[]; onSelect: (p: Preset) => void; onDelete: (id: string) => void;
+}) {
+  const cat = (p: Preset) => CATEGORIES.find((c) => c.key === p.category)!;
+  return (
+    <View style={presetStyles.wrapper}>
+      <Text style={presetStyles.label}>⚡ Quick Presets</Text>
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        data={presets}
+        keyExtractor={(p) => p.id}
+        contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
+        renderItem={({ item }) => (
+          <TouchableOpacity
+            style={[presetStyles.chip, { borderLeftColor: cat(item).color }]}
+            onPress={() => onSelect(item)}
+            onLongPress={() => Alert.alert("Delete Preset", `Remove "${item.label}"?`, [
+              { text: "Cancel", style: "cancel" },
+              { text: "Delete", style: "destructive", onPress: () => onDelete(item.id) },
+            ])}
+            activeOpacity={0.8}
+          >
+            <Text style={presetStyles.chipEmoji}>{cat(item).emoji}</Text>
+            <View>
+              <Text style={presetStyles.chipLabel}>{item.label}</Text>
+              <Text style={[presetStyles.chipSub, { color: cat(item).color }]}>{item.oz} oz</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      />
+      <Text style={presetStyles.hint}>Long-press to delete</Text>
+    </View>
+  );
+}
+
+const presetStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 24, marginTop: 16 },
+  label: { color: "#ffffff", fontSize: 13, fontWeight: "700", marginBottom: 8 },
+  chip: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderLeftWidth: 3 },
+  chipEmoji: { fontSize: 20 },
+  chipLabel: { color: "#ffffff", fontSize: 12, fontWeight: "600" },
+  chipSub: { fontSize: 11, fontWeight: "700" },
+  hint: { color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 4 },
+});
+
+// ==========================================
+//  LIQUID LUCK CASINO COMPONENTS
+// ==========================================
+const GOLD = "#FFD700";
+const GOLD_DIM = "#c8a000";
+const AQ_NAVY = "#0a0520";
+
+// --- Star Particles ---
+function StarParticles() {
+  const N = 14;
+  const anims = useRef(Array.from({ length: N }, () => new Animated.Value(0.2))).current;
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (!focused) return;
+    const loops = anims.map((a, i) => {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.delay((i * 411) % 1800),
+          Animated.timing(a, { toValue: 1, duration: 500 + (i * 113) % 400, useNativeDriver: true }),
+          Animated.timing(a, { toValue: 0.1, duration: 700 + (i * 97) % 400, useNativeDriver: true }),
+        ])
+      );
+      loop.start();
+      return loop;
+    });
+    return () => loops.forEach((l) => l.stop());
+  }, [focused, anims]);
+  return (
+    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+      {anims.map((a, i) => {
+        const x = ((i * 73 + 11) % 100) / 100 * SCREEN_W;
+        const y = ((i * 53 + 37) % 100) / 100 * 1400;
+        const sz = i % 4 === 0 ? 3 : 2;
+        return (
+          <Animated.View key={i} style={{ position: "absolute", left: x, top: y, width: sz, height: sz, borderRadius: sz / 2, backgroundColor: i % 5 === 0 ? GOLD : "#ffffff", opacity: a }} />
+        );
+      })}
+    </View>
+  );
+}
+
+// --- Marquee Header ---
+const MQ_LIGHTS = 6;
+function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number }) {
+  const lightAnims = useRef(Array.from({ length: MQ_LIGHTS * 2 }, () => new Animated.Value(0.2))).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const focused = useIsFocused();
+  useEffect(() => {
+    if (!focused) return;
+    const loops: Animated.CompositeAnimation[] = [];
+    const runRow = (arr: Animated.Value[]) => {
+      arr.forEach((a, i) => {
+        const loop = Animated.loop(
+          Animated.sequence([
+            Animated.delay(i * 130),
+            Animated.timing(a, { toValue: 1, duration: 200, useNativeDriver: true }),
+            Animated.timing(a, { toValue: 0.2, duration: 350, useNativeDriver: true }),
+            Animated.delay(MQ_LIGHTS * 130 + 300),
+          ])
+        );
+        loop.start();
+        loops.push(loop);
+      });
+    };
+    runRow(lightAnims.slice(0, MQ_LIGHTS));
+    const timer = setTimeout(() => runRow(lightAnims.slice(MQ_LIGHTS)), 250);
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.06, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    pulseLoop.start();
+    loops.push(pulseLoop);
+    return () => {
+      clearTimeout(timer);
+      loops.forEach((l) => l.stop());
+    };
+  }, [focused, lightAnims, pulseAnim]);
+  const won = hydration >= goal;
+  const remaining = Math.max(0, goal - hydration).toFixed(1);
+  return (
+    <View style={mqStyles.wrapper}>
+      <View style={mqStyles.lightsRow}>
+        {lightAnims.slice(0, MQ_LIGHTS).map((a, i) => <Animated.View key={i} style={[mqStyles.light, { opacity: a }]} />)}
+      </View>
+      <View style={mqStyles.titleRow}>
+        <Text style={mqStyles.star}>⭐</Text>
+        <View style={{ alignItems: "center" }}>
+          <Text style={mqStyles.title}>LIQUID LUCK</Text>
+          <Text style={mqStyles.subtitle}>HYDRATION STATION</Text>
+        </View>
+        <Text style={mqStyles.star}>⭐</Text>
+      </View>
+      <Animated.View style={[mqStyles.badge, { transform: [{ scale: pulseAnim }] }]}>
+        <Text style={won ? mqStyles.wonText : mqStyles.remainText}>
+          {won ? "🎰 JACKPOT WON! 🎰" : `💧 ${remaining} oz to go`}
+        </Text>
+      </Animated.View>
+      <View style={mqStyles.lightsRow}>
+        {lightAnims.slice(MQ_LIGHTS).map((a, i) => <Animated.View key={i} style={[mqStyles.light, { opacity: a }]} />)}
+      </View>
+    </View>
+  );
+}
+const mqStyles = StyleSheet.create({
+  wrapper: { backgroundColor: "#12063A", borderWidth: 2, borderColor: GOLD, borderRadius: 16, marginHorizontal: 12, marginTop: 50, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" },
+  lightsRow: { flexDirection: "row", justifyContent: "space-around", width: "100%", marginVertical: 4 },
+  light: { width: 11, height: 11, borderRadius: 6, backgroundColor: GOLD },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 },
+  star: { fontSize: 22 },
+  title: { fontSize: 26, fontWeight: "900", color: GOLD, letterSpacing: 3, textShadowColor: GOLD_DIM, textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 8 },
+  subtitle: { fontSize: 13, fontWeight: "800", color: "#88CCFF", letterSpacing: 2.5, marginTop: 2 },
+  badge: { backgroundColor: "rgba(255,215,0,0.12)", borderRadius: 20, paddingHorizontal: 18, paddingVertical: 6, borderWidth: 1, borderColor: "rgba(255,215,0,0.4)", marginVertical: 4 },
+  remainText: { color: GOLD, fontSize: 13, fontWeight: "700" },
+  wonText: { color: GOLD, fontSize: 14, fontWeight: "900" },
+});
+
+// --- Particle Spray System ---
+const PARTICLE_COUNT = 40;
+const PARTICLE_COLORS = ["#66ddff", "#22aaee", "#0066cc", "#aaeeff", "#55ccff"];
+
+interface Particle {
+  x: Animated.Value;
+  y: Animated.Value;
+  opacity: Animated.Value;
+  size: number;
+  color: string;
+}
+
+function useParticleSpray(originX: number, originY: number) {
+  // Pool all Animated.Values once at mount — no allocations after initialization
+  const pool = useRef<Particle[]>(
+    Array.from({ length: PARTICLE_COUNT }, () => ({
+      x: new Animated.Value(0),
+      y: new Animated.Value(0),
+      opacity: new Animated.Value(0),
+      size: 5,
+      color: PARTICLE_COLORS[0],
+    }))
+  );
+  const [visible, setVisible] = useState(false);
+  const animRunning = useRef(false);
+
+  const fire = useCallback(() => {
+    if (animRunning.current) {
+      pool.current.forEach((p) => { p.x.stopAnimation(); p.y.stopAnimation(); p.opacity.stopAnimation(); });
+    }
+    // Reset values and assign new random properties (no new Animated.Values)
+    pool.current.forEach((p) => {
+      p.size = 3 + Math.random() * 5;
+      p.color = PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)];
+      p.x.setValue(originX);
+      p.y.setValue(originY);
+      p.opacity.setValue(1);
+    });
+    animRunning.current = true;
+    setVisible(true);
+
+    const screenW = Dimensions.get("window").width;
+    const duration = 1500;
+    const steps = 30;
+    const dt = duration / steps;
+
+    const anims = pool.current.map((p) => {
+      const vx = (Math.random() - 0.5) * screenW * 1.6;
+      const vy = -(Math.random() * 600 + 200);
+      const gravity = 0.15 + Math.random() * 0.15;
+
+      // Build y keyframe sequence simulating gravity (native driver compatible)
+      const yAnims: Animated.CompositeAnimation[] = [];
+      let curY = originY;
+      let curVY = vy;
+      for (let i = 0; i < steps; i++) {
+        const nextY = curY + curVY * dt * 0.001 + 0.5 * gravity * (dt * 0.001) ** 2 * 9800;
+        yAnims.push(Animated.timing(p.y, { toValue: nextY, duration: dt, useNativeDriver: true, easing: Easing.linear }));
+        curVY = curVY + gravity * dt * 0.1 * 9.8;
+        curY = nextY;
+      }
+
+      return Animated.parallel([
+        Animated.timing(p.x, { toValue: originX + vx, duration, useNativeDriver: true, easing: Easing.linear }),
+        Animated.sequence(yAnims),
+        Animated.timing(p.opacity, { toValue: 0, duration, delay: duration * 0.4, useNativeDriver: true, easing: Easing.in(Easing.cubic) }),
+      ]);
+    });
+
+    Animated.parallel(anims).start(() => {
+      animRunning.current = false;
+      setVisible(false);
+    });
+  }, [originX, originY]);
+
+  return { particles: pool.current, visible, fire };
+}
+
+function ParticleOverlay({ particles, visible }: { particles: Particle[]; visible: boolean }) {
+  if (!visible || particles.length === 0) return null;
+  return (
+    <View pointerEvents="none" style={{
+      position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 999,
+    }}>
+      {particles.map((p, i) => (
+        <Animated.View key={i} style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          width: p.size,
+          height: p.size,
+          borderRadius: p.size / 2,
+          backgroundColor: p.color,
+          opacity: p.opacity,
+          transform: [{ translateX: p.x }, { translateY: p.y }],
+        }} />
+      ))}
+    </View>
+  );
+}
+
+// ── Art Deco Gold Vault — unified tank + slot machine ──────────────────────
+const AD_SVG_W = 348;
+const AD_SLOT_W = 328;
+const AD_TANK_W = 240;
+const AD_GLASS_W = 212;
+const AD_GLASS_H = 172;
+const AD_TANK_H = 210;
+const AD_CONN_H = 30;
+const AD_SLOT_H = 192;
+const AD_ARCH_H = 36;
+const AD_TANK_X = (AD_SVG_W - AD_TANK_W) / 2;    // 54
+const AD_SLOT_X = (AD_SVG_W - AD_SLOT_W) / 2;    // 10
+const AD_GLASS_X = AD_TANK_X + 14;               // 68
+const AD_GLASS_Y = AD_ARCH_H + 14;               // 50
+const AD_TANK_Y = AD_ARCH_H;                     // 36
+const AD_CONN_Y = AD_TANK_Y + AD_TANK_H;         // 246
+const AD_SLOT_Y = AD_CONN_Y + AD_CONN_H;         // 276
+const AD_BASE1_Y = AD_SLOT_Y + AD_SLOT_H;        // 468
+const AD_SVG_H = AD_BASE1_Y + 24;                // 492
+const AD_REEL_W = 88;
+const AD_REEL_H = 88;
+const AD_SLOT_HDR_H = 22;
+const AD_REEL1_X = AD_SLOT_X + 22;              // 32
+const AD_REEL2_X = AD_REEL1_X + AD_REEL_W + 10; // 130
+const AD_REEL3_X = AD_REEL2_X + AD_REEL_W + 10; // 228
+const AD_REEL_Y = AD_SLOT_Y + AD_SLOT_HDR_H +
+  Math.floor((AD_SLOT_H - AD_SLOT_HDR_H - AD_REEL_H) / 2); // 339
+const VAULT_STRIP_N = 50;
+const VAULT_ITEM_H = 80;
+const AD_CONN_PATH     = `M ${AD_TANK_X},${AD_TANK_Y + AD_TANK_H} L ${AD_TANK_X + AD_TANK_W},${AD_TANK_Y + AD_TANK_H} L ${AD_SLOT_X + AD_SLOT_W},${AD_SLOT_Y} L ${AD_SLOT_X},${AD_SLOT_Y} Z`;
+const AD_TANK_ARCH     = `M ${AD_TANK_X},${AD_TANK_Y} Q ${AD_TANK_X + AD_TANK_W / 2},${AD_TANK_Y - AD_ARCH_H} ${AD_TANK_X + AD_TANK_W},${AD_TANK_Y}`;
+const AD_SLOT_ARCH     = `M ${AD_SLOT_X},${AD_SLOT_Y} Q ${AD_SVG_W / 2},${AD_SLOT_Y - 22} ${AD_SLOT_X + AD_SLOT_W},${AD_SLOT_Y}`;
+
+function buildVaultStrip(
+  pool: { main: string; sub: string }[],
+  target: { main: string; sub: string }
+): { main: string; sub: string }[] {
+  const s: { main: string; sub: string }[] = [];
+  for (let i = 0; i < VAULT_STRIP_N - 1; i++) s.push(pool[Math.floor(Math.random() * pool.length)]);
+  s.push(target);
+  return s;
+}
+
+function adDiamondPath(cx: number, cy: number, r: number): string {
+  return `M ${cx},${cy - r} L ${cx + r},${cy} L ${cx},${cy + r} L ${cx - r},${cy} Z`;
+}
+
+const REEL_XS = [AD_REEL1_X, AD_REEL2_X, AD_REEL3_X];
+
+// All static decoration — never re-renders with phase/water animation
+const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: number }) {
+  return (
+    <Svg width={AD_SVG_W} height={AD_SVG_H}>
+      <Defs>
+        <LinearGradient id="adGoldH" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0"    stopColor="#2a1800" stopOpacity="1" />
+          <Stop offset="0.10" stopColor="#8b5e00" stopOpacity="1" />
+          <Stop offset="0.28" stopColor="#FFD700" stopOpacity="1" />
+          <Stop offset="0.42" stopColor="#fff0a0" stopOpacity="1" />
+          <Stop offset="0.50" stopColor="#fffde0" stopOpacity="1" />
+          <Stop offset="0.58" stopColor="#fff0a0" stopOpacity="1" />
+          <Stop offset="0.72" stopColor="#FFD700" stopOpacity="1" />
+          <Stop offset="0.90" stopColor="#8b5e00" stopOpacity="1" />
+          <Stop offset="1"    stopColor="#2a1800" stopOpacity="1" />
+        </LinearGradient>
+        <RadialGradient id="studGrad" cx="50%" cy="50%" r="50%">
+          <Stop offset="0" stopColor="#fffde0" stopOpacity="1" />
+          <Stop offset="1" stopColor="#8b5e00" stopOpacity="1" />
+        </RadialGradient>
+        <RadialGradient id="diamondGold" cx="50%" cy="50%" r="50%">
+          <Stop offset="0"   stopColor="#fffde0" stopOpacity="1" />
+          <Stop offset="0.5" stopColor="#FFD700" stopOpacity="1" />
+          <Stop offset="1"   stopColor="#8b5e00" stopOpacity="1" />
+        </RadialGradient>
+        <RadialGradient id="diamondPurp" cx="50%" cy="50%" r="50%">
+          <Stop offset="0"   stopColor="#e0b0ff" stopOpacity="1" />
+          <Stop offset="0.5" stopColor="#9933ff" stopOpacity="1" />
+          <Stop offset="1"   stopColor="#440077" stopOpacity="1" />
+        </RadialGradient>
+        <LinearGradient id="slotHdr" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0"   stopColor="#2a1800" stopOpacity="1" />
+          <Stop offset="0.4" stopColor="#c8a000" stopOpacity="1" />
+          <Stop offset="0.5" stopColor="#fffde0" stopOpacity="1" />
+          <Stop offset="0.6" stopColor="#c8a000" stopOpacity="1" />
+          <Stop offset="1"   stopColor="#2a1800" stopOpacity="1" />
+        </LinearGradient>
+        <LinearGradient id="base1G" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0"   stopColor="#2a1800" stopOpacity="1" />
+          <Stop offset="0.5" stopColor="#ffe066" stopOpacity="1" />
+          <Stop offset="1"   stopColor="#2a1800" stopOpacity="1" />
+        </LinearGradient>
+        <LinearGradient id="base2G" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0"   stopColor="#1a0e00" stopOpacity="1" />
+          <Stop offset="0.5" stopColor="#c8a000" stopOpacity="1" />
+          <Stop offset="1"   stopColor="#1a0e00" stopOpacity="1" />
+        </LinearGradient>
+      </Defs>
+
+      {/* ═══ TANK ═══ */}
+      <Rect x={AD_TANK_X} y={AD_TANK_Y} width={AD_TANK_W} height={AD_TANK_H} fill="url(#adGoldH)" rx={8} />
+      {[0, 0.33, 0.66, 1].map((m, i) => (
+        <Rect key={i} x={AD_TANK_X} y={AD_TANK_Y + AD_TANK_H * m - 2.5} width={AD_TANK_W} height={5} fill="url(#adGoldH)" opacity={0.85} />
+      ))}
+      <Rect x={AD_TANK_X} y={AD_TANK_Y} width={6} height={AD_TANK_H} fill="url(#adGoldH)" />
+      {[0.25, 0.5, 0.75].map((m, i) => (
+        <Circle key={i} cx={AD_TANK_X + 3} cy={AD_TANK_Y + AD_TANK_H * m} r={4} fill="url(#studGrad)" stroke="#5a3c00" strokeWidth={0.5} />
+      ))}
+      <Rect x={AD_TANK_X + AD_TANK_W - 6} y={AD_TANK_Y} width={6} height={AD_TANK_H} fill="url(#adGoldH)" />
+      {[0.25, 0.5, 0.75].map((m, i) => (
+        <Circle key={i} cx={AD_TANK_X + AD_TANK_W - 3} cy={AD_TANK_Y + AD_TANK_H * m} r={4} fill="url(#studGrad)" stroke="#5a3c00" strokeWidth={0.5} />
+      ))}
+      <Path d={adDiamondPath(AD_TANK_X - 1, AD_TANK_Y + AD_TANK_H * 0.5, 9)} fill="url(#diamondGold)" stroke="#5a3c00" strokeWidth={0.5} />
+      <Path d={adDiamondPath(AD_TANK_X + AD_TANK_W + 1, AD_TANK_Y + AD_TANK_H * 0.5, 9)} fill="url(#diamondGold)" stroke="#5a3c00" strokeWidth={0.5} />
+
+      {/* Side markers: % left, oz right */}
+      {[0, 0.25, 0.5, 0.75, 1.0].map((m, i) => {
+        const tY = AD_GLASS_Y + AD_GLASS_H - m * AD_GLASS_H;
+        return (
+          <G key={i}>
+            <Line x1={AD_TANK_X - 8} y1={tY} x2={AD_TANK_X} y2={tY} stroke="rgba(255,215,0,0.6)" strokeWidth={1.5} />
+            <SvgText x={AD_TANK_X - 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="end" fontWeight="600">{Math.round(m * 100)}%</SvgText>
+            <Line x1={AD_TANK_X + AD_TANK_W} y1={tY} x2={AD_TANK_X + AD_TANK_W + 8} y2={tY} stroke="rgba(255,215,0,0.6)" strokeWidth={1.5} />
+            <SvgText x={AD_TANK_X + AD_TANK_W + 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="start" fontWeight="600">{Math.round(m * vGoal)}oz</SvgText>
+          </G>
+        );
+      })}
+
+      {/* Tank frame border */}
+      <Rect x={AD_TANK_X} y={AD_TANK_Y} width={AD_TANK_W} height={AD_TANK_H} fill="none" stroke="#5a3c00" strokeWidth={2} rx={8} />
+
+      {/* Tank arch + gems + stars */}
+      <Path d={AD_TANK_ARCH} fill="none" stroke="url(#adGoldH)" strokeWidth={3} />
+      <Circle cx={AD_TANK_X + AD_TANK_W / 2}      cy={AD_TANK_Y - 20} r={5}   fill="#4488ff" stroke="#2244bb" strokeWidth={1} />
+      <Circle cx={AD_TANK_X + AD_TANK_W / 2 - 55} cy={AD_TANK_Y - 9}  r={3.5} fill="#66aaff" stroke="#2244bb" strokeWidth={0.8} />
+      <Circle cx={AD_TANK_X + AD_TANK_W / 2 + 55} cy={AD_TANK_Y - 9}  r={3.5} fill="#66aaff" stroke="#2244bb" strokeWidth={0.8} />
+      <SvgText x={AD_TANK_X - 4}            y={AD_TANK_Y - 2} fontSize={14} fill={GOLD} textAnchor="middle">★</SvgText>
+      <SvgText x={AD_TANK_X + AD_TANK_W + 4} y={AD_TANK_Y - 2} fontSize={14} fill={GOLD} textAnchor="middle">★</SvgText>
+
+      {/* ═══ CONNECTOR ═══ */}
+      <Path d={AD_CONN_PATH} fill="url(#adGoldH)" stroke="#5a3c00" strokeWidth={1.5} />
+      <Line x1={AD_TANK_X}             y1={AD_TANK_Y + AD_TANK_H} x2={AD_SLOT_X}             y2={AD_SLOT_Y} stroke="rgba(255,215,0,0.35)" strokeWidth={1} />
+      <Line x1={AD_TANK_X + AD_TANK_W} y1={AD_TANK_Y + AD_TANK_H} x2={AD_SLOT_X + AD_SLOT_W} y2={AD_SLOT_Y} stroke="rgba(255,215,0,0.35)" strokeWidth={1} />
+
+      {/* ═══ SLOT ═══ */}
+      <Rect x={AD_SLOT_X} y={AD_SLOT_Y} width={AD_SLOT_W} height={AD_SLOT_H} fill="url(#adGoldH)" rx={8} />
+      <Path d={AD_SLOT_ARCH} fill="none" stroke="url(#adGoldH)" strokeWidth={3} />
+      <Circle cx={AD_SVG_W / 2}      cy={AD_SLOT_Y - 12} r={5}   fill="#aa44ff" stroke="#6600cc" strokeWidth={1} />
+      <Circle cx={AD_SVG_W / 2 - 70} cy={AD_SLOT_Y - 5}  r={3.5} fill="#cc77ff" stroke="#6600cc" strokeWidth={0.8} />
+      <Circle cx={AD_SVG_W / 2 + 70} cy={AD_SLOT_Y - 5}  r={3.5} fill="#cc77ff" stroke="#6600cc" strokeWidth={0.8} />
+      <SvgText x={AD_SLOT_X - 4}            y={AD_SLOT_Y - 1} fontSize={14} fill={GOLD} textAnchor="middle">★</SvgText>
+      <SvgText x={AD_SLOT_X + AD_SLOT_W + 4} y={AD_SLOT_Y - 1} fontSize={14} fill={GOLD} textAnchor="middle">★</SvgText>
+      <Rect x={AD_SLOT_X + 8} y={AD_SLOT_Y + 6} width={AD_SLOT_W - 16} height={AD_SLOT_HDR_H} fill="url(#slotHdr)" rx={4} />
+      {[
+        { label: "BEVERAGE", x: AD_REEL1_X + AD_REEL_W / 2 },
+        { label: "YOUR BET", x: AD_REEL2_X + AD_REEL_W / 2 },
+        { label: "HYDRATED", x: AD_REEL3_X + AD_REEL_W / 2 },
+      ].map((col, i) => (
+        <SvgText key={i} x={col.x} y={AD_SLOT_Y + 6 + AD_SLOT_HDR_H / 2 + 4} fontSize={7.5} fontWeight="800" fill="#3d2200" textAnchor="middle" letterSpacing={0.5}>{col.label}</SvgText>
+      ))}
+      <Rect x={AD_SLOT_X} y={AD_SLOT_Y} width={7} height={AD_SLOT_H} fill="url(#adGoldH)" />
+      {[0.35, 0.65].map((m, i) => (
+        <Circle key={i} cx={AD_SLOT_X + 3.5} cy={AD_SLOT_Y + AD_SLOT_H * m} r={4} fill="url(#studGrad)" stroke="#5a3c00" strokeWidth={0.5} />
+      ))}
+      <Rect x={AD_SLOT_X + AD_SLOT_W - 7} y={AD_SLOT_Y} width={7} height={AD_SLOT_H} fill="url(#adGoldH)" />
+      {[0.35, 0.65].map((m, i) => (
+        <Circle key={i} cx={AD_SLOT_X + AD_SLOT_W - 3.5} cy={AD_SLOT_Y + AD_SLOT_H * m} r={4} fill="url(#studGrad)" stroke="#5a3c00" strokeWidth={0.5} />
+      ))}
+      {[0, 0.5, 1].map((m, i) => (
+        <Rect key={i} x={AD_SLOT_X} y={AD_SLOT_Y + AD_SLOT_H * m - 2.5} width={AD_SLOT_W} height={5} fill="url(#adGoldH)" opacity={0.85} />
+      ))}
+      <Path d={adDiamondPath(AD_SLOT_X - 1, AD_SLOT_Y + AD_SLOT_H * 0.5, 9)} fill="url(#diamondPurp)" stroke="#6600cc" strokeWidth={0.5} />
+      <Path d={adDiamondPath(AD_SLOT_X + AD_SLOT_W + 1, AD_SLOT_Y + AD_SLOT_H * 0.5, 9)} fill="url(#diamondPurp)" stroke="#6600cc" strokeWidth={0.5} />
+      {REEL_XS.map((rx, i) => (
+        <G key={i}>
+          <Rect x={rx} y={AD_REEL_Y} width={AD_REEL_W} height={AD_REEL_H} fill="#020010" stroke="#6600aa" strokeWidth={1.5} rx={4} />
+          <Line x1={rx} y1={AD_REEL_Y + AD_REEL_H / 2 - 15} x2={rx + AD_REEL_W} y2={AD_REEL_Y + AD_REEL_H / 2 - 15} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
+          <Line x1={rx} y1={AD_REEL_Y + AD_REEL_H / 2 + 15} x2={rx + AD_REEL_W} y2={AD_REEL_Y + AD_REEL_H / 2 + 15} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
+          <SvgText x={rx + AD_REEL_W / 2} y={AD_REEL_Y + AD_REEL_H + 11} fontSize={7} fill="rgba(255,215,0,0.6)" textAnchor="middle" fontWeight="700">{(["BEV", "BET", "HYD"] as string[])[i]}</SvgText>
+        </G>
+      ))}
+      <Line x1={AD_REEL2_X - 5} y1={AD_REEL_Y} x2={AD_REEL2_X - 5} y2={AD_REEL_Y + AD_REEL_H} stroke="rgba(255,215,0,0.4)" strokeWidth={1} />
+      <Line x1={AD_REEL3_X - 5} y1={AD_REEL_Y} x2={AD_REEL3_X - 5} y2={AD_REEL_Y + AD_REEL_H} stroke="rgba(255,215,0,0.4)" strokeWidth={1} />
+      <Rect x={AD_SLOT_X} y={AD_SLOT_Y} width={AD_SLOT_W} height={AD_SLOT_H} fill="none" stroke="#5a3c00" strokeWidth={2} rx={8} />
+
+      {/* ═══ BASE ═══ */}
+      <Rect x={AD_SLOT_X - 4}  y={AD_BASE1_Y}      width={AD_SLOT_W + 8}  height={14} fill="url(#base1G)" rx={4} />
+      <Rect x={AD_SLOT_X - 12} y={AD_BASE1_Y + 12} width={AD_SLOT_W + 24} height={10} fill="url(#base2G)" rx={3} />
+      <Ellipse cx={AD_SVG_W / 2} cy={AD_BASE1_Y + 26} rx={AD_SLOT_W / 2 + 16} ry={6} fill="rgba(0,0,0,0.35)" />
+    </Svg>
+  );
+});
+
+// Pre-computed sine lookup table — 360 entries, eliminates Math.sin() during animation
+const SIN_LUT = Object.freeze(Array.from({ length: 360 }, (_, i) => Math.sin((i / 180) * Math.PI)));
+function sinLut(radians: number): number {
+  const idx = (((radians * 180) / Math.PI) % 360 + 360) % 360;
+  return SIN_LUT[Math.round(idx) % 360];
+}
+
+// Inner SVG component — the only part that re-renders at 60fps.
+// The outer ArtDecoVault re-renders only when props (pct, oz, category…) change.
+function AnimatedWaterSVG({
+  phaseRef, fillPctRef, bubConfigsRef, causticRef, pct, forceUpdateRef,
+}: {
+  phaseRef: React.MutableRefObject<number>;
+  fillPctRef: React.MutableRefObject<number>;
+  bubConfigsRef: React.MutableRefObject<{ x: number; r: number; speed: number; prog: number }[]>;
+  causticRef: React.MutableRefObject<{ x: number; y: number; vx: number; vy: number; ph: number }[]>;
+  pct: number;
+  forceUpdateRef: React.MutableRefObject<() => void>;
+}) {
+  const [, dispatch] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => {
+    forceUpdateRef.current = dispatch;
+    return () => { forceUpdateRef.current = () => {}; };
+  }, [forceUpdateRef]);
+
+  const phase = phaseRef.current;
+  const fillPct = fillPctRef.current;
+  const waterH = Math.max(Math.min(Math.round(fillPct * AD_GLASS_H), AD_GLASS_H), fillPct > 0 ? 1 : 0);
+  const waterTop = AD_GLASS_Y + AD_GLASS_H - waterH;
+  const waterBot = AD_GLASS_Y + AD_GLASS_H;
+
+  let wave1 = `M ${AD_GLASS_X} ${waterTop}`;
+  for (let x = 0; x <= AD_GLASS_W; x += 4)
+    wave1 += ` L ${AD_GLASS_X + x} ${waterTop + sinLut(x * 0.04 + phase) * 4}`;
+  wave1 += ` L ${AD_GLASS_X + AD_GLASS_W} ${waterBot} L ${AD_GLASS_X} ${waterBot} Z`;
+
+  let wave2 = `M ${AD_GLASS_X} ${waterTop}`;
+  for (let x = 0; x <= AD_GLASS_W; x += 4)
+    wave2 += ` L ${AD_GLASS_X + x} ${waterTop + sinLut(x * 0.065 - phase * 0.7) * 3}`;
+  wave2 += ` L ${AD_GLASS_X + AD_GLASS_W} ${waterBot} L ${AD_GLASS_X} ${waterBot} Z`;
+
+  return (
+    <Svg width={AD_SVG_W} height={AD_SVG_H} style={StyleSheet.absoluteFillObject}>
+      <Defs>
+        <LinearGradient id="wAdWaterGrad" x1="0" y1="0" x2="0" y2="1">
+          <Stop offset="0"    stopColor="#78ebff" stopOpacity="0.95" />
+          <Stop offset="0.15" stopColor="#28b4ff" stopOpacity="0.95" />
+          <Stop offset="0.55" stopColor="#0a50c8" stopOpacity="0.95" />
+          <Stop offset="1"    stopColor="#05236e" stopOpacity="0.95" />
+        </LinearGradient>
+        <LinearGradient id="wAdWaterSheen" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0"   stopColor="#000028" stopOpacity="0.35" />
+          <Stop offset="0.3" stopColor="#000000" stopOpacity="0"    />
+          <Stop offset="0.5" stopColor="#ffffff"  stopOpacity="0.1"  />
+          <Stop offset="0.7" stopColor="#000000" stopOpacity="0"    />
+          <Stop offset="1"   stopColor="#000028" stopOpacity="0.35" />
+        </LinearGradient>
+        <LinearGradient id="wGlassBg" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0"   stopColor="#000c18" stopOpacity="1" />
+          <Stop offset="0.5" stopColor="#001428" stopOpacity="1" />
+          <Stop offset="1"   stopColor="#000c18" stopOpacity="1" />
+        </LinearGradient>
+        <LinearGradient id="wGlassOvr" x1="0" y1="0" x2="1" y2="0">
+          <Stop offset="0"    stopColor="#aaddff" stopOpacity="0.08" />
+          <Stop offset="0.25" stopColor="#aaddff" stopOpacity="0.02" />
+          <Stop offset="0.5"  stopColor="#ffffff"  stopOpacity="0.06" />
+          <Stop offset="0.75" stopColor="#aaddff" stopOpacity="0.02" />
+          <Stop offset="1"    stopColor="#aaddff" stopOpacity="0.08" />
+        </LinearGradient>
+        <ClipPath id="wGlassClip">
+          <Rect x={AD_GLASS_X + 1.5} y={AD_GLASS_Y + 1.5}
+            width={AD_GLASS_W - 3} height={AD_GLASS_H - 3} rx={3} />
+        </ClipPath>
+      </Defs>
+
+      <Rect x={AD_GLASS_X} y={AD_GLASS_Y} width={AD_GLASS_W} height={AD_GLASS_H}
+        fill="url(#wGlassBg)" rx={4} />
+
+      {waterH > 0 && (
+        <G clipPath="url(#wGlassClip)">
+          <Rect x={AD_GLASS_X} y={waterTop} width={AD_GLASS_W} height={waterH}
+            fill="url(#wAdWaterGrad)" />
+          <Rect x={AD_GLASS_X} y={waterTop} width={AD_GLASS_W} height={waterH}
+            fill="url(#wAdWaterSheen)" />
+          {pct > 0.02 && <Path d={wave1} fill="rgba(100,210,255,0.45)" />}
+          {pct > 0.02 && <Path d={wave2} fill="rgba(180,235,255,0.28)" />}
+          {pct > 0.15 && causticRef.current.map((c, i) => (
+            <Ellipse key={i}
+              cx={AD_GLASS_X + c.x * AD_GLASS_W}
+              cy={waterTop + c.y * waterH}
+              rx={13 + (i % 3) * 6}
+              ry={(13 + (i % 3) * 6) * 0.65}
+              fill={`rgba(150,230,255,${(0.14 + sinLut(phase * 1.2 + c.ph) * 0.07).toFixed(2)})`} />
+          ))}
+          {pct > 0.20 && bubConfigsRef.current.map((b, i) => {
+            const bX = AD_GLASS_X + b.x * AD_GLASS_W;
+            const bY = waterTop + waterH - b.prog * waterH;
+            const op = b.prog < 0.08 ? b.prog / 0.08 : b.prog > 0.92 ? (1 - b.prog) / 0.08 : 1;
+            return (
+              <G key={i} opacity={op}>
+                <Circle cx={bX} cy={bY} r={b.r}
+                  stroke="rgba(150,220,255,0.5)" strokeWidth={1}
+                  fill="rgba(200,240,255,0.08)" />
+                <Circle cx={bX - b.r * 0.35} cy={bY - b.r * 0.35} r={b.r * 0.35}
+                  fill="rgba(255,255,255,0.55)" />
+              </G>
+            );
+          })}
+        </G>
+      )}
+
+      <Rect x={AD_GLASS_X} y={AD_GLASS_Y} width={AD_GLASS_W} height={AD_GLASS_H}
+        fill="url(#wGlassOvr)" rx={4} />
+      <Rect x={AD_GLASS_X} y={AD_GLASS_Y} width={AD_GLASS_W} height={AD_GLASS_H}
+        fill="none" stroke="rgba(180,220,255,0.55)" strokeWidth={1.5} rx={4} />
+    </Svg>
+  );
+}
+
+function ArtDecoVault({
+  pct, oz, goal: vGoal,
+  category, lastReelOz, spinning, jackpotMode,
+  onSpoutRef,
+}: {
+  pct: number; oz: number; goal: number;
+  category: BevCategory; lastReelOz: number;
+  spinning: boolean; jackpotMode?: boolean;
+  onSpoutRef?: (x: number, y: number) => void;
+}) {
+  const catInfo = CATEGORIES.find((c) => c.key === category)!;
+  const hydOz = lastReelOz > 0 ? calcHydratedOz(lastReelOz, category) : 0;
+  const focused = useIsFocused();
+
+  // ── RAF-driven animation refs (no setState in the hot path) ──
+  const phaseRef = useRef(0);
+  const fillPctRef = useRef(pct);
+  const forceUpdateWaterRef = useRef<() => void>(() => {});
+
+  const bubConfigs = useRef([
+    { x: 0.22, r: 3.5, speed: 0.0045, prog: 0.1  },
+    { x: 0.50, r: 2.5, speed: 0.0035, prog: 0.45 },
+    { x: 0.72, r: 4.0, speed: 0.005,  prog: 0.75 },
+  ]);
+  const causticState = useRef([
+    { x: 0.2,  y: 0.7, vx:  0.0008, vy: -0.0005, ph: 0   },
+    { x: 0.5,  y: 0.5, vx: -0.0006, vy:  0.0007,  ph: 1.2 },
+    { x: 0.75, y: 0.8, vx:  0.0007, vy: -0.0009, ph: 2.4 },
+  ]);
+
+  // RAF loop — updates refs and triggers a single re-render of AnimatedWaterSVG
+  useEffect(() => {
+    if (!focused) return;
+    let rafId: number;
+    let lastTime: number | null = null;
+    function tick(time: number) {
+      if (lastTime !== null) {
+        const dt = Math.min(time - lastTime, 50);
+        phaseRef.current += (dt / 33) * 0.033;
+        const bubs = bubConfigs.current;
+        for (let i = 0; i < bubs.length; i++) {
+          bubs[i].prog = bubs[i].prog + bubs[i].speed >= 1 ? 0 : bubs[i].prog + bubs[i].speed;
+        }
+        const caus = causticState.current;
+        for (let i = 0; i < caus.length; i++) {
+          let nx = caus[i].x + caus[i].vx, ny = caus[i].y + caus[i].vy;
+          let nvx = caus[i].vx, nvy = caus[i].vy;
+          if (nx < 0.05 || nx > 0.95) nvx = -nvx;
+          if (ny < 0.05 || ny > 0.95) nvy = -nvy;
+          caus[i] = { ...caus[i], x: nx, y: ny, vx: nvx, vy: nvy };
+        }
+        forceUpdateWaterRef.current();
+      }
+      lastTime = time;
+      rafId = requestAnimationFrame(tick);
+    }
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [focused]);
+
+  // ── fill animation — listener only updates a ref (no setState) ──
+  const fillAnim = useRef(new Animated.Value(pct)).current;
+
+  useEffect(() => {
+    const id = fillAnim.addListener(({ value }) => { fillPctRef.current = value; });
+    return () => fillAnim.removeListener(id);
+  }, [fillAnim]);
+
+  useEffect(() => {
+    Animated.timing(fillAnim, {
+      toValue: pct, duration: 1200, useNativeDriver: false,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+  }, [pct, fillAnim]);
+
+  // ── reel state ──
+  const bevPool = useMemo(() => CATEGORIES.map(c => ({ main: c.emoji, sub: c.label })), []);
+  const ozPool  = useMemo(() => [4,6,8,10,12,14,16,20,24,28,32,48,64].map(o => ({ main: `${o}`, sub: "oz" })), []);
+  const hydPool = useMemo(() => Array.from({ length: 32 }, (_, i) => ({ main: `+${i+1}`, sub: "hyd oz" })), []);
+
+  const y1 = useRef(new Animated.Value(0)).current;
+  const y2 = useRef(new Animated.Value(0)).current;
+  const y3 = useRef(new Animated.Value(0)).current;
+  const wf1 = useRef(new Animated.Value(0)).current;
+  const wf2 = useRef(new Animated.Value(0)).current;
+  const wf3 = useRef(new Animated.Value(0)).current;
+
+  const [strips, setStrips] = useState<{
+    s1: { main: string; sub: string }[];
+    s2: { main: string; sub: string }[];
+    s3: { main: string; sub: string }[];
+  }>({
+    s1: [{ main: catInfo.emoji, sub: catInfo.label }],
+    s2: [{ main: "—", sub: "oz" }],
+    s3: [{ main: "—", sub: "hyd oz" }],
+  });
+
+  const flashReel = useCallback((anim: Animated.Value) => {
+    anim.setValue(0);
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 65, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 0, duration: 65, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 1, duration: 65, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 0, duration: 65, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 1, duration: 65, useNativeDriver: true }),
+      Animated.timing(anim, { toValue: 0, duration: 65, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  useEffect(() => {
+    if (spinning && lastReelOz > 0) {
+      const endY = -((VAULT_STRIP_N - 1) * VAULT_ITEM_H);
+      if (jackpotMode) {
+        const s1 = buildVaultStrip(bevPool, { main: "💧", sub: "WINNER" });
+        const s2 = buildVaultStrip(ozPool,  { main: `${lastReelOz}`, sub: "oz" });
+        const s3 = buildVaultStrip(hydPool, { main: "🏆", sub: "WIN!" });
+        y1.setValue(0); y2.setValue(0); y3.setValue(0);
+        wf1.setValue(0); wf2.setValue(0); wf3.setValue(0);
+        setStrips({ s1, s2, s3 });
+        Animated.sequence([
+          Animated.timing(y1, { toValue: endY - 12, duration: 1880, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(y1, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        ]).start(() => flashReel(wf1));
+        Animated.sequence([
+          Animated.timing(y2, { toValue: endY - 12, duration: 2680, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(y2, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        ]).start(() => flashReel(wf2));
+        Animated.sequence([
+          Animated.timing(y3, { toValue: endY - 12, duration: 3480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(y3, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        ]).start(() => flashReel(wf3));
+      } else {
+        const s1 = buildVaultStrip(bevPool, { main: catInfo.emoji, sub: catInfo.label });
+        const s2 = buildVaultStrip(ozPool,  { main: `${lastReelOz}`, sub: "oz" });
+        const s3 = buildVaultStrip(hydPool, { main: `+${hydOz}`, sub: "hyd oz" });
+        y1.setValue(0); y2.setValue(0); y3.setValue(0);
+        setStrips({ s1, s2, s3 });
+        Animated.timing(y1, { toValue: endY, duration: 1800, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+        Animated.timing(y2, { toValue: endY, duration: 2025, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+        Animated.timing(y3, { toValue: endY, duration: 2250, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+      }
+    } else if (!spinning) {
+      y1.setValue(0); y2.setValue(0); y3.setValue(0);
+      wf1.setValue(0); wf2.setValue(0); wf3.setValue(0);
+      setStrips({
+        s1: [{ main: catInfo.emoji, sub: catInfo.label }],
+        s2: [{ main: lastReelOz > 0 ? `${lastReelOz}` : "—", sub: "oz" }],
+        s3: [{ main: lastReelOz > 0 ? `+${hydOz}` : "—", sub: "hyd oz" }],
+      });
+    }
+  }, [spinning, jackpotMode, category, lastReelOz, catInfo.emoji, catInfo.label, hydOz,
+      bevPool, ozPool, hydPool, y1, y2, y3, wf1, wf2, wf3, flashReel]);
+
+  const reelAnims = [y1, y2, y3];
+  const wfAnims   = [wf1, wf2, wf3];
+  const reelStrips = [strips.s1, strips.s2, strips.s3];
+
+  return (
+    <View style={{ alignItems: "center", marginTop: 8, marginBottom: 4 }}
+      onLayout={(e) => {
+        if (onSpoutRef) {
+          e.target.measure((_x, _y, _w, _h, pageX, pageY) => {
+            onSpoutRef(pageX + AD_SVG_W / 2, pageY + AD_TANK_Y);
+          });
+        }
+      }}
+    >
+      <View style={{ width: AD_SVG_W, height: AD_SVG_H }}>
+
+        {/* ── Static decoration — never re-renders with phase ── */}
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+          <VaultStaticSVG vGoal={vGoal} />
+        </View>
+
+        {/* ── Animated water SVG — only AnimatedWaterSVG re-renders at 60fps ── */}
+        <AnimatedWaterSVG
+          phaseRef={phaseRef}
+          fillPctRef={fillPctRef}
+          bubConfigsRef={bubConfigs}
+          causticRef={causticState}
+          pct={pct}
+          forceUpdateRef={forceUpdateWaterRef}
+        />
+
+        {/* ── Animated reel strips ── */}
+        {REEL_XS.map((rx, i) => (
+          <View key={i} style={{
+            position: "absolute", left: rx, top: AD_REEL_Y,
+            width: AD_REEL_W, height: AD_REEL_H, overflow: "hidden",
+          }}>
+            <Animated.View style={{ transform: [{ translateY: reelAnims[i] }], width: "100%" }}>
+              {reelStrips[i].map((item, idx) => (
+                <View key={idx} style={{ height: VAULT_ITEM_H, alignItems: "center", justifyContent: "center" }}>
+                  <Text style={{ fontSize: 22, color: "#ffffff", fontWeight: "800", textAlign: "center" }}>
+                    {item.main}
+                  </Text>
+                  <Text style={{
+                    fontSize: 9, textAlign: "center", marginTop: 1,
+                    color: jackpotMode && item.sub === "WIN!" ? GOLD : "rgba(255,255,255,0.7)",
+                  }}>
+                    {item.sub}
+                  </Text>
+                </View>
+              ))}
+            </Animated.View>
+            <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 18,
+              backgroundColor: "rgba(2,0,16,0.88)" }} pointerEvents="none" />
+            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 18,
+              backgroundColor: "rgba(2,0,16,0.88)" }} pointerEvents="none" />
+            <Animated.View style={{
+              position: "absolute", top: AD_REEL_H / 2 - 17, left: 0, right: 0, height: 34,
+              backgroundColor: "rgba(255,215,0,0.72)",
+              borderTopWidth: 2, borderBottomWidth: 2, borderColor: GOLD,
+              opacity: wfAnims[i],
+            }} pointerEvents="none" />
+          </View>
+        ))}
+
+        {/* ── Tank text overlay ── */}
+        <View pointerEvents="none" style={{
+          position: "absolute",
+          left: AD_GLASS_X, top: AD_GLASS_Y,
+          width: AD_GLASS_W, height: AD_GLASS_H,
+          alignItems: "center", justifyContent: "center",
+        }}>
+          <Text style={{ fontSize: 26, fontWeight: "900", color: "#FFD700" }}>
+            {`${Math.round(pct * 100)}%`}
+          </Text>
+          <Text style={{ fontSize: 11, fontWeight: "700", color: "rgba(200,240,255,0.92)", marginTop: 4 }}>
+            {`${oz.toFixed(1)} oz hydrated`}
+          </Text>
+          <Text style={{ fontSize: 9, color: "rgba(255,215,0,0.7)", marginTop: 3 }}>
+            {`${ozToMl(oz)} ml`}
+          </Text>
+        </View>
+
+      </View>
+    </View>
+  );
+}
+
+// --- Reel Confetti Burst ---
+const RC_N = 20;
+const RC_COLORS = [GOLD, "#44ccff", "#ffffff"];
+interface RCParticle { x: Animated.Value; y: Animated.Value; op: Animated.Value; startX: number; color: string; size: number; isSquare: boolean; vx: number; vy: number; }
+
+function ReelConfetti({ visible, originY }: { visible: boolean; originY: number }) {
+  const particles = useRef<RCParticle[]>(
+    Array.from({ length: RC_N }, (_, i) => ({
+      x: new Animated.Value(0),
+      y: new Animated.Value(0),
+      op: new Animated.Value(0),
+      startX: ((i * 37 + 13) % 100) / 100 * SCREEN_W,
+      color: RC_COLORS[i % RC_COLORS.length],
+      size: 4 + (i % 4),
+      isSquare: i % 3 !== 0,
+      vx: ((i * 47 + 7) % 200) - 100,
+      vy: -(80 + (i * 31 + 11) % 220),
+    }))
+  ).current;
+
+  const fired = useRef(false);
+
+  useEffect(() => {
+    if (visible && !fired.current) {
+      fired.current = true;
+      particles.forEach((p) => {
+        p.x.setValue(0); p.y.setValue(0); p.op.setValue(1);
+        Animated.parallel([
+          Animated.timing(p.x, { toValue: p.vx, duration: 1000, useNativeDriver: true, easing: Easing.linear }),
+          Animated.sequence([
+            Animated.timing(p.y, { toValue: p.vy, duration: 500, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+            Animated.timing(p.y, { toValue: p.vy + 220, duration: 500, useNativeDriver: true, easing: Easing.in(Easing.cubic) }),
+          ]),
+          Animated.sequence([
+            Animated.delay(300),
+            Animated.timing(p.op, { toValue: 0, duration: 700, useNativeDriver: true }),
+          ]),
+        ]).start();
+      });
+    }
+    if (!visible) fired.current = false;
+  }, [visible, particles]);
+
+  if (!visible) return null;
+  return (
+    <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+      {particles.map((p, i) => (
+        <Animated.View key={i} style={{
+          position: "absolute",
+          left: p.startX,
+          top: originY,
+          width: p.size,
+          height: p.size,
+          borderRadius: p.isSquare ? 0 : p.size / 2,
+          backgroundColor: p.color,
+          opacity: p.op,
+          transform: [{ translateX: p.x }, { translateY: p.y }],
+        }} />
+      ))}
+    </View>
+  );
+}
+
+// --- Choose Your 7 Modal ---
+interface ChooseBevsModalProps {
+  visible: boolean;
+  current: BevCategory[];
+  onSave: (selection: BevCategory[]) => void;
+  onCancel: () => void;
+}
+function ChooseBevsModal({ visible, current, onSave, onCancel }: ChooseBevsModalProps) {
+  const [selected, setSelected] = useState<BevCategory[]>(current);
+  const [hint, setHint] = useState("");
+
+  useEffect(() => {
+    if (visible) { setSelected(current); setHint(""); }
+  }, [visible, current]);
+
+  function toggle(key: BevCategory) {
+    if (selected.includes(key)) {
+      if (selected.length <= 1) {
+        setHint("You need at least one beverage selected");
+        return;
+      }
+      setSelected((prev) => prev.filter((k) => k !== key));
+      setHint("");
+    } else {
+      setSelected((prev) => [...prev, key]);
+      setHint("");
+    }
+  }
+
+  // Sorted: selected first, then unselected — memoized to avoid re-sorting on every keystroke
+  const { sortedBevs, firstUnselIdx } = useMemo(() => {
+    const selSet = new Set(selected);
+    return {
+      sortedBevs: [
+        ...CATEGORIES.filter((b) => selSet.has(b.key)),
+        ...CATEGORIES.filter((b) => !selSet.has(b.key)),
+      ],
+      firstUnselIdx: selected.length,
+    };
+  }, [selected]);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      <View style={cbStyles.overlay}>
+        <View style={cbStyles.sheet}>
+          {/* Header */}
+          <View style={cbStyles.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={cbStyles.title}>Choose Your Beverages</Text>
+              <Text style={cbStyles.subtitle}>Select as many or as few as you like</Text>
+              <Text style={cbStyles.counter}>
+                <Text style={{ color: GOLD }}>{selected.length}</Text>
+                <Text style={{ color: "rgba(255,255,255,0.5)" }}> of 20 selected</Text>
+              </Text>
+            </View>
+            <TouchableOpacity onPress={onCancel} style={cbStyles.closeBtn}>
+              <Text style={cbStyles.closeTxt}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Select All / Clear All / Reset row */}
+          <View style={cbStyles.actionRow}>
+            <TouchableOpacity
+              style={cbStyles.actionBtn}
+              onPress={() => { setSelected(CATEGORIES.map((b) => b.key)); setHint(""); }}
+            >
+              <Text style={cbStyles.actionTxt}>Select All</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={cbStyles.actionBtn}
+              onPress={() => { setSelected([CATEGORIES[0].key]); setHint(""); }}
+            >
+              <Text style={cbStyles.actionTxt}>Clear All</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={cbStyles.actionBtn}
+              onPress={() => { setSelected([...DEFAULT_VISIBLE_BEVS]); setHint(""); }}
+            >
+              <Text style={cbStyles.actionTxt}>Defaults</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Hint */}
+          {hint !== "" && (
+            <Text style={cbStyles.hint}>{hint}</Text>
+          )}
+
+          {/* Beverage list — selected first, then divider, then unselected */}
+          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+            {sortedBevs.map((bev, idx) => {
+              const isSel = selected.includes(bev.key);
+              return (
+                <React.Fragment key={bev.key}>
+                  {idx === firstUnselIdx && firstUnselIdx > 0 && firstUnselIdx < CATEGORIES.length && (
+                    <View style={cbStyles.divider} />
+                  )}
+                  <TouchableOpacity
+                    style={[cbStyles.row, isSel && cbStyles.rowSel]}
+                    onPress={() => toggle(bev.key)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[cbStyles.rowName, isSel && { color: GOLD }]}>{bev.label}</Text>
+                      <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
+                    </View>
+                    {isSel && <Text style={cbStyles.check}>✓</Text>}
+                  </TouchableOpacity>
+                </React.Fragment>
+              );
+            })}
+            <View style={{ height: 12 }} />
+          </ScrollView>
+
+          {/* Save button */}
+          <View style={cbStyles.btnRow}>
+            <TouchableOpacity
+              style={cbStyles.saveBtn}
+              onPress={() => onSave(selected)}
+            >
+              <Text style={cbStyles.saveTxt}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+const cbStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: "#0d0030", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 2, borderColor: GOLD, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "60%" },
+  header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
+  title: { color: GOLD, fontSize: 18, fontWeight: "800" },
+  subtitle: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 3 },
+  counter: { fontSize: 13, fontWeight: "700", marginTop: 6 },
+  closeBtn: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  closeTxt: { color: "rgba(255,255,255,0.6)", fontSize: 18 },
+  actionRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", backgroundColor: "rgba(255,215,0,0.07)" },
+  actionTxt: { color: GOLD_DIM, fontSize: 12, fontWeight: "700" },
+  hint: { color: "#FF8800", fontSize: 12, fontWeight: "600", marginBottom: 8 },
+  divider: { height: 1, backgroundColor: "rgba(255,215,0,0.25)", marginVertical: 8 },
+  row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: "transparent", gap: 12 },
+  rowSel: { backgroundColor: "rgba(255,215,0,0.08)", borderColor: "rgba(255,215,0,0.35)" },
+  rowEmoji: { fontSize: 22, width: 30, textAlign: "center" },
+  rowName: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
+  rowEff: { color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 1 },
+  check: { color: GOLD, fontSize: 18, fontWeight: "800" },
+  btnRow: { paddingVertical: 16 },
+  saveBtn: { paddingVertical: 14, borderRadius: 12, backgroundColor: GOLD, alignItems: "center" },
+  saveTxt: { color: "#000000", fontSize: 14, fontWeight: "800" },
+});
+
+// --- Beverage Selector ---
+// Returns sizing config based on total visible count (bevs + Custom button)
+function getBevSizing(total: number): { emojiSize: number; labelSize: number; padV: number } {
+  if (total <= 3)  return { emojiSize: 28, labelSize: 12, padV: 12 };
+  if (total <= 6)  return { emojiSize: 22, labelSize: 10, padV: 10 };
+  if (total <= 10) return { emojiSize: 18, labelSize: 9,  padV: 8  };
+  return           { emojiSize: 14, labelSize: 8,  padV: 6  };
+}
+
+function BeverageSelector({
+  selected, onSelect, onCustom, visibleBevs, onEditBevs,
+}: {
+  selected: BevCategory;
+  onSelect: (c: BevCategory) => void;
+  onCustom: () => void;
+  visibleBevs: BevCategory[];
+  onEditBevs: () => void;
+}) {
+  const bevs = visibleBevs.map(getBev);
+  // +1 for the Custom button
+  const totalSlots = bevs.length + 1;
+  const sizing = getBevSizing(totalSlots);
+
+  // Layout rules (number of items per row determines width %)
+  // 1–4 total: single row → each item fills 1/total width
+  // 5–12 total: wrap grid, max 4 per row
+  // 13+ total: horizontal scroll
+  const useScroll = totalSlots >= 13;
+  // "23%" works for 4 per row; compute dynamically for fewer
+  const btnWidthPct = totalSlots <= 4 ? `${Math.floor(100 / totalSlots) - 2}%` : "23%";
+
+  function renderBtn(key: string, emoji: string, label: string, isCustom = false) {
+    const bev = isCustom ? null : getBev(key);
+    const isSel = !isCustom && key === selected;
+    return (
+      <TouchableOpacity
+        key={key}
+        style={[
+          bvStyles.btn,
+          { width: btnWidthPct as any, paddingVertical: sizing.padV },
+          isSel && bev ? { borderColor: bev.color, backgroundColor: bev.color + "22" } : null,
+          isCustom ? bvStyles.customBtn : null,
+        ]}
+        onPress={() => { playButtonTapSound(); if (isCustom) { onCustom(); } else { onSelect(key as BevCategory); } }}
+        activeOpacity={0.8}
+      >
+        <Text style={{ fontSize: sizing.emojiSize }}>{emoji}</Text>
+        <Text
+          style={[bvStyles.name, { fontSize: sizing.labelSize }, isSel && bev ? { color: bev.color } : null]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+      </TouchableOpacity>
+    );
+  }
+
+  const allButtons = [
+    ...bevs.map((cat) => renderBtn(cat.key, cat.emoji, cat.label)),
+    renderBtn("__custom__", "⭐", "Custom", true),
+  ];
+
+  return (
+    <View style={bvStyles.wrapper}>
+      <View style={bvStyles.labelRow}>
+        <Text style={bvStyles.sectionLabel}>BEVERAGE</Text>
+        <TouchableOpacity onPress={onEditBevs} style={bvStyles.editBtn} activeOpacity={0.7}>
+          <Text style={bvStyles.editTxt}>✏️</Text>
+        </TouchableOpacity>
+      </View>
+      {useScroll ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
+          {allButtons}
+        </ScrollView>
+      ) : (
+        <View style={bvStyles.grid}>
+          {allButtons}
+        </View>
+      )}
+    </View>
+  );
+}
+const bvStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 12, marginTop: 10 },
+  labelRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
+  sectionLabel: { flex: 1, color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
+  editBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,215,0,0.12)", borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", justifyContent: "center" },
+  editTxt: { fontSize: 13 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  btn: { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", minWidth: 52 },
+  customBtn: { borderColor: GOLD, backgroundColor: "rgba(255,215,0,0.08)" },
+  name: { color: "#ffffff", fontWeight: "600", marginTop: 2, textAlign: "center" },
+});
+
+// --- Quick Bet Buttons ---
+function QuickBets({ onBet, spinning, amounts }: { onBet: (oz: number) => void; spinning: boolean; amounts: number[] }) {
+  return (
+    <View style={qbStyles.wrapper}>
+      <View style={qbStyles.grid}>
+        {amounts.map((oz, i) => (
+          <TouchableOpacity key={i} style={[qbStyles.btn, spinning && qbStyles.dis]} onPress={() => { if (!spinning) { playButtonTapSound(); onBet(oz); } }} activeOpacity={0.8}>
+            <Text style={qbStyles.ozTxt}>{formatOz(oz)} oz</Text>
+            <Text style={qbStyles.mlTxt}>{ozToMl(oz)} ml</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </View>
+  );
+}
+const qbStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 12, marginTop: 10 },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  btn: { width: "31%", backgroundColor: "rgba(80,0,160,0.4)", borderRadius: 10, paddingVertical: 10, alignItems: "center", borderWidth: 1, borderColor: "rgba(120,0,220,0.6)" },
+  customBtn: { borderColor: GOLD, backgroundColor: "rgba(255,215,0,0.12)" },
+  dis: { opacity: 0.45 },
+  ozTxt: { fontSize: 15, fontWeight: "800", color: "#ffffff" },
+  mlTxt: { fontSize: 10, color: "rgba(200,200,200,0.65)", marginTop: 2 },
+});
+
+// --- Quick Add Customization Modal ---
+interface QuickAddCustomModalProps {
+  visible: boolean;
+  currentAmounts: number[];
+  onSave: (amounts: number[]) => void;
+  onCancel: () => void;
+}
+function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: QuickAddCustomModalProps) {
+  const [drafts, setDrafts] = useState<string[]>(currentAmounts.map(String));
+  const [focused, setFocused] = useState<number | null>(null);
+  const inputRefs = useRef<(import("react-native").TextInput | null)[]>([]);
+
+  // Sync drafts when modal opens
+  useEffect(() => {
+    if (visible) setDrafts(currentAmounts.map((oz) => formatOz(oz)));
+  }, [visible, currentAmounts]);
+
+  function setSlot(i: number, val: string) {
+    setDrafts((prev) => { const next = [...prev]; next[i] = val; return next; });
+  }
+
+  function resetSlot(i: number) {
+    setDrafts((prev) => { const next = [...prev]; next[i] = formatOz(QUICK_ADD_DEFAULTS[i]); return next; });
+  }
+
+  function resetAll() {
+    setDrafts(QUICK_ADD_DEFAULTS.map(formatOz));
+  }
+
+  function isValid(val: string): boolean {
+    const n = parseFloat(val);
+    return !isNaN(n) && n >= 1 && n <= 128;
+  }
+
+  function handleSave() {
+    if (drafts.every(isValid)) {
+      onSave(drafts.map((v) => parseFloat(v)));
+    }
+  }
+
+  function applyPreset(oz: number) {
+    const slot = focused ?? 0;
+    setSlot(slot, formatOz(oz));
+  }
+
+  const allValid = drafts.every(isValid);
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.modalBox, { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                {/* Header */}
+                <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
+                    <TouchableOpacity onPress={onCancel} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Tap a slot to edit, then tap a preset to fill it</Text>
+                </View>
+
+                <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                  <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
+
+                    {/* Slot rows */}
+                    {drafts.map((val, i) => {
+                      const isFocused = focused === i;
+                      const valid = isValid(val);
+                      const mlVal = valid ? `${ozToMl(parseFloat(val))} ml` : "—";
+                      return (
+                        <View key={i} style={{ marginBottom: 10 }}>
+                          <View style={{
+                            flexDirection: "row", alignItems: "center",
+                            backgroundColor: "rgba(255,215,0,0.08)",
+                            borderRadius: 12, borderWidth: 1.5,
+                            borderColor: isFocused ? "#c8a000" : (valid ? "rgba(200,160,0,0.35)" : "#FF6B6B"),
+                            paddingHorizontal: 12,
+                            minHeight: 52,
+                          }}>
+                            <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700", width: 48 }}>Slot {i + 1}</Text>
+                            <TextInput
+                              ref={(r) => { inputRefs.current[i] = r; }}
+                              value={val}
+                              onChangeText={(t) => setSlot(i, t)}
+                              onFocus={() => setFocused(i)}
+                              onBlur={() => setFocused((f) => f === i ? null : f)}
+                              keyboardType="decimal-pad"
+                              style={{ flex: 1, color: "#1a1a2e", fontSize: 18, fontWeight: "700", paddingVertical: 10 }}
+                              selectTextOnFocus
+                              returnKeyType="done"
+                              placeholderTextColor="#aaaaaa"
+                            />
+                            <Text style={{ color: "#888888", fontSize: 12, marginRight: 10, minWidth: 54, textAlign: "right" }}>{mlVal}</Text>
+                            <TouchableOpacity onPress={() => resetSlot(i)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(0,0,0,0.08)", alignItems: "center", justifyContent: "center" }}>
+                              <Text style={{ color: "#888888", fontSize: 13, lineHeight: 16 }}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                          {!valid && val.length > 0 && (
+                            <Text style={{ color: "#CC2200", fontSize: 11, marginTop: 3, marginLeft: 4 }}>Enter a value between 1 and 128 oz</Text>
+                          )}
+                        </View>
+                      );
+                    })}
+
+                    {/* Popular Sizes */}
+                    <View style={{ marginTop: 8, marginBottom: 4 }}>
+                      <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 10 }}>
+                        POPULAR SIZES{focused !== null ? `  →  filling Slot ${focused + 1}` : "  (tap a slot to select it)"}
+                      </Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
+                        {POPULAR_PRESETS.map((p) => (
+                          <TouchableOpacity
+                            key={p.oz}
+                            onPress={() => applyPreset(p.oz)}
+                            activeOpacity={0.7}
+                            style={{
+                              borderRadius: 20, borderWidth: 1.5,
+                              borderColor: "#c8a000",
+                              backgroundColor: "rgba(255,215,0,0.07)",
+                              paddingHorizontal: 12, paddingVertical: 6,
+                              alignItems: "center",
+                            }}>
+                            <Text style={{ color: "#c8a000", fontSize: 13, fontWeight: "700" }}>{p.label}</Text>
+                            <Text style={{ color: "#999999", fontSize: 9, marginTop: 1 }}>{p.sub}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Reset All */}
+                    <TouchableOpacity onPress={resetAll}
+                      style={{ alignSelf: "flex-start", borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14, marginBottom: 6, backgroundColor: "transparent" }}>
+                      <Text style={{ color: "#c8a000", fontSize: 13, fontWeight: "700" }}>↺ Reset All to Defaults</Text>
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+
+                {/* iOS Done toolbar */}
+                {Platform.OS === "ios" && (
+                  <View style={{ backgroundColor: "#f0f0f0", flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#dddddd" }}>
+                    <TouchableOpacity onPress={Keyboard.dismiss} hitSlop={{ top: 8, bottom: 8, left: 16, right: 8 }}>
+                      <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Action buttons */}
+                <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "rgba(200,160,0,0.2)" }}>
+                  <TouchableOpacity onPress={onCancel} style={{ flex: 1, height: 50, borderRadius: 14, backgroundColor: "#EEEEEE", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: "#555555", fontSize: 16, fontWeight: "600" }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleSave} disabled={!allValid} style={{ flex: 2, height: 50, borderRadius: 14, backgroundColor: allValid ? "#c8a000" : "rgba(200,160,0,0.25)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: allValid ? "#ffffff" : "#aaaaaa", fontSize: 16, fontWeight: "800" }}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// --- Result Box ---
+function ResultBox({ message }: { message: string | null }) {
+  const rawOzMatch = message?.match(/\+([\d.]+) oz logged/);
+  const rawOzNum = rawOzMatch ? parseFloat(rawOzMatch[1]) : 0;
+  return (
+    <View style={rbStyles.wrapper}>
+      <Text style={message ? rbStyles.result : rbStyles.idle}>
+        {message ?? "Select your drink, place your bet and log it!"}
+      </Text>
+      {message && (
+        <Text style={rbStyles.sub}>{ozToMl(rawOzNum)} ml consumed • tank is filling up!</Text>
+      )}
+    </View>
+  );
+}
+const rbStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 12, marginTop: 10, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)", minHeight: 52, justifyContent: "center" },
+  idle: { color: "rgba(255,255,255,0.45)", fontSize: 12, textAlign: "center", fontStyle: "italic" },
+  result: { color: GOLD, fontSize: 14, fontWeight: "700", textAlign: "center" },
+  sub: { color: "rgba(255,255,255,0.6)", fontSize: 11, textAlign: "center", marginTop: 4 },
+});
+
+// --- Stats Bar ---
+function StatsBar({
+  goal: statGoal,
+  hydration,
+  intake: statIntake,
+  streak,
+  healthActive,
+  onHealthPress,
+}: {
+  goal: number;
+  hydration: number;
+  intake: number;
+  streak: number;
+  healthActive: boolean;
+  onHealthPress: () => void;
+}) {
+  const secs = [
+    { label: "DAILY GOAL", val: `${Math.round(statGoal)} oz` },
+    { label: "HYDRATED", val: `${hydration.toFixed(1)} oz\n${Math.round(Math.min(hydration / statGoal, 1) * 100)}%` },
+    { label: "CONSUMED", val: `${statIntake.toFixed(1)} oz\n${ozToMl(statIntake)} ml` },
+    { label: "STREAK", val: streak > 0 ? `${streak} 🔥` : "0" },
+  ];
+  return (
+    <View style={stbStyles.bar}>
+      {secs.map((s, i) => (
+        <React.Fragment key={s.label}>
+          {i > 0 && <View style={stbStyles.div} />}
+          <View style={stbStyles.sec}>
+            <View style={stbStyles.lblRow}>
+              <Text style={stbStyles.lbl}>{s.label}</Text>
+              {s.label === "HYDRATED" && (
+                <TouchableOpacity onPress={onHealthPress} hitSlop={{ top: 17, bottom: 17, left: 17, right: 17 }}>
+                  <Text style={[stbStyles.heart, { color: healthActive ? "#FF3B30" : "rgba(255,255,255,0.25)" }]}>♥</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={stbStyles.val}>{s.val}</Text>
+          </View>
+        </React.Fragment>
+      ))}
+    </View>
+  );
+}
+const stbStyles = StyleSheet.create({
+  bar: { flexDirection: "row", marginHorizontal: 12, marginTop: 10, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 12, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)", overflow: "hidden" },
+  sec: { flex: 1, alignItems: "center", paddingVertical: 10, paddingHorizontal: 2 },
+  div: { width: 1, backgroundColor: "rgba(255,215,0,0.3)", marginVertical: 8 },
+  lblRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3 },
+  lbl: { fontSize: 10, fontWeight: "800", color: GOLD, letterSpacing: 0.5, textAlign: "center" },
+  val: { fontSize: 10, fontWeight: "700", color: "#ffffff", textAlign: "center" },
+  heart: { fontSize: 11, fontWeight: "900" },
+});
+
+// --- Drink Log ---
+function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
+  breakdown: Record<BevCategory, number>;
+  intake: number;
+  entries?: DrinkEntry[];
+}) {
+  const { colors, isDark } = useTheme();
+  const catEntries = CATEGORIES.filter((c) => breakdown[c.key] > 0);
+  return (
+    <View style={[dlStyles.wrapper, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
+      <Text style={[dlStyles.title, { color: colors.gold }]}>DRINK LOG</Text>
+      {catEntries.length === 0
+        ? <Text style={[dlStyles.empty, { color: colors.textMuted }]}>No drinks logged yet — place your first bet!</Text>
+        : catEntries.map((cat) => {
+            const raw = breakdown[cat.key];
+            const hyd = calcHydratedOz(raw, cat.key);
+            const share = dlIntake > 0 ? Math.round((raw / dlIntake) * 100) : 0;
+            return (
+              <View key={cat.key} style={dlStyles.row}>
+                <View style={[dlStyles.dot, { backgroundColor: cat.color }]} />
+                <Text style={[dlStyles.name, { color: colors.text }]}>{cat.emoji} {cat.label}</Text>
+                <Text style={[dlStyles.raw, { color: colors.textSub }]}>{raw.toFixed(1)} oz</Text>
+                <Text style={[dlStyles.effTxt, { color: colors.textMuted }]}>{Math.round(getBev(cat.key).eff * 100)}%</Text>
+                <Text style={[dlStyles.hyd, { color: isDark ? "#88ccff" : "#0066cc" }]}>→{hyd.toFixed(1)}oz</Text>
+                <Text style={[dlStyles.share, { color: cat.color }]}>{share}%</Text>
+              </View>
+            );
+          })
+      }
+
+      {/* Individual entries with timestamps */}
+      {logEntries.length > 0 && (
+        <>
+          <View style={[dlStyles.entriesDivider, { backgroundColor: colors.divider }]} />
+          <Text style={[dlStyles.entriesLabel, { color: colors.textMuted }]}>RECENT ENTRIES</Text>
+          {[...logEntries].reverse().map((e, i) => {
+            const cat = CATEGORIES.find((c) => c.key === e.category) ?? CATEGORIES[0];
+            return (
+              <View key={i} style={dlStyles.entryRow}>
+                <View style={[dlStyles.dot, { backgroundColor: cat.color }]} />
+                <Text style={[dlStyles.entryText, { color: colors.text }]}>
+                  {cat.emoji} {formatOz(e.oz)} oz {cat.label}
+                </Text>
+                <Text style={[dlStyles.entryTime, { color: colors.textMuted }]}>
+                  {formatEntryTime(e.timestamp)}
+                </Text>
+              </View>
+            );
+          })}
+        </>
+      )}
+    </View>
+  );
+}
+const dlStyles = StyleSheet.create({
+  wrapper: { marginHorizontal: 12, marginTop: 10, borderRadius: 12, padding: 12, borderWidth: 1 },
+  title: { fontSize: 10, fontWeight: "800", letterSpacing: 1, marginBottom: 8 },
+  empty: { fontSize: 12, fontStyle: "italic", textAlign: "center" },
+  row: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 5 },
+  dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  name: { flex: 1, fontSize: 11 },
+  raw: { fontSize: 10, width: 36, textAlign: "right" },
+  effTxt: { fontSize: 10, width: 26, textAlign: "center" },
+  hyd: { fontSize: 10, width: 46, textAlign: "right" },
+  share: { fontSize: 11, fontWeight: "700", width: 28, textAlign: "right" },
+  entriesDivider: { height: 1, marginVertical: 8 },
+  entriesLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 1, marginBottom: 6 },
+  entryRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 4 },
+  entryText: { flex: 1, fontSize: 11 },
+  entryTime: { fontSize: 10, textAlign: "right" },
+});
+
+const undoStyles = StyleSheet.create({
+  btn: {
+    marginHorizontal: 12, marginTop: 8, paddingVertical: 13, paddingHorizontal: 16,
+    borderRadius: 12, backgroundColor: "rgba(0,0,0,0.3)",
+    borderWidth: 1.5, borderColor: GOLD_DIM, alignItems: "center",
+  },
+  btnDisabled: { borderColor: "rgba(255,255,255,0.15)", opacity: 0.45 },
+  btnText: { color: GOLD, fontSize: 13, fontWeight: "700" },
+  btnTextDisabled: { color: "rgba(255,255,255,0.35)" },
+});
+
+// --- Entry Time Formatter ---
+function formatEntryTime(ts: number): string {
+  const now = Date.now();
+  const diff = now - ts;
+  if (diff < 60000) return "Just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`;
+  const d = new Date(ts);
+  const h = d.getHours();
+  const m = d.getMinutes().toString().padStart(2, "0");
+  return `${h % 12 || 12}:${m} ${h >= 12 ? "PM" : "AM"}`;
+}
+
+// --- Jackpot Celebration ---
+const FW_COLORS = [
+  ["#FFD700", "#FFA500", "#FFE566"],
+  ["#00aaff", "#44ccff", "#0066cc"],
+  ["#00ff88", "#44ffaa", "#00cc66"],
+  ["#ff44aa", "#ff88cc", "#cc0066"],
+  ["#ffffff", "#eeeeee", "#aaaaaa"],
+  ["#aa44ff", "#cc88ff", "#7700cc"],
+];
+const FW_BURST = 28; // particles per explosion
+
+interface FWParticle {
+  x: Animated.Value;
+  y: Animated.Value;
+  op: Animated.Value;
+  size: number;
+  color: string;
+}
+
+// FW_POOL_SIZE = max particles per cycle: (3+3+4) positions × 28 = 280
+const FW_POOL_SIZE = FW_BURST * 10;
+
+function JackpotCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boolean; goal: number; onDismiss: () => void }) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const goalTime = useRef("");
+  const screenW = Dimensions.get("window").width;
+  const screenH = Dimensions.get("window").height;
+
+  // Pooled firework particles — created once, reused every cycle via setValue
+  const fwPool = useRef<FWParticle[]>(
+    Array.from({ length: FW_POOL_SIZE }, () => ({
+      x: new Animated.Value(-9999),
+      y: new Animated.Value(-9999),
+      op: new Animated.Value(0),
+      size: 3,
+      color: '#FFD700',
+    }))
+  );
+  const poolIdx = useRef(0);
+  const [, forceUpdateFW] = useReducer((n: number) => n + 1, 0);
+  const fwTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const fwLoopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dismissed = useRef(false);
+
+  function clearFwTimers() {
+    fwTimers.current.forEach(clearTimeout);
+    fwTimers.current = [];
+    if (fwLoopTimer.current) clearTimeout(fwLoopTimer.current);
+  }
+
+  function launchVolley(positions: { x: number; y: number }[], colorOffset: number) {
+    const allAnims: Animated.CompositeAnimation[] = [];
+    positions.forEach(({ x, y }, i) => {
+      const palette = FW_COLORS[(colorOffset + i) % FW_COLORS.length];
+      for (let j = 0; j < FW_BURST; j++) {
+        const p = fwPool.current[poolIdx.current % FW_POOL_SIZE];
+        poolIdx.current++;
+        // Update non-animated properties (plain mutation — no React overhead)
+        p.size = 2 + Math.random() * 3;
+        p.color = palette[Math.floor(Math.random() * palette.length)];
+        // Reset animated values to burst origin
+        p.x.setValue(x); p.y.setValue(y); p.op.setValue(1);
+        const angle = (j / FW_BURST) * Math.PI * 2;
+        const speed = 60 + Math.random() * 120;
+        const dx = Math.cos(angle) * speed;
+        const rawDy = Math.sin(angle) * speed - (40 + Math.random() * 40);
+        allAnims.push(Animated.parallel([
+          Animated.timing(p.x, { toValue: x + dx, duration: 900, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
+          Animated.sequence([
+            Animated.timing(p.y, { toValue: y + rawDy, duration: 500, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
+            Animated.timing(p.y, { toValue: y + rawDy + 80 + Math.random() * 60, duration: 400, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+          ]),
+          Animated.sequence([
+            Animated.delay(300),
+            Animated.timing(p.op, { toValue: 0, duration: 600, useNativeDriver: true }),
+          ]),
+        ]));
+      }
+    });
+    forceUpdateFW(); // trigger re-render so new p.size/p.color are reflected
+    Animated.parallel(allAnims).start();
+  }
+
+  function startFireworks() {
+    if (dismissed.current) return;
+    poolIdx.current = 0;
+
+    const left = screenW * 0.2;
+    const center = screenW * 0.5;
+    const right = screenW * 0.8;
+    const topY = screenH * 0.15;
+    const midY = screenH * 0.28;
+    const highY = screenH * 0.22;
+
+    launchVolley([{ x: left, y: topY }, { x: center, y: midY }, { x: right, y: topY }], 0);
+
+    fwTimers.current.push(setTimeout(() => {
+      if (!dismissed.current)
+        launchVolley([{ x: screenW * 0.35, y: highY }, { x: screenW * 0.65, y: topY }, { x: center, y: screenH * 0.32 }], 2);
+    }, 600));
+
+    fwTimers.current.push(setTimeout(() => {
+      if (!dismissed.current)
+        launchVolley([
+          { x: left * 0.6, y: midY }, { x: left, y: topY },
+          { x: right, y: midY }, { x: right * 1.1, y: topY },
+        ], 4);
+    }, 1200));
+
+    fwLoopTimer.current = setTimeout(() => {
+      if (!dismissed.current) startFireworks();
+    }, 2800);
+  }
+
+  useEffect(() => {
+    dismissed.current = false;
+    if (visible) {
+      const now = new Date();
+      const h = now.getHours(); const m = now.getMinutes().toString().padStart(2, "0");
+      goalTime.current = `${h % 12 || 12}:${m} ${h >= 12 ? "PM" : "AM"}`;
+      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+      Animated.loop(Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.1, duration: 550, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0.95, duration: 550, useNativeDriver: true }),
+      ])).start();
+      startFireworks();
+    } else {
+      clearFwTimers();
+      fwPool.current.forEach(p => { p.op.stopAnimation(); p.op.setValue(0); });
+    }
+    return () => clearFwTimers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  function dismiss() {
+    dismissed.current = true;
+    clearFwTimers();
+    Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+      fwPool.current.forEach(p => { p.op.setValue(0); });
+      onDismiss();
+    });
+  }
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View style={[jpStyles.overlay, { opacity: fadeAnim }]} pointerEvents="box-none">
+      {/* Pooled firework particles — always 280 views, most invisible */}
+      {fwPool.current.map((p, i) => (
+        <Animated.View key={i} pointerEvents="none" style={{
+          position: "absolute",
+          width: p.size, height: p.size, borderRadius: p.size / 2,
+          backgroundColor: p.color,
+          opacity: p.op,
+          transform: [{ translateX: p.x as any }, { translateY: p.y as any }],
+        }} />
+      ))}
+      {/* Card — always on top */}
+      <View style={jpStyles.card}>
+        <Animated.Text style={[jpStyles.jackpotText, { transform: [{ scale: pulseAnim }] }]}>
+          🎆 LIQUID LUCK!
+        </Animated.Text>
+        <Text style={jpStyles.emojiRow}>🎆🎇✨🏆🍀🎆</Text>
+        <Text style={jpStyles.mainText}>You hit your daily hydration goal!</Text>
+        <Text style={jpStyles.subText}>{Math.round(jpGoal)} oz / {ozToMl(jpGoal)} ml</Text>
+        <Text style={jpStyles.timeText}>Reached at {goalTime.current}</Text>
+        <TouchableOpacity style={jpStyles.claimBtn} onPress={dismiss} activeOpacity={0.85}>
+          <Text style={jpStyles.claimText}>🍀 COLLECT YOUR LUCK!</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+const jpStyles = StyleSheet.create({
+  overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,10,0.94)", zIndex: 9999, alignItems: "center", justifyContent: "center" },
+  card: { backgroundColor: "#0a0030", borderWidth: 2, borderColor: GOLD, borderRadius: 24, padding: 28, alignItems: "center", width: "86%", zIndex: 10000, shadowColor: GOLD, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 20 },
+  jackpotText: { fontSize: 40, fontWeight: "900", color: GOLD, letterSpacing: 4, marginBottom: 10, textShadowColor: GOLD_DIM, textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 12 },
+  emojiRow: { fontSize: 26, letterSpacing: 4, marginBottom: 12 },
+  mainText: { fontSize: 15, color: "#ffffff", fontWeight: "700", textAlign: "center", marginBottom: 8 },
+  subText: { fontSize: 18, color: GOLD, fontWeight: "800", marginBottom: 4 },
+  timeText: { fontSize: 12, color: "rgba(255,255,255,0.55)", marginBottom: 20 },
+  claimBtn: { backgroundColor: GOLD, borderRadius: 16, paddingHorizontal: 32, paddingVertical: 14 },
+  claimText: { color: "#000000", fontSize: 16, fontWeight: "900", letterSpacing: 1 },
+});
+
+// ─── Confetti + Streak Milestone Card ────────────────────────────────────────
+const CONFETTI_COLORS = ["#FFD700", "#0088ff", "#00cc66", "#ff4444", "#ff8800", "#cc44ff"];
+const CONFETTI_COUNT = 60;
+
+interface ConfettiParticle {
+  x: Animated.Value;
+  y: Animated.Value;
+  rot: Animated.Value;
+  opacity: Animated.Value;
+  color: string;
+  driftX: number;
+}
+
+
+const MILESTONE_MESSAGES: Record<number, string> = {
+  3: "You're on fire! Keep it up!",
+  7: "One full week! You're a hydration hero!",
+  14: "Two weeks strong! Unstoppable!",
+  30: "30 days! You're a Liquid Luck legend!",
+};
+
+function StreakMilestoneCard({
+  milestone,
+  onDismiss,
+}: {
+  milestone: number | null;
+  onDismiss: () => void;
+}) {
+  const screenW = Dimensions.get("window").width;
+  const screenH = Dimensions.get("window").height;
+  // Pool: create all 60 confetti values once, reset + reuse per milestone
+  const particles = useRef<ConfettiParticle[]>(
+    Array.from({ length: CONFETTI_COUNT }, (_, i) => ({
+      x: new Animated.Value(0),
+      y: new Animated.Value(-20),
+      rot: new Animated.Value(0),
+      opacity: new Animated.Value(0),
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      driftX: (Math.random() - 0.5) * 120,
+    }))
+  );
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [visible, setVisible] = useState(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    if (milestone === null) {
+      setVisible(false);
+      return;
+    }
+    // Reset pool particles to starting positions with new random properties
+    particles.current.forEach((p) => {
+      p.x.stopAnimation(); p.y.stopAnimation();
+      p.rot.stopAnimation(); p.opacity.stopAnimation();
+      p.color = CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)];
+      p.driftX = (Math.random() - 0.5) * 120;
+      const startX = Math.random() * screenW;
+      p.x.setValue(startX);
+      p.y.setValue(-20);
+      p.rot.setValue(0);
+      p.opacity.setValue(1);
+    });
+    setVisible(true);
+    Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+
+    const anims = particles.current.map((p) => {
+      const duration = 2200 + Math.random() * 800;
+      const startX = (p.x as any)._value as number;
+      return Animated.parallel([
+        Animated.timing(p.y, { toValue: screenH + 30, duration, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
+        Animated.timing(p.x, { toValue: startX + p.driftX, duration, useNativeDriver: true, easing: Easing.linear }),
+        Animated.timing(p.rot, { toValue: (Math.random() - 0.5) * 720, duration, useNativeDriver: true, easing: Easing.linear }),
+        Animated.sequence([
+          Animated.delay(duration * 0.6),
+          Animated.timing(p.opacity, { toValue: 0, duration: duration * 0.4, useNativeDriver: true }),
+        ]),
+      ]);
+    });
+    Animated.parallel(anims).start();
+
+    const activeTimers = timers.current;
+    return () => {
+      activeTimers.forEach(clearTimeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [milestone]);
+
+  if (!visible || milestone === null) return null;
+
+  function handleDismiss() {
+    Animated.timing(fadeAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start(() => {
+      setVisible(false);
+      onDismiss();
+    });
+  }
+
+  return (
+    <Animated.View
+      style={[milestoneStyles.overlay, { opacity: fadeAnim }]}
+      pointerEvents="box-none"
+    >
+      {/* Confetti particles */}
+      {particles.current.map((p, i) => (
+        <Animated.View
+          key={i}
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            width: 6,
+            height: 10,
+            borderRadius: 2,
+            backgroundColor: p.color,
+            opacity: p.opacity,
+            transform: [
+              { translateX: p.x },
+              { translateY: p.y },
+              { rotate: p.rot.interpolate({ inputRange: [-720, 720], outputRange: ["-720deg", "720deg"] }) },
+            ],
+          }}
+        />
+      ))}
+
+      {/* Milestone card */}
+      <View style={milestoneStyles.card}>
+        <Text style={milestoneStyles.flame}>🔥</Text>
+        <Text style={milestoneStyles.streakText}>{milestone} DAY STREAK!</Text>
+        <Text style={milestoneStyles.message}>{MILESTONE_MESSAGES[milestone] ?? "Amazing streak! Keep it going!"}</Text>
+        <TouchableOpacity style={milestoneStyles.dismissBtn} onPress={handleDismiss} activeOpacity={0.85}>
+          <Text style={milestoneStyles.dismissText}>Keep Going! 💧</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+const milestoneStyles = StyleSheet.create({
+  overlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,10,0.75)", zIndex: 9990,
+    alignItems: "center", justifyContent: "center",
+  },
+  card: {
+    backgroundColor: "#1a0a00", borderWidth: 2.5, borderColor: GOLD,
+    borderRadius: 24, padding: 28, alignItems: "center", width: "82%",
+    shadowColor: GOLD, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 16, elevation: 20,
+  },
+  flame: { fontSize: 56, marginBottom: 8 },
+  streakText: { fontSize: 30, fontWeight: "900", color: GOLD, letterSpacing: 2, textAlign: "center", marginBottom: 12 },
+  message: { fontSize: 16, color: "#ffffff", textAlign: "center", lineHeight: 23, marginBottom: 24 },
+  dismissBtn: { backgroundColor: GOLD, borderRadius: 14, paddingHorizontal: 32, paddingVertical: 14 },
+  dismissText: { color: "#000000", fontSize: 16, fontWeight: "800" },
+});
+
+
+// ─── Hydration Fact / Joke Card ───────────────────────────────────────────────
+const HYDRATION_FACTS = [
+  "Your brain is 73% water — staying hydrated keeps you sharper!",
+  "Drinking water can boost your metabolism by up to 30%!",
+  "Even mild dehydration can affect your mood and energy levels",
+  "Water helps your kidneys flush out toxins every single day",
+  "Drinking water before meals can help you eat less",
+  "Your muscles are 79% water — hydration = better performance",
+  "Water carries nutrients and oxygen to your cells",
+  "Staying hydrated can reduce headaches significantly",
+  "Your blood is 90% water — keep it flowing!",
+  "Drinking water can improve your skin's elasticity",
+  "Hydration helps regulate your body temperature",
+  "Water lubricates your joints — essential for active people",
+  "Drinking enough water improves kidney function",
+  "Proper hydration can improve your sleep quality",
+  "Your body loses 2–3 liters of water daily through breathing and sweating",
+];
+
+const WATER_JOKES = [
+  "Why did the water win an award? Because it was outstanding in its field — a water field!",
+  "What do you call a snowman in summer? A puddle who forgot to hydrate!",
+  "Why is water so good at math? It knows all the fluid dynamics!",
+  "What did the ocean say to the glass of water? Nothing — it just waved!",
+  "Why don't fish get thirsty? They are always in the swim of things!",
+  "What do you call water that is good at music? A well-tempered fluid!",
+  "Why did the glass of water go to school? To become a little more refined!",
+  "What is a shark's favorite drink? Whatever is on tap!",
+  "Why did the hydrated person win the race? They were running on full!",
+  "What do you call a belt made of water bottles? A waist of water!",
+];
+
+function FactJokeCard({ visible, onDismiss }: { visible: boolean; onDismiss: () => void }) {
+  const slideAnim = useRef(new Animated.Value(200)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [content, setContent] = useState<{ text: string; type: "fact" | "joke" } | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      const isFact = Math.random() < 0.6;
+      if (isFact) {
+        setContent({ type: "fact", text: HYDRATION_FACTS[Math.floor(Math.random() * HYDRATION_FACTS.length)] });
+      } else {
+        setContent({ type: "joke", text: WATER_JOKES[Math.floor(Math.random() * WATER_JOKES.length)] });
+      }
+      slideAnim.setValue(200);
+      opacityAnim.setValue(0);
+      Animated.parallel([
+        Animated.timing(slideAnim, { toValue: 0, duration: 350, useNativeDriver: true, easing: Easing.out(Easing.back(1.2)) }),
+        Animated.timing(opacityAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+      ]).start();
+      autoTimer.current = setTimeout(() => onDismiss(), 4000);
+    } else {
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+    }
+    return () => { if (autoTimer.current) clearTimeout(autoTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
+  if (!visible || !content) return null;
+
+  return (
+    <View style={factStyles.overlay} pointerEvents="box-none">
+      <Animated.View
+        style={[factStyles.card, { transform: [{ translateY: slideAnim }], opacity: opacityAnim }]}
+      >
+        <TouchableOpacity activeOpacity={0.95} onPress={onDismiss} style={{ alignItems: "center", width: "100%" }}>
+          <Text style={factStyles.icon}>{content.type === "fact" ? "💡" : "😂"}</Text>
+          <Text style={factStyles.label}>{content.type === "fact" ? "DID YOU KNOW?" : "WATER JOKE!"}</Text>
+          <Text style={factStyles.text}>{content.text}</Text>
+          <Text style={factStyles.hint}>Tap to dismiss</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    </View>
+  );
+}
+
+const factStyles = StyleSheet.create({
+  overlay: {
+    position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 9998,
+    alignItems: "center", paddingBottom: 40,
+  },
+  card: {
+    backgroundColor: "#0d0030", borderWidth: 2, borderColor: GOLD,
+    borderRadius: 20, padding: 24, marginHorizontal: 16, alignItems: "center",
+    shadowColor: GOLD, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.35, shadowRadius: 12, elevation: 20,
+  },
+  icon: { fontSize: 36, marginBottom: 8 },
+  label: { fontSize: 11, fontWeight: "800", color: GOLD, letterSpacing: 1.5, marginBottom: 10 },
+  text: { fontSize: 14, color: "#ffffff", textAlign: "center", lineHeight: 21, marginBottom: 14 },
+  hint: { fontSize: 11, color: "rgba(255,255,255,0.4)" },
+});
+
+export default function WaterTracker() {
+  const { colors, isDark, bgAnim, toggleTheme } = useTheme();
+  const { isPro, openPaywall, checkProStatus } = useProContext();
+  const { isAuthenticated, user, signOut, deleteAccount } = useAuth();
+  const [intake, setIntake] = useState(0);
+  const [goal, setGoal] = useState(DEFAULT_GOAL);
+  const [history, setHistory] = useState<
+    { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[]
+  >([]);
+  const [customAmount, setCustomAmount] = useState("");
+  const [customUnit, setCustomUnit] = useState<"oz" | "ml">("oz");
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [showGoalModal, setShowGoalModal] = useState(false);
+  const [lastEntry, setLastEntry] = useState<number | null>(null);
+  const [newGoal, setNewGoal] = useState("");
+
+  // Goal modal tab state
+  const [goalTab, setGoalTab] = useState<"custom" | "gallon" | "suggested">("custom");
+
+  // Suggested tab state
+  const [suggWeightLbs, setSuggWeightLbs] = useState(150);
+  const [suggFeet, setSuggFeet] = useState(5);
+  const [suggInches, setSuggInches] = useState(7);
+  const [suggActivity, setSuggActivity] = useState<"sedentary" | "moderate" | "active">("sedentary");
+  const [weightMode, setWeightMode] = useState<"scroll" | "type">("scroll");
+  const [heightMode, setHeightMode] = useState<"scroll" | "type">("scroll");
+  const [typeWeight, setTypeWeight] = useState("");
+  const [typeFeet, setTypeFeet] = useState("");
+  const [typeInches, setTypeInches] = useState("");
+  const [kbHeight, setKbHeight] = useState(0);
+  const KB_ACCESSORY_ID = "modal-kb-done";
+  const CUSTOM_ACCESSORY_ID = "custom-kb-done";
+
+  const [pendingOz, setPendingOz] = useState<number | null>(null);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [categoryBreakdown, setCategoryBreakdown] = useState<Record<BevCategory, number>>(EMPTY_BREAKDOWN);
+  const [lastEntryCategory, setLastEntryCategory] = useState<BevCategory | null>(null);
+  const [totalHydration, setTotalHydration] = useState(0);
+  const [lastEntryHydratedOz, setLastEntryHydratedOz] = useState<number | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
+  const [jackpotFiredToday, setJackpotFiredToday] = useState(false);
+  const [goalHistory, setGoalHistory] = useState<Record<string, number>>({});
+
+  // Presets
+  const [presets, setPresets] = useState<Preset[]>([]);
+
+  // Achievements — lifetime stats
+  const [lifetimeHydrationOz, setLifetimeHydrationOz] = useState(0);
+  const [lifetimeJackpots, setLifetimeJackpots] = useState(0);
+  const [lifetimeCoffeeLogs, setLifetimeCoffeeLogs] = useState(0);
+  const [lifetimeBeerLogs, setLifetimeBeerLogs] = useState(0);
+  const [firstDrinkTime, setFirstDrinkTime] = useState<string | null>(null);
+  const [achievementTrigger, setAchievementTrigger] = useState(0);
+
+  // Weather
+  const [weatherBannerOz, setWeatherBannerOz] = useState<8 | 16 | null>(null);
+  const [weatherBannerDismissed, setWeatherBannerDismissed] = useState(false);
+  const [weatherTempF, setWeatherTempF] = useState<number | null>(null);
+
+  // Casino / Liquid Luck
+  const [selectedCategory, setSelectedCategory] = useState<BevCategory>("water");
+  const [spinning, setSpinning] = useState(false);
+  const [jackpotSpinning, setJackpotSpinning] = useState(false);
+  const [reelConfettiVisible, setReelConfettiVisible] = useState(false);
+  const [reelFrameY, setReelFrameY] = useState(300);
+  const screenShakeAnim = useRef(new Animated.Value(0)).current;
+  const [resultMessage, setResultMessage] = useState<string | null>(null);
+  const [lastReelOz, setLastReelOz] = useState(0);
+  const [pendingBetOz, setPendingBetOz] = useState<number | null>(null);
+  const [displayedHydration, setDisplayedHydration] = useState(0);
+
+  // Particle spray — origin updates after GlassTank layout
+  const [spoutOrigin, setSpoutOrigin] = useState({ x: Dimensions.get("window").width / 2, y: 200 });
+  const { particles: sprayParticles, visible: sprayVisible, fire: fireSpray } = useParticleSpray(spoutOrigin.x, spoutOrigin.y);
+
+  // Daily reset
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastAnim = useRef(new Animated.Value(0)).current;
+  const midnightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Onboarding — null = loading (not yet determined)
+  const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+
+  // Sound effects
+  const [soundEnabled, setSoundEnabledState] = useState(true);
+
+  // Notification preferences
+  const [notifMasterEnabled, setNotifMasterEnabled] = useState(true);
+  const [notifMorningEnabled, setNotifMorningEnabled] = useState(true);
+  const [notifProgressEnabled, setNotifProgressEnabled] = useState(true);
+  const [notifStreakEnabled, setNotifStreakEnabled] = useState(true);
+  // "granted" | "denied" | "undetermined" | null (null = not yet checked)
+  const [notifPermissionStatus, setNotifPermissionStatus] = useState<string | null>(null);
+
+  // Refs so async callbacks (notification toggle onValueChange) always read
+  // the latest hydration values without stale closure problems.
+  const totalHydrationRef = useRef(0);
+  const goalRef           = useRef(DEFAULT_GOAL);
+  const goalHistoryRef    = useRef<Record<string, number>>({});
+
+  // Apple Health
+  const [healthPermissionGranted, setHealthPermissionGranted] = useState(false);
+  const [healthSyncEnabled, setHealthSyncEnabled] = useState(true);
+  const [lastHealthSampleTime, setLastHealthSampleTime] = useState<string | null>(null);
+  const [showHealthModal, setShowHealthModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // Quick Add customization
+  const [quickAddAmounts, setQuickAddAmounts] = useState<number[]>(QUICK_ADD_DEFAULTS);
+  const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+
+  // Haptics
+  const [hapticsEnabled, setHapticsEnabled] = useState(true);
+
+  // Sound pack
+  const [selectedSoundPack, setSelectedSoundPack] = useState(DEFAULT_PACK_ID);
+  const [previewingPack, setPreviewingPack] = useState<string | null>(null);
+
+  // Beverage customization
+  const [selectedBeverages, setSelectedBeverages] = useState<BevCategory[]>(DEFAULT_VISIBLE_BEVS);
+  const [showChooseBevs, setShowChooseBevs] = useState(false);
+  const [catPickerShowAll, setCatPickerShowAll] = useState(false);
+
+  // Individual drink log entries with timestamps
+  const [drinkLogEntries, setDrinkLogEntries] = useState<DrinkEntry[]>([]);
+
+  // Streak milestone confetti card
+  const [streakMilestone, setStreakMilestone] = useState<number | null>(null);
+
+  // Post-jackpot fact/joke card
+  const [showFactCard, setShowFactCard] = useState(false);
+
+  // Cloud sync
+  const [showAuthModal,   setShowAuthModal]   = useState(false);
+  const [syncingHistory,  setSyncingHistory]  = useState(false);
+  const [syncProgress,    setSyncProgress]    = useState(0);
+  const [lastSyncTime,    setLastSyncTime]    = useState<string | null>(null);
+
+  // CSV export
+  const [exportLoading, setExportLoading] = useState(false);
+  const [showExportSummary, setShowExportSummary] = useState(false);
+  const [exportSummary, setExportSummary] = useState<{
+    days: number; totalConsumed: number; totalHydrated: number; bestStreak: number; filePath: string;
+  } | null>(null);
+
+  // Promo code
+  const [showPromoModal, setShowPromoModal] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoLoading, setPromoLoading] = useState(false);
+
+  // Stores every setTimeout ID created in handleBet so they can be cancelled on unmount
+  const betTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  // Haptic helper — wraps all calls; never throws; respects user preference
+  function haptic(fn: () => Promise<void>) {
+    if (!hapticsEnabled) return;
+    try { fn(); } catch {}
+  }
+
+  // Clear all pending bet timers on unmount
+  useEffect(() => {
+    return () => {
+      betTimersRef.current.forEach(clearTimeout);
+      betTimersRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    // Note: requestNotificationPermission() is NOT called here.
+    // For new users it fires after onboarding completes (handleOnboardingComplete).
+    // For returning users it fires inside checkOnboarding() once "onboarding_complete"
+    // is confirmed, giving the OS dialog the context of a launched app, not a cold start.
+    fetchWeatherAdjustment();
+    checkOnboarding();
+    initSounds();
+    try {
+      initWatch().catch(() => {});
+      setWatchMessageHandler((cmd) => {
+        addWater(cmd.amount, cmd.category as BevCategory).catch(() => {});
+      });
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Pull cloud data whenever user signs in, and run one-time history migration
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    pullCloudData().catch(() => {});
+    AsyncStorage.getItem('cloud_initial_sync_done').then((done) => {
+      if (done !== '1') {
+        setSyncingHistory(true);
+        syncAllHistory((pct) => setSyncProgress(pct)).finally(() => {
+          setSyncingHistory(false);
+          setSyncProgress(0);
+          AsyncStorage.getItem('cloud_last_sync').then((v) => { if (v) setLastSyncTime(v); }).catch(() => {});
+        });
+      }
+    }).catch(() => {});
+  }, [isAuthenticated]);
+
+  async function checkOnboarding() {
+    try {
+      const done = await AsyncStorage.getItem("onboarding_complete");
+      setShowOnboarding(done !== "1");
+      // Returning user — onboarding already complete, so request notification
+      // permission now (we have app context, better than the cold-start moment).
+      if (done === "1") {
+        requestNotificationPermission();
+      }
+    } catch {
+      setShowOnboarding(false);
+    }
+  }
+
+  function handleOnboardingComplete(goalOz: number) {
+    setGoal(goalOz);
+    setShowOnboarding(false);
+    // New user — request notification permission AFTER onboarding so the user
+    // has seen what the app does before the OS dialog appears.
+    requestNotificationPermission();
+    requestHealthPermissionIfNeeded();
+  }
+
+  async function requestHealthPermissionIfNeeded() {
+    if (!isHealthAvailable) return;
+    try {
+      const asked = await AsyncStorage.getItem("health_permission_asked");
+      if (asked === "1") return;
+      Alert.alert(
+        "Apple Health",
+        "Liquid Luck would like to save your hydration data to Apple Health so all your health data stays in one place.",
+        [
+          {
+            text: "Not Now",
+            style: "cancel",
+            onPress: async () => {
+              await AsyncStorage.setItem("health_permission_asked", "1");
+              await AsyncStorage.setItem("health_permission_granted", "false");
+              setHealthPermissionGranted(false);
+            },
+          },
+          {
+            text: "Allow",
+            onPress: async () => {
+              await AsyncStorage.setItem("health_permission_asked", "1");
+              const granted = await initHealthKit();
+              await AsyncStorage.setItem("health_permission_granted", String(granted));
+              setHealthPermissionGranted(granted);
+            },
+          },
+        ]
+      );
+    } catch {}
+  }
+
+  async function toggleHealthSync(enabled: boolean) {
+    setHealthSyncEnabled(enabled);
+    try {
+      await AsyncStorage.setItem("health_sync_enabled", String(enabled));
+    } catch {}
+  }
+
+  // Keep refs in sync so async callbacks (notification toggles) read latest values
+  // without stale closure issues.
+  useEffect(() => { totalHydrationRef.current = totalHydration; }, [totalHydration]);
+  useEffect(() => { goalRef.current = goal; }, [goal]);
+  useEffect(() => { goalHistoryRef.current = goalHistory; }, [goalHistory]);
+
+  // Check OS notification permission whenever the Settings modal opens.
+  useEffect(() => {
+    if (!showSettingsModal) return;
+    Notifications.getPermissionsAsync()
+      .then(({ status }) => setNotifPermissionStatus(status))
+      .catch(() => {});
+  }, [showSettingsModal]);
+
+  useEffect(() => {
+    if (Platform.OS === "android") {
+      const show = Keyboard.addListener("keyboardDidShow", (e) => setKbHeight(e.endCoordinates.height));
+      const hide = Keyboard.addListener("keyboardDidHide", () => setKbHeight(0));
+      return () => { show.remove(); hide.remove(); };
+    }
+  }, []);
+
+  async function requestNotificationPermission() {
+    try {
+      const { status } = await Notifications.requestPermissionsAsync();
+      // If the user just granted permission for the first time, schedule reminders now.
+      // loadData ran before this and would have bailed early on the permission check.
+      if (status === "granted") {
+        const curPct = goal > 0 ? Math.min(totalHydration / goal, 1) : 0;
+        rescheduleSmartNotifications(curPct, 0, Math.max(0, goal - totalHydration));
+      }
+    } catch {}
+  }
+
+  /**
+   * Cancel all pending notifications and schedule fresh ones based on current
+   * hydration progress, time of day, and user notification preferences.
+   *
+   * Call this:
+   *  - after every drink log
+   *  - after daily reset
+   *  - after any notification preference toggle
+   *
+   * @param hydPct   0–1 fraction of goal achieved (hydration oz / goal oz)
+   * @param curStreak  current day-streak count
+   * @param remOz    remaining oz to reach goal (goal - hydrationOz, floored at 0)
+   */
+  /**
+   * Optional preference overrides — used when state hasn't updated yet
+   * (e.g. immediately after a toggle fires, or during loadData before setState).
+   */
+  interface NotifPrefs {
+    master?:   boolean;
+    morning?:  boolean;
+    progress?: boolean;
+    streak?:   boolean;
+  }
+
+  async function rescheduleSmartNotifications(
+    hydPct: number,
+    curStreak: number,
+    remOz: number,
+    prefOverrides?: NotifPrefs,
+  ) {
+    // Resolve effective preferences: explicit overrides win over closed-over state.
+    const masterOn   = prefOverrides?.master   ?? notifMasterEnabled;
+    const morningOn  = prefOverrides?.morning  ?? notifMorningEnabled;
+    const progressOn = prefOverrides?.progress ?? notifProgressEnabled;
+    const streakOn   = prefOverrides?.streak   ?? notifStreakEnabled;
+
+    try {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== "granted") return;
+      if (!masterOn) { await Notifications.cancelAllScheduledNotificationsAsync(); return; }
+      await Notifications.cancelAllScheduledNotificationsAsync();
+    } catch { return; }
+
+    const goalHit = hydPct >= 1.0;
+    const pctInt  = Math.round(hydPct * 100);
+
+    // Schedule a DAILY recurring notification. The Expo DAILY trigger fires at
+    // the given hour:minute every day. Even if today's time has already passed,
+    // the trigger will fire correctly tomorrow — so we never gate on current time.
+    async function schedDaily(h: number, m: number, title: string, body: string) {
+      try {
+        await Notifications.scheduleNotificationAsync({
+          content: { title, body },
+          trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: h, minute: m },
+        });
+      } catch {}
+    }
+
+    // ── 1. Morning kickoff  07:30 ──────────────────────────────────────────────
+    // No time guard — DAILY trigger ensures this fires tomorrow even if today's
+    // 07:30 has already passed.
+    if (morningOn && !goalHit) {
+      await schedDaily(7, 30,
+        "Good morning! Time to hydrate 💧",
+        "Your Liquid Luck jackpot is waiting — start spinning!"
+      );
+    }
+
+    // ── 2. Gentle midday check  12:00 ─────────────────────────────────────────
+    if (progressOn && !goalHit) {
+      await schedDaily(12, 0,
+        "Halfway through the day 🌤",
+        `You've only hit ${pctInt}% of your goal — time to catch up!`
+      );
+    }
+
+    // ── 3. Urgent afternoon nudge  14:00 ──────────────────────────────────────
+    if (progressOn && !goalHit) {
+      // Derive hydrated oz from parameters — avoids a goalRef.current dependency
+      // that could be stale immediately after a goal change.
+      const hydOz = hydPct > 0 && hydPct < 1
+        ? Math.round((remOz / (1 - hydPct)) * hydPct)
+        : 0;
+      await schedDaily(14, 0,
+        "You're falling behind 😅",
+        `Only ${hydOz} oz hydrated so far — the jackpot needs you!`
+      );
+    }
+
+    // ── 4. Evening push  18:00 ────────────────────────────────────────────────
+    if (progressOn && !goalHit) {
+      await schedDaily(18, 0,
+        "Evening check in 🌆",
+        `${remOz.toFixed(1)} oz to go before the jackpot — you've got this!`
+      );
+    }
+
+    // ── 5. Final push  20:30 ──────────────────────────────────────────────────
+    if (progressOn && !goalHit) {
+      const streakTxt = curStreak > 0 ? ` Don't break your ${curStreak} day streak!` : "";
+      await schedDaily(20, 30,
+        "Last chance for the jackpot tonight! 🎰",
+        `Just ${remOz.toFixed(1)} oz away —${streakTxt}`
+      );
+    }
+
+    // ── 6. Streak at risk  21:00 ──────────────────────────────────────────────
+    if (streakOn && !goalHit && curStreak >= 3) {
+      await schedDaily(21, 0,
+        "Your streak is at risk! 🔥",
+        `Don't lose your ${curStreak} day streak — ${remOz.toFixed(1)} oz to go before midnight!`
+      );
+    }
+  }
+
+  /**
+   * Fire an immediate (≈1 s) notification once per day, guarded by an
+   * AsyncStorage flag so it never duplicates.
+   */
+  async function fireImmediateNotifOnce(
+    flagKey: string,
+    title: string,
+    body: string,
+    enabled: boolean,
+  ) {
+    if (!enabled || !notifMasterEnabled) return;
+    try {
+      const { status } = await Notifications.getPermissionsAsync();
+      if (status !== "granted") return;
+      const already = await AsyncStorage.getItem(flagKey);
+      if (already === "1") return;
+    } catch { return; }
+    // Write the dedup flag FIRST — outside the schedule try/catch so that
+    // if schedule fails or the app crashes, we never fire this twice in one day.
+    await AsyncStorage.setItem(flagKey, "1");
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: { title, body },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 1, repeats: false },
+      });
+    } catch {}
+  }
+
+  async function fetchWeatherAdjustment() {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") return;
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
+      const { latitude, longitude } = loc.coords;
+      const resp = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m&temperature_unit=fahrenheit`);
+      if (!resp.ok) return;
+      const json = await resp.json();
+      const tempF: number = json.current.temperature_2m;
+      setWeatherTempF(tempF);
+      if (tempF >= 95) setWeatherBannerOz(16);
+      else if (tempF >= 85) setWeatherBannerOz(8);
+    } catch {}
+  }
+
+  function showMorningToast() {
+    setToastVisible(true);
+    Animated.sequence([
+      Animated.timing(toastAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.delay(2200),
+      Animated.timing(toastAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+    ]).start(() => setToastVisible(false));
+  }
+
+  async function performDailyReset(showToast: boolean) {
+    // Snapshot yesterday before clearing
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = getDateKey(yesterday);
+
+    // Read current values directly from storage so we have accurate data even if state hasn't synced
+    const [rawIntake, rawHydration, rawBreakdown, rawGoal, rawHistory, rawGoalHistory] = await Promise.all([
+      AsyncStorage.getItem(yesterdayKey),
+      AsyncStorage.getItem("water_total_hydration"),
+      AsyncStorage.getItem("water_category_breakdown"),
+      AsyncStorage.getItem("water_goal"),
+      AsyncStorage.getItem("water_history"),
+      AsyncStorage.getItem("goal_history"),
+    ]);
+
+    const prevIntake   = rawIntake    ? JSON.parse(rawIntake)    : intake;
+    const prevHyd      = rawHydration ? JSON.parse(rawHydration) : totalHydration;
+    const prevBreakdown= rawBreakdown ? JSON.parse(rawBreakdown) : categoryBreakdown;
+    const prevGoal     = rawGoal      ? JSON.parse(rawGoal)      : goal;
+    const prevHistory: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[]
+                       = rawHistory   ? JSON.parse(rawHistory)   : [];
+    const prevGoalHist: Record<string, number>
+                       = rawGoalHistory ? JSON.parse(rawGoalHistory) : {};
+
+    const prevPct = prevGoal > 0 ? Math.min(prevHyd / prevGoal, 1) : 0;
+
+    // Save yesterday snapshot to history
+    const yesterdayEntry = { date: yesterdayKey, oz: prevIntake, goal: prevGoal, breakdown: prevBreakdown };
+    const updatedHistory = [yesterdayEntry, ...prevHistory.filter((h) => h.date !== yesterdayKey)].slice(0, 30);
+    // Build updated goal history and trim to 30 days
+    const updatedGoalHistFull = { ...prevGoalHist, [yesterdayKey]: prevPct };
+    const updatedGoalHist = Object.fromEntries(
+      Object.entries(updatedGoalHistFull)
+        .sort(([a], [b]) => {
+          const [, ay, am, ad] = a.split('_').map(Number);
+          const [, by, bm, bd] = b.split('_').map(Number);
+          return new Date(ay, am - 1, ad).getTime() - new Date(by, bm - 1, bd).getTime();
+        })
+        .slice(-30)
+    );
+
+    // Wipe today's values
+    const todayKey = getTodayKey();
+
+    // Write reset lock before touching storage — if the app is killed mid-reset, next
+    // launch will detect this key in checkDateAndMaybeReset and re-run performDailyReset.
+    try { await AsyncStorage.setItem('reset_in_progress', yesterdayKey); } catch {}
+
+    try {
+      await Promise.all([
+        AsyncStorage.setItem("water_history",          JSON.stringify(updatedHistory)),
+        AsyncStorage.setItem("goal_history",           JSON.stringify(updatedGoalHist)),
+        AsyncStorage.setItem("water_total_hydration",  JSON.stringify(0)),
+        AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN)),
+        AsyncStorage.setItem("water_last_entry",       JSON.stringify(null)),
+        AsyncStorage.removeItem(`goal_celebrated_${yesterdayKey}`),
+        AsyncStorage.setItem("last_active_date",       todayKey),
+        AsyncStorage.setItem(todayKey,                 JSON.stringify(0)),
+        AsyncStorage.removeItem("water_log_entries"),
+      ]);
+    } catch {
+      // Keep the lock in place — next launch will retry the full reset.
+      return;
+    }
+
+    // All writes succeeded — release the lock.
+    try { await AsyncStorage.removeItem('reset_in_progress'); } catch {}
+
+    // Reset all state
+    setHistory(updatedHistory);
+    setGoalHistory(updatedGoalHist);
+    setIntake(0);
+    setTotalHydration(0);
+    setDisplayedHydration(0);
+    setCategoryBreakdown(EMPTY_BREAKDOWN);
+    setLastEntry(null);
+    setLastEntryHydratedOz(null);
+    setLastEntryCategory(null);
+    setResultMessage(null);
+    setLastReelOz(0);
+    setSpinning(false);
+    setJackpotFiredToday(false);
+    setShowCelebration(false);
+    setDrinkLogEntries([]);
+
+    if (showToast) {
+      showMorningToast();
+      playMorningResetSound();
+    }
+    // After reset, hydration is 0 — reschedule with clean slate (streak unknown here, use 0 safely)
+    rescheduleSmartNotifications(0, 0, goal);
+    sendHydrationUpdate({ hydrationOz: 0, goalOz: goal, pct: 0, streak: 0, selectedBeverages }).catch(() => {});
+  }
+
+  async function checkDateAndMaybeReset() {
+    const todayKey = getTodayKey();
+
+    // Resume any reset that was interrupted by a force-close.
+    try {
+      const lockVal = await AsyncStorage.getItem('reset_in_progress');
+      if (lockVal) {
+        await performDailyReset(false);
+        return;
+      }
+    } catch {}
+
+    const saved = await AsyncStorage.getItem("last_active_date");
+    if (saved && saved !== todayKey) {
+      await performDailyReset(true);
+    } else {
+      await AsyncStorage.setItem("last_active_date", todayKey);
+    }
+  }
+
+  function scheduleMidnightTimer() {
+    if (midnightTimer.current) clearTimeout(midnightTimer.current);
+    const now = new Date();
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
+    const msUntilMidnight = tomorrow.getTime() - now.getTime();
+    midnightTimer.current = setTimeout(async () => {
+      await performDailyReset(true);
+      scheduleMidnightTimer(); // reschedule for the next midnight
+    }, msUntilMidnight);
+  }
+
+  useEffect(() => {
+    scheduleMidnightTimer();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        checkDateAndMaybeReset();
+        setSpinning(false);
+        setJackpotSpinning(false);
+        reloadSounds();
+      } else if (state === "background" || state === "inactive") {
+        teardownSounds();
+        cancelPendingSync();
+      }
+    });
+    return () => {
+      sub.remove();
+      if (midnightTimer.current) clearTimeout(midnightTimer.current);
+      teardownSounds();
+      try { teardownWatch(); } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Backup jackpot trigger — only fires when we're NOT already in a jackpot spin.
+  // This catches edge cases (e.g. first load where goal is already met).
+  useEffect(() => {
+    if (totalHydration >= goal && goal > 0 && !jackpotFiredToday && !jackpotSpinning) {
+      const todayKey = getTodayKey();
+      const celebKey = `goal_celebrated_${todayKey}`;
+      setJackpotFiredToday(true);
+      (async () => { try { await AsyncStorage.setItem(celebKey, "1"); } catch {} })();
+      setShowCelebration(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalHydration]);
+
+  // ── Promo Code ────────────────────────────────────────────────────────────
+  async function redeemPromoCode() {
+    const code = promoCode.trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    try {
+      if (code === 'LIFETIME2026') {
+        const alreadyUsed = await AsyncStorage.getItem('LIFETIME2026_used');
+        if (alreadyUsed === 'true') {
+          Alert.alert('Already Redeemed', 'This code has already been used on this device.', [{ text: 'OK' }]);
+          return;
+        }
+        await AsyncStorage.setItem('LIFETIME2026_used', 'true');
+        await AsyncStorage.setItem('hasLifetimeAccess', 'true');
+        await checkProStatus();
+        setShowPromoModal(false);
+        setPromoCode('');
+        Alert.alert('🎉 Welcome to Pro!', 'You now have lifetime access to Liquid Luck Pro!', [{ text: "Let's Go!" }]);
+      } else {
+        Alert.alert('Invalid Code', 'That promo code is not valid.', [{ text: 'OK' }]);
+      }
+    } catch {
+      Alert.alert('Error', 'Something went wrong. Please try again.', [{ text: 'OK' }]);
+    } finally {
+      setPromoLoading(false);
+    }
+  }
+
+  // ── CSV Export ────────────────────────────────────────────────────────────
+  async function handleExportCSV() {
+    if (!isPro) { openPaywall('csv_export'); return; }
+
+    setExportLoading(true);
+    try {
+      // Load all history data
+      const [rawHistory, rawGoalHist] = await Promise.all([
+        AsyncStorage.getItem("water_history"),
+        AsyncStorage.getItem("goal_history"),
+      ]);
+
+      const historyArr: { date: string; oz: number; goal: number; breakdown?: Record<string, number> }[] =
+        rawHistory ? JSON.parse(rawHistory) : [];
+
+      if (historyArr.length === 0) {
+        Alert.alert("No History Yet", "No history to export yet — start logging to build your history!");
+        return;
+      }
+
+      const goalHistMap: Record<string, number> = rawGoalHist ? JSON.parse(rawGoalHist) : {};
+
+      // Build streak map: for each date key, what consecutive-day streak number was it?
+      const sortedKeys = Object.keys(goalHistMap)
+        .filter((k) => goalHistMap[k] >= 1.0)
+        .sort();
+      const streakMap: Record<string, number> = {};
+      let run = 0;
+      for (let i = 0; i < sortedKeys.length; i++) {
+        if (i === 0) {
+          run = 1;
+        } else {
+          const prev = new Date(sortedKeys[i - 1].replace(/water_(\d+)_(\d+)_(\d+)/, '$1-$2-$3'));
+          const cur  = new Date(sortedKeys[i].replace(/water_(\d+)_(\d+)_(\d+)/, '$1-$2-$3'));
+          const diff = Math.round((cur.getTime() - prev.getTime()) / 86400000);
+          run = diff === 1 ? run + 1 : 1;
+        }
+        streakMap[sortedKeys[i]] = run;
+      }
+
+      // Best streak
+      const bestStreak = streakMap[sortedKeys[sortedKeys.length - 1]] ?? 0;
+
+      // CSV header
+      const COLS = [
+        "Date", "Day of Week", "Daily Goal (oz)", "True Hydration (oz)",
+        "Total Consumed (oz)", "Hydration %", "Goal Hit",
+        "Water (oz)", "Coffee (oz)", "Tea (oz)", "Soda (oz)", "Juice (oz)",
+        "Sports Drink (oz)", "Beer (oz)", "Cocktail (oz)", "Wine (oz)",
+        "Milk (oz)", "Coconut Water (oz)", "Energy Drink (oz)", "Streak Day #",
+      ];
+
+      const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const BEV_EXPORT_KEYS: [string, string][] = [
+        ["water", "Water"], ["coffee", "Coffee"], ["tea", "Tea"],
+        ["soda", "Soda"], ["juice", "Juice"], ["sports", "Sports Drink"],
+        ["beer", "Beer"], ["cocktail", "Cocktail"], ["wine", "Wine"],
+        ["milk", "Milk"], ["coconut", "Coconut Water"], ["energy", "Energy Drink"],
+      ];
+
+      const rows: string[] = [COLS.join(",")];
+
+      let totalConsumed = 0;
+      let totalHydrated = 0;
+
+      // Take up to 30 most recent days, chronological order
+      const sorted = [...historyArr]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .slice(-30);
+
+      for (const day of sorted) {
+        const m = day.date.match(/water_(\d+)_(\d+)_(\d+)/);
+        if (!m) continue;
+        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const yyyy = d.getFullYear();
+        const dateStr = `${mm}/${dd}/${yyyy}`;
+        const dowStr = DOW[d.getDay()];
+        const goalOz = day.goal ?? 64;
+        const pct = goalHistMap[day.date] ?? 0;
+        const hydOz = Math.round(pct * goalOz * 10) / 10;
+        const consumedOz = day.oz ?? 0;
+        const goalHit = pct >= 1.0 ? "Yes" : "No";
+        const streakDay = streakMap[day.date] ?? 0;
+
+        totalConsumed += consumedOz;
+        totalHydrated += hydOz;
+
+        const bd = day.breakdown ?? {};
+        const bevCols = BEV_EXPORT_KEYS.map(([key]) => (bd[key] ?? 0).toFixed(1));
+
+        rows.push([
+          dateStr, dowStr,
+          goalOz.toFixed(1),
+          hydOz.toFixed(1),
+          consumedOz.toFixed(1),
+          Math.round(pct * 100).toString(),
+          goalHit,
+          ...bevCols,
+          streakDay.toString(),
+        ].join(","));
+      }
+
+      const csvContent = rows.join("\n");
+      const today = new Date();
+      const fileName = `LiquidLuck_Export_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}.csv`;
+      const file = new FSFile(FSPaths.document, fileName);
+      file.write(csvContent);
+
+      // Show summary before sharing
+      setExportSummary({
+        days: sorted.length,
+        totalConsumed: Math.round(totalConsumed),
+        totalHydrated: Math.round(totalHydrated),
+        bestStreak,
+        filePath: file.uri,
+      });
+      setShowExportSummary(true);
+    } catch {
+      Alert.alert("Export Failed", "Something went wrong while generating your export. Please try again.");
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  async function shareExportFile(filePath: string) {
+    try {
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert("Sharing Not Available", "File sharing is not supported on this device.");
+        return;
+      }
+      await Sharing.shareAsync(filePath, {
+        mimeType: "text/csv",
+        dialogTitle: "Share your Liquid Luck history",
+        UTI: "public.comma-separated-values-text",
+      });
+    } catch {
+      Alert.alert("Share Failed", "Could not open the share sheet. Please try again.");
+    } finally {
+      // Clean up temp file
+      try { new FSFile(filePath).delete(); } catch {}
+      setShowExportSummary(false);
+      setExportSummary(null);
+    }
+  }
+
+  async function loadData() {
+    try {
+      // Check if the date changed since last launch — resets if new day
+      await checkDateAndMaybeReset();
+      const todayKey = getTodayKey();
+      const celebKey = `goal_celebrated_${todayKey}`;
+
+      // Single batched read for all startup keys (Issues 7 & 8)
+      const results = await AsyncStorage.multiGet([
+        todayKey,
+        'water_goal',
+        'water_history',
+        'water_last_entry',
+        'water_last_hydrated',
+        'water_category_breakdown',
+        'water_last_category',
+        'water_total_hydration',
+        'goal_history',
+        'water_presets',
+        'lifetime_hydration_oz',
+        'lifetime_jackpots',
+        'lifetime_coffee_logs',
+        'lifetime_beer_logs',
+        'first_drink_time',
+        'health_permission_granted',
+        'health_sync_enabled',
+        'water_last_health_sample',
+        celebKey,
+        'notif_master_enabled',
+        'notif_morning_enabled',
+        'notif_progress_enabled',
+        'notif_streak_enabled',
+        'sound_enabled',
+        'custom_quick_add_amounts',
+        'haptics_enabled',
+        'water_log_entries',
+        'selected_sound_pack',
+        'selected_beverages',
+        'cloud_last_sync',
+      ]);
+
+      const store = new Map<string, string | null>(results);
+      const get = (key: string) => store.get(key) ?? null;
+
+      const savedIntake         = get(todayKey);
+      const savedGoal           = get('water_goal');
+      const savedHistory        = get('water_history');
+      const savedLastEntry      = get('water_last_entry');
+      const savedLastHydrated   = get('water_last_hydrated');
+      const savedBreakdown      = get('water_category_breakdown');
+      const savedLastCategory   = get('water_last_category');
+      const savedTotalHydration = get('water_total_hydration');
+      const savedGoalHistory    = get('goal_history');
+      const savedPresets        = get('water_presets');
+
+      const parsedIntake = savedIntake ? JSON.parse(savedIntake) : 0;
+      const parsedGoal   = savedGoal   ? JSON.parse(savedGoal)   : DEFAULT_GOAL;
+      if (savedIntake) setIntake(parsedIntake);
+      if (savedGoal) setGoal(parsedGoal);
+      if (savedHistory) setHistory(JSON.parse(savedHistory));
+      if (savedLastEntry) setLastEntry(JSON.parse(savedLastEntry));
+      if (savedLastHydrated) setLastEntryHydratedOz(JSON.parse(savedLastHydrated));
+      if (savedLastCategory) setLastEntryCategory(JSON.parse(savedLastCategory));
+      if (savedTotalHydration) {
+        const h = JSON.parse(savedTotalHydration);
+        setTotalHydration(h);
+        setDisplayedHydration(h); // sync immediately on load, no animation
+      }
+      if (savedGoalHistory) setGoalHistory(JSON.parse(savedGoalHistory));
+      if (savedPresets) setPresets(JSON.parse(savedPresets));
+
+      // Lifetime achievement stats
+      const savedLifeHyd    = get('lifetime_hydration_oz');
+      const savedLifeJack   = get('lifetime_jackpots');
+      const savedLifeCoffee = get('lifetime_coffee_logs');
+      const savedLifeBeer   = get('lifetime_beer_logs');
+      const savedFirstDrink = get('first_drink_time');
+      if (savedLifeHyd)    setLifetimeHydrationOz(JSON.parse(savedLifeHyd));
+      if (savedLifeJack)   setLifetimeJackpots(JSON.parse(savedLifeJack));
+      if (savedLifeCoffee) setLifetimeCoffeeLogs(JSON.parse(savedLifeCoffee));
+      if (savedLifeBeer)   setLifetimeBeerLogs(JSON.parse(savedLifeBeer));
+      if (savedFirstDrink) setFirstDrinkTime(savedFirstDrink);
+
+      // Apple Health settings
+      const savedHealthPerm   = get('health_permission_granted');
+      const savedHealthSync   = get('health_sync_enabled');
+      const savedHealthSample = get('water_last_health_sample');
+      if (savedHealthPerm   !== null) setHealthPermissionGranted(savedHealthPerm === "true");
+      if (savedHealthSync   !== null) setHealthSyncEnabled(savedHealthSync !== "false");
+      if (savedHealthSample) setLastHealthSampleTime(savedHealthSample);
+
+      // Jackpot-fired flag for today
+      if (get(celebKey)) setJackpotFiredToday(true);
+
+      const initPct = parsedGoal > 0 ? Math.min(parsedIntake / parsedGoal, 1) : 0;
+      requestHealthPermissionIfNeeded();
+
+      // Notification preferences — read first, apply to state, then reschedule
+      // so rescheduleSmartNotifications uses the real saved values (not the
+      // initial useState defaults which are all `true`).
+      const nMaster   = get('notif_master_enabled');
+      const nMorning  = get('notif_morning_enabled');
+      const nProgress = get('notif_progress_enabled');
+      const nStreak   = get('notif_streak_enabled');
+      const nMasterOn   = nMaster   === null ? true : nMaster   !== "false";
+      const nMorningOn  = nMorning  === null ? true : nMorning  !== "false";
+      const nProgressOn = nProgress === null ? true : nProgress !== "false";
+      const nStreakOn   = nStreak   === null ? true : nStreak   !== "false";
+      if (nMaster   !== null) setNotifMasterEnabled(nMasterOn);
+      if (nMorning  !== null) setNotifMorningEnabled(nMorningOn);
+      if (nProgress !== null) setNotifProgressEnabled(nProgressOn);
+      if (nStreak   !== null) setNotifStreakEnabled(nStreakOn);
+      // Pass preferences explicitly — state updates above are async dispatches
+      // and would not be visible to rescheduleSmartNotifications's closure yet.
+      rescheduleSmartNotifications(initPct, 0, Math.max(0, parsedGoal - parsedIntake), {
+        master:   nMasterOn,
+        morning:  nMorningOn,
+        progress: nProgressOn,
+        streak:   nStreakOn,
+      });
+
+      // Sound preference
+      const savedSound = get('sound_enabled');
+      if (savedSound !== null) {
+        const enabled = savedSound !== "false";
+        setSoundEnabledState(enabled);
+        setSoundEnabled(enabled);
+      }
+
+      // Custom quick add amounts
+      try {
+        const savedQA = get('custom_quick_add_amounts');
+        if (savedQA) {
+          const parsed = JSON.parse(savedQA);
+          if (Array.isArray(parsed) && parsed.length === 6) setQuickAddAmounts(parsed);
+        }
+      } catch {}
+
+      // Haptics preference
+      const savedHaptics = get('haptics_enabled');
+      if (savedHaptics !== null) setHapticsEnabled(savedHaptics !== "false");
+
+      // Today's drink log entries
+      try {
+        const savedEntries = get('water_log_entries');
+        if (savedEntries) setDrinkLogEntries(JSON.parse(savedEntries));
+      } catch {}
+
+      // Selected sound pack (requires side-effectful setActivePack call)
+      try {
+        const savedPack = get('selected_sound_pack');
+        if (savedPack) {
+          setSelectedSoundPack(savedPack);
+          await setActivePack(savedPack);
+        }
+      } catch {}
+
+      // Selected beverages (user's custom selection, 1–20)
+      try {
+        const savedBevs = get('selected_beverages');
+        if (savedBevs) {
+          const parsed: BevCategory[] = JSON.parse(savedBevs);
+          if (Array.isArray(parsed) && parsed.length >= 1) setSelectedBeverages(parsed);
+        }
+      } catch {}
+
+      // Last cloud sync time
+      const savedSyncTime = get('cloud_last_sync');
+      if (savedSyncTime) setLastSyncTime(savedSyncTime);
+
+      // Merge stored breakdown with new 20-key structure (backward compat)
+      if (savedBreakdown) {
+        try {
+          setCategoryBreakdown(mergeBreakdown(JSON.parse(savedBreakdown)));
+        } catch {}
+      }
+    } catch {}
+  }
+
+  async function savePreset(label: string, oz: number, category: BevCategory) {
+    const newPreset: Preset = { id: Date.now().toString(), label, oz, category };
+    const updated = [newPreset, ...presets].slice(0, 10);
+    setPresets(updated);
+    await AsyncStorage.setItem("water_presets", JSON.stringify(updated));
+  }
+
+  async function deletePreset(id: string) {
+    const updated = presets.filter((p) => p.id !== id);
+    setPresets(updated);
+    await AsyncStorage.setItem("water_presets", JSON.stringify(updated));
+  }
+
+  async function saveIntake(newIntake: number, newBreakdown: Record<BevCategory, number>, newHydration: number) {
+    const todayKey = getTodayKey();
+    const currentGoal = goal;
+    await AsyncStorage.setItem(todayKey, JSON.stringify(newIntake));
+    await AsyncStorage.setItem("water_total_hydration", JSON.stringify(newHydration));
+    const todayEntry = { date: todayKey, oz: newIntake, goal: currentGoal, breakdown: newBreakdown };
+    const updatedHistory = [
+      todayEntry,
+      ...history.filter((h) => h.date !== todayKey),
+    ].slice(0, 30);
+    setHistory(updatedHistory);
+    await AsyncStorage.setItem("water_history", JSON.stringify(updatedHistory));
+    // Update goal_history with today's hydration pct
+    const newGoalHistory = { ...goalHistory, [todayKey]: Math.min(newHydration / currentGoal, 1) };
+    setGoalHistory(newGoalHistory);
+    await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
+    // Push updated values to the home-screen widget (no-op in Expo Go / Android)
+    syncWidgetData(newHydration, currentGoal);
+  }
+
+  // Returns true when this drink triggers the jackpot for the first time today.
+  // Caller is responsible for showing the celebration (via spin sequence).
+  async function addWater(oz: number, category: BevCategory): Promise<boolean> {
+    const newIntake = intake + oz;
+    const hydratedOz = calcHydratedOz(oz, category);
+    const newHydration = Math.round((totalHydration + hydratedOz) * 10) / 10;
+    setIntake(newIntake);
+    setTotalHydration(newHydration);
+    const newBreakdown = { ...categoryBreakdown, [category]: categoryBreakdown[category] + oz };
+    setCategoryBreakdown(newBreakdown);
+    setLastEntry(oz);
+    setLastEntryHydratedOz(hydratedOz);
+    setLastEntryCategory(category);
+
+    const isJackpot = newHydration >= goal && !jackpotFiredToday;
+    if (isJackpot) {
+      setJackpotFiredToday(true);
+    }
+
+    // Add individual entry with timestamp
+    const newEntry: DrinkEntry = { oz, category, timestamp: Date.now(), hydrated: hydratedOz };
+    const newEntries = [...drinkLogEntries, newEntry];
+    setDrinkLogEntries(newEntries);
+
+    const saves: Promise<void>[] = [
+      AsyncStorage.setItem("water_category_breakdown", JSON.stringify(newBreakdown)),
+      saveIntake(newIntake, newBreakdown, newHydration),
+      AsyncStorage.setItem("water_last_entry", JSON.stringify(oz)),
+      AsyncStorage.setItem("water_last_hydrated", JSON.stringify(hydratedOz)),
+      AsyncStorage.setItem("water_last_category", JSON.stringify(category)),
+      AsyncStorage.setItem("water_log_entries", JSON.stringify(newEntries)),
+    ];
+    if (isJackpot) {
+      const celebKey = `goal_celebrated_${getTodayKey()}`;
+      saves.push(AsyncStorage.setItem(celebKey, "1"));
+    }
+    try {
+      await Promise.all(saves);
+    } catch (e) {
+      console.warn("addWater: failed to persist one or more values", e);
+    }
+
+    // Reschedule smart notifications based on current progress
+    const newHydPct = goal > 0 ? Math.min(newHydration / goal, 1) : 0;
+    const newRemOz  = Math.max(0, goal - newHydration);
+    // Compute current streak inline (goalHistory state is current at this point)
+    const streakNow = (() => {
+      let s = 0; const d = new Date();
+      while ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) { s++; d.setDate(d.getDate() - 1); }
+      return s;
+    })();
+    rescheduleSmartNotifications(newHydPct, streakNow, newRemOz);
+
+    // Sync raw consumed oz to Apple Health (silently, never blocks the return)
+    if (healthSyncEnabled && healthPermissionGranted && isHealthAvailable) {
+      saveWaterSample(oz).then((timestamp) => {
+        if (timestamp) {
+          setLastHealthSampleTime(timestamp);
+          AsyncStorage.setItem("water_last_health_sample", timestamp).catch(() => {});
+        }
+      });
+    }
+
+    // Update lifetime achievement stats
+    try {
+      const newLifeHyd    = Math.round((lifetimeHydrationOz + hydratedOz) * 10) / 10;
+      const newLifeJack   = lifetimeJackpots + (isJackpot ? 1 : 0);
+      const newLifeCoffee = lifetimeCoffeeLogs + (category === "coffee" ? 1 : 0);
+      const newLifeBeer   = lifetimeBeerLogs   + (category === "beer"   ? 1 : 0);
+      setLifetimeHydrationOz(newLifeHyd);
+      setLifetimeJackpots(newLifeJack);
+      setLifetimeCoffeeLogs(newLifeCoffee);
+      setLifetimeBeerLogs(newLifeBeer);
+      const lifeSaves: Promise<void>[] = [
+        AsyncStorage.setItem("lifetime_hydration_oz",  JSON.stringify(newLifeHyd)),
+        AsyncStorage.setItem("lifetime_jackpots",      JSON.stringify(newLifeJack)),
+        AsyncStorage.setItem("lifetime_coffee_logs",   JSON.stringify(newLifeCoffee)),
+        AsyncStorage.setItem("lifetime_beer_logs",     JSON.stringify(newLifeBeer)),
+      ];
+      // Record first drink time once, never overwrite
+      if (firstDrinkTime === null) {
+        const ts = new Date().toISOString();
+        setFirstDrinkTime(ts);
+        lifeSaves.push(AsyncStorage.setItem("first_drink_time", ts));
+      }
+      await Promise.all(lifeSaves);
+    } catch {}
+
+    // Fire achievement check
+    setAchievementTrigger((n) => n + 1);
+
+    // Fire immediate threshold notifications (once per day each)
+    const todayKey2 = getTodayKey();
+    if (newHydPct >= 0.5) {
+      fireImmediateNotifOnce(
+        `notif_50pct_fired_${todayKey2}`,
+        "Halfway to the jackpot! 🎰",
+        "You've hit 50% of your goal — keep the reels spinning!",
+        notifProgressEnabled,
+      );
+    }
+    if (newHydPct >= 0.8) {
+      fireImmediateNotifOnce(
+        `notif_80pct_fired_${todayKey2}`,
+        "So close to the jackpot! 💰",
+        `Only ${newRemOz.toFixed(1)} oz left — one more spin could do it!`,
+        notifProgressEnabled,
+      );
+    }
+    if (isJackpot) {
+      fireImmediateNotifOnce(
+        `notif_goal_fired_${todayKey2}`,
+        "JACKPOT! You did it! 🎰🏆",
+        `Daily goal crushed! Your ${streakNow} day streak continues — see you tomorrow!`,
+        notifProgressEnabled,
+      );
+      // Cancel all remaining reminders now that goal is hit
+      Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
+    }
+
+    // Cloud sync (background, debounced — never blocks return)
+    debouncedSyncTodayLog();
+    syncBeverageEntry({
+      date:         new Date().toISOString().slice(0, 10),
+      beverageName: category,
+      rawOz:        oz,
+      hydratedOz:   hydratedOz,
+      efficiency:   hydratedOz / oz,
+    }).catch(() => {});
+
+    // Push latest state to Apple Watch
+    sendHydrationUpdate({
+      hydrationOz: newHydration,
+      goalOz: goal,
+      pct: goal > 0 ? newHydration / goal : 0,
+      streak: streakNow,
+      selectedBeverages,
+    }).catch(() => {});
+
+    // Do NOT call setShowCelebration here — handleBet runs the spin sequence first
+    return isJackpot;
+  }
+
+  async function handleBet(oz: number) {
+    if (spinning || jackpotSpinning) return;
+    setResultMessage(null);
+    setLastReelOz(oz);
+    const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
+    const hydrated = calcHydratedOz(oz, selectedCategory);
+    const triggersJackpot = await addWater(oz, selectedCategory);
+
+    // Log Water haptic
+    haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+
+    // Start spin sound (loops until stopped)
+    playSpinSound();
+
+    if (triggersJackpot) {
+      // ── Jackpot spin sequence ──
+      setJackpotSpinning(true);
+      setSpinning(true);
+      playJackpotSound();
+
+      const bt = betTimersRef.current;
+      // Jackpot reel stop timings: reel1=2000ms, reel2=2800ms, reel3=3600ms
+      bt.push(setTimeout(() => { stopSpinSound(); playReelStopSound(0); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2000));
+      bt.push(setTimeout(() => { playReelStopSound(1); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2800));
+      bt.push(setTimeout(() => { playReelStopSound(2); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 3600));
+
+      // Tank fills and spray fires after reels stop
+      bt.push(setTimeout(() => {
+        setDisplayedHydration((prev) => prev + hydrated);
+        playWaterFillSound();
+        fireSpray();
+      }, 3700));
+
+      // Screen shake + jackpot haptic at 3600ms
+      bt.push(setTimeout(() => {
+        haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+        screenShakeAnim.setValue(0);
+        Animated.sequence([
+          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 0, duration: 37, useNativeDriver: true }),
+        ]).start();
+        setReelConfettiVisible(true);
+      }, 3600));
+
+      // Confetti disappears after 1s
+      bt.push(setTimeout(() => setReelConfettiVisible(false), 4600));
+
+      // Jackpot overlay fades in at 4000ms
+      bt.push(setTimeout(() => {
+        setSpinning(false);
+        setJackpotSpinning(false);
+        setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → JACKPOT! 🏆`);
+        setShowCelebration(true);
+        playWaterLogSound();
+      }, 4000));
+
+    } else {
+      const bt = betTimersRef.current;
+      // ── Normal spin ──
+      // Normal reel stop timings: reel1=1800ms, reel2=2025ms, reel3=2250ms
+      setSpinning(true);
+      bt.push(setTimeout(() => { stopSpinSound(); playReelStopSound(0); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 1800));
+      bt.push(setTimeout(() => { playReelStopSound(1); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2025));
+      bt.push(setTimeout(() => { playReelStopSound(2); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2250));
+      bt.push(setTimeout(() => {
+        setDisplayedHydration((prev) => prev + hydrated);
+        setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → ${hydrated} oz hydration`);
+        setSpinning(false);
+        fireSpray();
+        playWaterLogSound();
+        playWaterFillSound();
+      }, 3100));
+    }
+  }
+
+  function promptCategory(oz: number) {
+    setPendingOz(oz);
+    setShowCategoryModal(true);
+  }
+
+  function handleCategorySelect(category: BevCategory) {
+    if (pendingOz === null) return;
+    addWater(pendingOz, category);
+    setShowCategoryModal(false);
+    setPendingOz(null);
+  }
+
+  function undoLastEntry() {
+    if (lastEntry === null) return;
+    const catLabel = lastEntryCategory ? (CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? lastEntryCategory) : "drink";
+    Alert.alert(
+      "Undo Last Entry",
+      `Remove ${lastEntry} oz ${catLabel} from today's total?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Undo",
+          style: "destructive",
+          onPress: async () => {
+            haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
+            const newIntake = Math.max(0, intake - lastEntry);
+            const newHydration = Math.max(0, Math.round((totalHydration - (lastEntryHydratedOz ?? 0)) * 10) / 10);
+            setIntake(newIntake);
+            setTotalHydration(newHydration);
+            setDisplayedHydration(newHydration);
+            let newBreakdown = categoryBreakdown;
+            if (lastEntryCategory !== null) {
+              newBreakdown = { ...categoryBreakdown, [lastEntryCategory]: Math.max(0, categoryBreakdown[lastEntryCategory] - lastEntry) };
+              setCategoryBreakdown(newBreakdown);
+              setLastEntryCategory(null);
+            }
+            setLastEntry(null);
+            setLastEntryHydratedOz(null);
+            // Remove last drink log entry
+            const newEntries = drinkLogEntries.slice(0, -1);
+            setDrinkLogEntries(newEntries);
+            await AsyncStorage.setItem("water_log_entries", JSON.stringify(newEntries));
+            // Attempt to delete the matching Health sample (silent failure is fine)
+            if (lastHealthSampleTime) {
+              deleteWaterSample(lastHealthSampleTime).catch(() => {});
+              setLastHealthSampleTime(null);
+            }
+            await Promise.all([
+              AsyncStorage.setItem("water_category_breakdown", JSON.stringify(newBreakdown)),
+              saveIntake(newIntake, newBreakdown, newHydration),
+              AsyncStorage.removeItem("water_last_entry"),
+              AsyncStorage.removeItem("water_last_hydrated"),
+              AsyncStorage.removeItem("water_last_category"),
+              AsyncStorage.removeItem("water_last_health_sample"),
+            ]);
+          },
+        },
+      ],
+    );
+  }
+
+  function handleCustomAdd() {
+    const raw = parseFloat(customAmount);
+    if (!isNaN(raw) && raw > 0) {
+      const oz = customUnit === "ml" ? Math.round((raw / 29.5735) * 10) / 10 : raw;
+      setShowCustomModal(false);
+      setCustomAmount("");
+      setCustomUnit("oz");
+      setPendingBetOz(oz);
+    } else {
+      Alert.alert("Please enter a valid amount");
+    }
+  }
+
+  function closeCustomModal() {
+    setShowCustomModal(false);
+    setCustomAmount("");
+    setCustomUnit("oz");
+  }
+
+  /** Reschedule notifications immediately after a goal change. */
+  function rescheduleAfterGoalChange(newGoalOz: number) {
+    const h = totalHydrationRef.current;
+    const newPct    = newGoalOz > 0 ? Math.min(h / newGoalOz, 1) : 0;
+    const newRemOz  = Math.max(0, newGoalOz - h);
+    const gh        = goalHistoryRef.current;
+    const streakNow = (() => {
+      let s = 0; const d = new Date();
+      while ((gh[getDateKey(d)] ?? 0) >= 1.0) { s++; d.setDate(d.getDate() - 1); }
+      return s;
+    })();
+    rescheduleSmartNotifications(newPct, streakNow, newRemOz);
+  }
+
+  async function handleSetGoal() {
+    const g = parseFloat(newGoal);
+    if (!isNaN(g) && g > 0) {
+      haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+      setGoal(g);
+      await AsyncStorage.setItem("water_goal", JSON.stringify(g));
+      closeGoalModal();
+      sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: g, pct: g > 0 ? totalHydration / g : 0, streak: 0, selectedBeverages }).catch(() => {});
+      rescheduleAfterGoalChange(g);
+    } else {
+      Alert.alert("Invalid Goal", "Please enter a valid number.");
+    }
+  }
+
+  async function handleSetGallonGoal(oz: number) {
+    haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+    setGoal(oz);
+    await AsyncStorage.setItem("water_goal", JSON.stringify(oz));
+    closeGoalModal();
+    sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: oz, pct: oz > 0 ? totalHydration / oz : 0, streak: 0, selectedBeverages }).catch(() => {});
+    rescheduleAfterGoalChange(oz);
+  }
+
+  function calcSuggestedOz(): number | null {
+    let weightLbs: number;
+    if (weightMode === "type") {
+      const w = parseFloat(typeWeight);
+      if (isNaN(w) || w < 80 || w > 400) return null;
+      weightLbs = w;
+    } else {
+      weightLbs = suggWeightLbs;
+    }
+    let feet: number;
+    let inches: number;
+    if (heightMode === "type") {
+      const f = parseFloat(typeFeet);
+      const i = parseFloat(typeInches);
+      if (isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11) return null;
+      feet = f;
+      inches = i;
+    } else {
+      feet = suggFeet;
+      inches = suggInches;
+    }
+    const factor =
+      suggActivity === "sedentary" ? 0.5 :
+      suggActivity === "moderate" ? 0.6 : 0.7;
+    let oz = weightLbs * factor;
+    const totalInches = feet * 12 + inches;
+    if (totalInches > 60) oz += Math.floor((totalInches - 60) / 6) * 12;
+    return Math.min(Math.round(oz), 128);
+  }
+
+  function switchWeightMode(mode: "scroll" | "type") {
+    if (mode === "type" && weightMode === "scroll") {
+      setTypeWeight(String(suggWeightLbs));
+    } else if (mode === "scroll" && weightMode === "type") {
+      const w = parseFloat(typeWeight);
+      if (!isNaN(w) && w >= 80 && w <= 400) setSuggWeightLbs(Math.round(w));
+    }
+    setWeightMode(mode);
+  }
+
+  function switchHeightMode(mode: "scroll" | "type") {
+    if (mode === "type" && heightMode === "scroll") {
+      setTypeFeet(String(suggFeet));
+      setTypeInches(String(suggInches));
+    } else if (mode === "scroll" && heightMode === "type") {
+      const f = parseFloat(typeFeet);
+      const i = parseFloat(typeInches);
+      if (!isNaN(f) && f >= 4 && f <= 7) setSuggFeet(Math.round(f));
+      if (!isNaN(i) && i >= 0 && i <= 11) setSuggInches(Math.round(i));
+    }
+    setHeightMode(mode);
+  }
+
+  async function handleUseSuggestedGoal() {
+    const oz = calcSuggestedOz();
+    if (oz === null) return;
+    setGoal(oz);
+    await AsyncStorage.setItem("water_goal", JSON.stringify(oz));
+    closeGoalModal();
+    rescheduleAfterGoalChange(oz);
+  }
+
+  function closeGoalModal() {
+    setShowGoalModal(false);
+    setNewGoal("");
+    setGoalTab("custom");
+    setSuggWeightLbs(150);
+    setSuggFeet(5);
+    setSuggInches(7);
+    setSuggActivity("sedentary");
+    setWeightMode("scroll");
+    setHeightMode("scroll");
+    setTypeWeight("");
+    setTypeFeet("");
+    setTypeInches("");
+  }
+
+  async function resetToday() {
+    Alert.alert(
+      "Reset Today",
+      "Are you sure you want to reset today's intake?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error));
+            setIntake(0);
+            setTotalHydration(0);
+            setDisplayedHydration(0);
+            setCategoryBreakdown(EMPTY_BREAKDOWN);
+            setLastEntry(null);
+            setLastEntryHydratedOz(null);
+            setLastEntryCategory(null);
+            setDrinkLogEntries([]);
+            await AsyncStorage.setItem(getTodayKey(), JSON.stringify(0));
+            await AsyncStorage.setItem("water_total_hydration", JSON.stringify(0));
+            await AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
+            await AsyncStorage.removeItem("water_last_entry");
+            await AsyncStorage.removeItem("water_last_hydrated");
+            await AsyncStorage.removeItem("water_last_category");
+            await AsyncStorage.removeItem("water_log_entries");
+            const todayKey = getTodayKey();
+            const newGoalHistory = { ...goalHistory };
+            delete newGoalHistory[todayKey];
+            setGoalHistory(newGoalHistory);
+            await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
+          },
+        },
+      ],
+    );
+  }
+
+  const hydrationPct = Math.min(goal > 0 ? totalHydration / goal : 0, 1);
+  const stage = getStage(hydrationPct);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const suggestedOz = useMemo(() => calcSuggestedOz(), [
+    weightMode, typeWeight, suggWeightLbs,
+    heightMode, typeFeet, typeInches, suggFeet, suggInches, suggActivity,
+  ]);
+  const streak = useMemo(() => {
+    let s = 0;
+    const d = new Date();
+    while (true) {
+      const key = getDateKey(d);
+      if ((goalHistory[key] ?? 0) >= 1.0) { s++; d.setDate(d.getDate() - 1); }
+      else break;
+    }
+    return s;
+  }, [goalHistory]);
+
+  const prevStreakRef = useRef(0);
+  useEffect(() => {
+    const prev = prevStreakRef.current;
+    if (streak > prev) {
+      const STREAK_NOTIFS: Record<number, [string, string]> = {
+        3:  ["3 Day Streak! 🔥",   "You're on fire — 3 days of hitting your goal!"],
+        7:  ["One Week Streak! 🏆", "A full week of jackpots — you're a hydration legend!"],
+        14: ["Two Week Streak! 👑", "14 days straight — unstoppable!"],
+        30: ["30 Day Streak! 🌊",  "A whole month of jackpots — you're a Liquid Luck legend!"],
+      };
+      if (STREAK_NOTIFS[streak]) {
+        playStreakSound();
+        haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+        const [title, body] = STREAK_NOTIFS[streak];
+        fireImmediateNotifOnce(`notif_streak_${streak}_${getTodayKey()}`, title, body, notifStreakEnabled);
+      }
+      // Show confetti milestone card for 3, 7, 14, 30 — only once per milestone
+      const CONFETTI_MILESTONES = [3, 7, 14, 30];
+      if (CONFETTI_MILESTONES.includes(streak)) {
+        const milestoneKey = `streak_milestone_${streak}_shown`;
+        (async () => {
+          try {
+            const shown = await AsyncStorage.getItem(milestoneKey);
+            if (!shown) {
+              await AsyncStorage.setItem(milestoneKey, "1");
+              setStreakMilestone(streak);
+            }
+          } catch {}
+        })();
+      }
+    }
+    prevStreakRef.current = streak;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streak]);
+
+  if (showOnboarding) {
+    return <Onboarding onComplete={handleOnboardingComplete} />;
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: "#0a0520" }}>
+      <StatusBar barStyle="light-content" backgroundColor="#0a0520" />
+      <StarParticles />
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <Animated.ScrollView
+        contentContainerStyle={[styles.scroll, { paddingTop: 0 }]}
+        keyboardShouldPersistTaps="handled"
+        style={{ transform: [{ translateX: screenShakeAnim }] }}
+      >
+
+        {/* Casino Header */}
+        <MarqueeHeader goal={goal} hydration={totalHydration} />
+
+        {/* Art Deco Vault — unified tank + slot machine */}
+        <View onLayout={(e) => setReelFrameY(e.nativeEvent.layout.y)}>
+          <ArtDecoVault
+            pct={Math.min(displayedHydration / goal, 1)}
+            oz={displayedHydration}
+            goal={goal}
+            category={selectedCategory}
+            lastReelOz={lastReelOz}
+            spinning={spinning}
+            jackpotMode={jackpotSpinning}
+            onSpoutRef={(x, y) => setSpoutOrigin({ x, y })}
+          />
+        </View>
+
+        {/* Beverage Selector */}
+        <BeverageSelector
+          selected={selectedCategory}
+          onSelect={setSelectedCategory}
+          onCustom={() => setShowCustomModal(true)}
+          visibleBevs={selectedBeverages}
+          onEditBevs={() => {
+            if (!isPro) { openPaywall('customize_beverages'); return; }
+            setShowChooseBevs(true);
+          }}
+        />
+
+        {/* Quick Bet Buttons */}
+        <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}>
+          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
+          <TouchableOpacity
+            onPress={() => { if (!isPro) { openPaywall('customize_quick_add'); return; } setShowQuickAddModal(true); }}
+            activeOpacity={0.7}
+            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" }}
+          >
+            <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
+          </TouchableOpacity>
+        </View>
+        <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} />
+
+        {/* Undo Last Entry — prominent full-width button below quick add */}
+        <TouchableOpacity
+          style={[
+            undoStyles.btn,
+            lastEntry === null && undoStyles.btnDisabled,
+          ]}
+          onPress={undoLastEntry}
+          disabled={lastEntry === null}
+          activeOpacity={0.75}
+        >
+          <Text style={[undoStyles.btnText, lastEntry === null && undoStyles.btnTextDisabled]}>
+            {lastEntry !== null && lastEntryCategory
+              ? `↩ Undo last: +${formatOz(lastEntry)} oz ${CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? ""}`
+              : lastEntry !== null
+              ? `↩ Undo last: +${formatOz(lastEntry)} oz`
+              : "↩ No entry to undo"}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Result Box */}
+        <ResultBox message={resultMessage} />
+
+        {/* Stats Bar */}
+        <StatsBar
+          goal={goal}
+          hydration={totalHydration}
+          intake={intake}
+          streak={streak}
+          healthActive={healthPermissionGranted && healthSyncEnabled}
+          onHealthPress={() => setShowHealthModal(true)}
+        />
+
+        {/* Drink Log */}
+        <DrinkLog breakdown={categoryBreakdown} intake={intake} entries={drinkLogEntries} />
+
+        {/* Weather Banner */}
+        {weatherBannerOz !== null && !weatherBannerDismissed && (
+          <WeatherBanner
+            tempF={weatherTempF!}
+            extraOz={weatherBannerOz}
+            stageColor="#FFD700"
+            onApply={() => {
+              const newG = goal + weatherBannerOz!;
+              setGoal(newG);
+              AsyncStorage.setItem("water_goal", JSON.stringify(newG));
+              setWeatherBannerDismissed(true);
+            }}
+            onDismiss={() => setWeatherBannerDismissed(true)}
+          />
+        )}
+
+        {/* Goal History Calendar */}
+        <GoalHistory goalHistory={goalHistory} history={history} />
+
+        {/* Achievements */}
+        <Achievements
+          trigger={achievementTrigger}
+          streak={streak}
+          goalHistory={goalHistory}
+          totalHydration={totalHydration}
+          intake={intake}
+          goal={goal}
+          categoryBreakdown={categoryBreakdown}
+          lifetimeHydrationOz={lifetimeHydrationOz}
+          lifetimeJackpots={lifetimeJackpots}
+          lifetimeCoffeeLogs={lifetimeCoffeeLogs}
+          lifetimeBeerLogs={lifetimeBeerLogs}
+          firstDrinkTime={firstDrinkTime}
+          onBadgeUnlocked={() => { playBadgeUnlockSound(); syncAchievements().catch(() => {}); }}
+        />
+
+        {/* Weekly Summary */}
+        <WeeklySummaryCard history={history} goalHistory={goalHistory} />
+
+        {/* Beverage Trends */}
+        <BevTrendsChart history={history} />
+
+        {/* Presets Row */}
+        {presets.length > 0 && (
+          <PresetsRow
+            presets={presets}
+            onSelect={(p) => addWater(p.oz, p.category)}
+            onDelete={deletePreset}
+          />
+        )}
+
+        {/* Trophy Case */}
+        <TrophyCase goalHistory={goalHistory} />
+
+        {/* Action Buttons */}
+        <View style={[styles.actionRow, { marginBottom: 8 }]}>
+          <TouchableOpacity style={casinoActionBtn} onPress={() => setShowGoalModal(true)}>
+            <Text style={casinoActionBtnText}>🎯 Set Goal</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={casinoActionBtn} onPress={resetToday}>
+            <Text style={casinoActionBtnText}>🔄 Reset</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[casinoActionBtn, lastEntry === null && { opacity: 0.4 }]}
+            onPress={undoLastEntry}
+            disabled={lastEntry === null}
+          >
+            <Text style={casinoActionBtnText}>↩ Undo</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={[styles.actionRow, { marginBottom: 16 }]}>
+          <TouchableOpacity style={casinoActionBtn} onPress={() => setShowSettingsModal(true)}>
+            <Text style={casinoActionBtnText}>⚙️ Settings</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity
+          style={{ alignSelf: 'center', padding: 16, marginBottom: 32 }}
+          activeOpacity={0.7}
+          onPress={() => setShowPromoModal(true)}
+        >
+          <Text style={{ color: '#FFD700', fontSize: 14, fontWeight: '700' }}>🎁 Redeem Code</Text>
+        </TouchableOpacity>
+
+      </Animated.ScrollView>
+      </TouchableWithoutFeedback>
+
+      {/* iOS: InputAccessoryView for Custom Amount */}
+      {Platform.OS === "ios" && (
+        <InputAccessoryView nativeID={CUSTOM_ACCESSORY_ID}>
+          <View style={styles.iosKbBar}>
+            <TouchableOpacity onPress={Keyboard.dismiss}>
+              <Text style={[styles.iosKbDone, { color: stage.color }]}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
+
+      {/* Android: floating Done button above keyboard for Custom Amount */}
+      {Platform.OS === "android" && kbHeight > 0 && (
+        <View style={[styles.androidKbBar, { bottom: kbHeight }]}>
+          <TouchableOpacity onPress={Keyboard.dismiss}>
+            <Text style={[styles.androidKbDone, { color: stage.color }]}>Done</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Custom Amount Modal */}
+      <Modal visible={showCustomModal} transparent animationType="fade" onRequestClose={closeCustomModal}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={styles.modalBox}>
+                  {/* Close button */}
+                  <View style={styles.kbToolbar}>
+                    <TouchableOpacity onPress={closeCustomModal}>
+                      <Text style={[styles.kbDoneBtn, { color: stage.color }]}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.modalTitle}>💧 Add Custom Amount</Text>
+                  <View style={styles.modalDivider} />
+
+                  {/* Unit toggle */}
+                  <View style={styles.modalTabs}>
+                    {(["oz", "ml"] as const).map((u) => (
+                      <TouchableOpacity
+                        key={u}
+                        style={[styles.modalTab, customUnit === u ? { backgroundColor: stage.color } : styles.modalTabInactive]}
+                        onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
+                      >
+                        <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Input */}
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
+                    placeholderTextColor="#AAAAAA"
+                    keyboardType="decimal-pad"
+                    inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
+                    value={customAmount}
+                    onChangeText={setCustomAmount}
+                    autoFocus
+                  />
+
+                  {/* Live conversion */}
+                  {(() => {
+                    const n = parseFloat(customAmount);
+                    if (isNaN(n) || n <= 0) return null;
+                    const label = customUnit === "oz"
+                      ? `= ${ozToMl(n)} ml`
+                      : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
+                    return <Text style={styles.modalMl}>{label}</Text>;
+                  })()}
+
+                  {/* Drink selector */}
+                  <Text style={[styles.modalFieldLabel, { marginTop: 16 }]}>Select Drink</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
+                    {CATEGORIES.map((cat) => {
+                      const isSel = cat.key === selectedCategory;
+                      return (
+                        <TouchableOpacity
+                          key={cat.key}
+                          style={{
+                            width: "22%",
+                            borderWidth: 2,
+                            borderRadius: 12,
+                            paddingVertical: 8,
+                            alignItems: "center",
+                            backgroundColor: isSel ? cat.color + "22" : "#ffffff",
+                            borderColor: isSel ? cat.color : "#E0E0E0",
+                          }}
+                          onPress={() => setSelectedCategory(cat.key)}
+                        >
+                          <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
+                          <Text style={{ fontSize: 10, fontWeight: "700", color: isSel ? cat.color : "#666", marginTop: 2, textAlign: "center" }}>{cat.label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {/* Buttons */}
+                  <View style={styles.modalBtnRow}>
+                    <TouchableOpacity style={styles.modalCancel} onPress={closeCustomModal}>
+                      <Text style={styles.modalCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: stage.color }]} onPress={handleCustomAdd}>
+                      <Text style={styles.modalConfirmText}>Add</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+        {Platform.OS === "ios" && (
+          <InputAccessoryView nativeID={CUSTOM_ACCESSORY_ID}>
+            <View style={styles.iosKbBar}>
+              <TouchableOpacity onPress={Keyboard.dismiss}>
+                <Text style={[styles.iosKbDone, { color: stage.color }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
+      </Modal>
+
+      {/* Place Your Bet Confirmation Modal */}
+      <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => setPendingBetOz(null)}>
+        <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.75)" }}>
+          <View style={{
+            backgroundColor: "#0d0030",
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            padding: 28,
+            borderTopWidth: 2,
+            borderLeftWidth: 1,
+            borderRightWidth: 1,
+            borderColor: GOLD,
+          }}>
+            {/* Title */}
+            <Text style={{ color: GOLD, fontSize: 11, fontWeight: "800", letterSpacing: 3, textAlign: "center", marginBottom: 20 }}>
+              CONFIRM YOUR BET
+            </Text>
+
+            {/* Chosen drink */}
+            {(() => {
+              const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
+              return (
+                <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,215,0,0.08)", borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)" }}>
+                  <Text style={{ fontSize: 40, marginRight: 14 }}>{cat.emoji}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "800" }}>{cat.label}</Text>
+                    <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 2 }}>
+                      {Math.round(getBev(cat.key).eff * 100)}% hydration efficiency
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: "flex-end" }}>
+                    <Text style={{ color: GOLD, fontSize: 26, fontWeight: "900" }}>{pendingBetOz} oz</Text>
+                    <Text style={{ color: "rgba(255,215,0,0.6)", fontSize: 11, marginTop: 2 }}>
+                      → {pendingBetOz !== null ? calcHydratedOz(pendingBetOz, selectedCategory) : 0} oz hydrated
+                    </Text>
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* PLACE YOUR BET */}
+            <TouchableOpacity
+              style={{
+                backgroundColor: GOLD,
+                borderRadius: 14,
+                paddingVertical: 18,
+                alignItems: "center",
+                marginBottom: 12,
+              }}
+              onPress={() => {
+                playButtonTapSound();
+                const oz = pendingBetOz!;
+                setPendingBetOz(null);
+                handleBet(oz);
+              }}
+            >
+              <Text style={{ color: "#0a0520", fontSize: 18, fontWeight: "900", letterSpacing: 2 }}>🎰 PLACE YOUR BET</Text>
+            </TouchableOpacity>
+
+            {/* Cancel */}
+            <TouchableOpacity
+              style={{ alignItems: "center", paddingVertical: 16 }}
+              onPress={() => setPendingBetOz(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 24, right: 24 }}
+            >
+              <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 14 }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Category Picker Modal */}
+      <Modal
+        visible={showCategoryModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => { setShowCategoryModal(false); setPendingOz(null); setCustomAmount(""); setCustomUnit("oz"); setCatPickerShowAll(false); }}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback onPress={() => {}}>
+            <View style={styles.modalBox}>
+              <View style={styles.kbToolbar}>
+                <TouchableOpacity onPress={() => { setShowCategoryModal(false); setPendingOz(null); setCustomAmount(""); setCustomUnit("oz"); setCatPickerShowAll(false); }}>
+                  <Text style={[styles.kbDoneBtn, { color: stage.color }]}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modalTitle}>What did you drink?</Text>
+              <View style={styles.modalDivider} />
+              <View style={styles.categoryGrid}>
+                {(catPickerShowAll ? CATEGORIES : selectedBeverages.map(getBev)).map((cat) => (
+                  <TouchableOpacity
+                    key={cat.key}
+                    style={[styles.categoryBtn, { borderColor: cat.color }]}
+                    onPress={() => { setCatPickerShowAll(false); handleCategorySelect(cat.key); }}
+                  >
+                    <Text style={styles.categoryEmoji}>{cat.emoji}</Text>
+                    <Text style={[styles.categoryLabel, { color: cat.color }]}>{cat.label}</Text>
+                  </TouchableOpacity>
+                ))}
+                {!catPickerShowAll && (
+                  <TouchableOpacity
+                    style={[styles.categoryBtn, { borderColor: "rgba(255,215,0,0.5)" }]}
+                    onPress={() => setCatPickerShowAll(true)}
+                  >
+                    <Text style={styles.categoryEmoji}>🔍</Text>
+                    <Text style={[styles.categoryLabel, { color: GOLD }]}>More...</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </Modal>
+
+      {/* Choose Your 7 Beverages Modal */}
+      <ChooseBevsModal
+        visible={showChooseBevs}
+        current={selectedBeverages}
+        onSave={async (bevs) => {
+          setSelectedBeverages(bevs);
+          setShowChooseBevs(false);
+          try {
+            await AsyncStorage.setItem("selected_beverages", JSON.stringify(bevs));
+          } catch {}
+        }}
+        onCancel={() => setShowChooseBevs(false)}
+      />
+
+      {/* Set Goal Modal */}
+      <Modal visible={showGoalModal} transparent animationType="fade" onRequestClose={closeGoalModal}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={styles.modalBox}>
+                  {/* Close button */}
+                  <View style={styles.kbToolbar}>
+                    <TouchableOpacity onPress={closeGoalModal}>
+                      <Text style={[styles.kbDoneBtn, { color: stage.color }]}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+            {/* Title */}
+            <Text style={styles.modalTitle}>💧 Set Daily Goal</Text>
+            <View style={styles.modalDivider} />
+
+            {/* Tabs */}
+            <View style={styles.modalTabs}>
+              {(["custom", "gallon", "suggested"] as const).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  style={[
+                    styles.modalTab,
+                    goalTab === tab
+                      ? { backgroundColor: stage.color }
+                      : styles.modalTabInactive,
+                  ]}
+                  onPress={() => setGoalTab(tab)}
+                >
+                  <Text style={[styles.modalTabText, goalTab === tab && styles.modalTabTextActive]}>
+                    {tab === "custom" ? "Custom" : tab === "gallon" ? "Gallon" : "Suggested"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Custom Tab */}
+            {goalTab === "custom" && (
+              <View>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Enter goal in oz..."
+                  placeholderTextColor="#AAAAAA"
+                  keyboardType="decimal-pad"
+                  inputAccessoryViewID={KB_ACCESSORY_ID}
+                  value={newGoal}
+                  onChangeText={setNewGoal}
+                />
+                <Text style={styles.modalMl}>
+                  {newGoal ? `= ${ozToMl(parseFloat(newGoal) || 0)} ml` : ""}
+                </Text>
+                <View style={styles.modalBtnRow}>
+                  <TouchableOpacity style={styles.modalCancel} onPress={closeGoalModal}>
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: stage.color }]} onPress={handleSetGoal}>
+                    <Text style={styles.modalConfirmText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* Gallon Tab */}
+            {goalTab === "gallon" && (
+              <View>
+                <View style={{ flexDirection: "row", gap: 12 }}>
+                  {[
+                    { label: "Half Gallon", oz: 64 },
+                    { label: "1 Gallon", oz: 128 },
+                  ].map(({ label, oz }) => (
+                    <TouchableOpacity
+                      key={oz}
+                      style={[
+                        styles.gallonPreset,
+                        { flex: 1 },
+                        goal === oz && { borderColor: stage.color, backgroundColor: stage.color + "18" },
+                      ]}
+                      onPress={() => handleSetGallonGoal(oz)}
+                    >
+                      <Text style={styles.gallonPresetLabel}>{label}</Text>
+                      <Text style={[styles.gallonPresetOz, goal === oz && { color: stage.color }]}>{oz} oz</Text>
+                      <Text style={styles.gallonPresetMl}>{ozToMl(oz)} ml</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <TouchableOpacity style={[styles.modalCancel, { marginTop: 12 }]} onPress={closeGoalModal}>
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Suggested Tab */}
+            {goalTab === "suggested" && (
+              <View>
+                {/* Weight */}
+                <View style={styles.inputModeHeader}>
+                  <Text style={styles.modalFieldLabel}>Weight</Text>
+                  <View style={styles.modeToggle}>
+                    {(["scroll", "type"] as const).map((m) => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[styles.modeBtn, weightMode === m && { backgroundColor: stage.color }]}
+                        onPress={() => switchWeightMode(m)}
+                      >
+                        <Text style={[styles.modeBtnText, weightMode === m && styles.modeBtnTextActive]}>
+                          {m === "scroll" ? "Scroll" : "Type"}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                {weightMode === "scroll" ? (
+                  <View style={styles.pickerRow}>
+                    <ScrollPicker
+                      items={Array.from({ length: 321 }, (_, i) => i + 80)}
+                      selectedIndex={suggWeightLbs - 80}
+                      onIndexChange={(i) => setSuggWeightLbs(i + 80)}
+                      label="lbs"
+                    />
+                  </View>
+                ) : (
+                  <View>
+                    <TextInput
+                      style={styles.typeInput}
+                      placeholder="Weight in lbs"
+                      placeholderTextColor="#AAAAAA"
+                      keyboardType="numeric"
+                      inputAccessoryViewID={KB_ACCESSORY_ID}
+                      value={typeWeight}
+                      onChangeText={setTypeWeight}
+                    />
+                    {typeWeight.length > 0 && (() => { const w = parseFloat(typeWeight); return isNaN(w) || w < 80 || w > 400; })() && (
+                      <Text style={styles.validationError}>Please enter a valid weight (80–400 lbs)</Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Height */}
+                <View style={styles.inputModeHeader}>
+                  <Text style={styles.modalFieldLabel}>Height</Text>
+                  <View style={styles.modeToggle}>
+                    {(["scroll", "type"] as const).map((m) => (
+                      <TouchableOpacity
+                        key={m}
+                        style={[styles.modeBtn, heightMode === m && { backgroundColor: stage.color }]}
+                        onPress={() => switchHeightMode(m)}
+                      >
+                        <Text style={[styles.modeBtnText, heightMode === m && styles.modeBtnTextActive]}>
+                          {m === "scroll" ? "Scroll" : "Type"}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                {heightMode === "scroll" ? (
+                  <View style={styles.pickerRow}>
+                    <ScrollPicker
+                      items={[4, 5, 6, 7]}
+                      selectedIndex={suggFeet - 4}
+                      onIndexChange={(i) => setSuggFeet(i + 4)}
+                      label="ft"
+                    />
+                    <ScrollPicker
+                      items={Array.from({ length: 12 }, (_, i) => i)}
+                      selectedIndex={suggInches}
+                      onIndexChange={(i) => setSuggInches(i)}
+                      label="in"
+                    />
+                  </View>
+                ) : (
+                  <View>
+                    <View style={styles.typeHeightRow}>
+                      <TextInput
+                        style={[styles.typeInput, { flex: 1 }]}
+                        placeholder="ft"
+                        placeholderTextColor="#AAAAAA"
+                        keyboardType="numeric"
+                        inputAccessoryViewID={KB_ACCESSORY_ID}
+                        value={typeFeet}
+                        onChangeText={setTypeFeet}
+                      />
+                      <TextInput
+                        style={[styles.typeInput, { flex: 1 }]}
+                        placeholder="in"
+                        placeholderTextColor="#AAAAAA"
+                        keyboardType="numeric"
+                        inputAccessoryViewID={KB_ACCESSORY_ID}
+                        value={typeInches}
+                        onChangeText={setTypeInches}
+                      />
+                    </View>
+                    {(typeFeet.length > 0 || typeInches.length > 0) && (() => {
+                      const f = parseFloat(typeFeet);
+                      const i = parseFloat(typeInches);
+                      return isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11;
+                    })() && (
+                      <Text style={styles.validationError}>Please enter a valid height (ft: 4–7, in: 0–11)</Text>
+                    )}
+                  </View>
+                )}
+
+                {/* Activity Level */}
+                <Text style={styles.modalFieldLabel}>Activity Level</Text>
+                <View style={styles.activityRow}>
+                  {(["sedentary", "moderate", "active"] as const).map((level) => (
+                    <TouchableOpacity
+                      key={level}
+                      style={[
+                        styles.activityBtn,
+                        suggActivity === level && { backgroundColor: stage.color, borderColor: stage.color },
+                      ]}
+                      onPress={() => setSuggActivity(level)}
+                    >
+                      <Text style={[styles.activityBtnText, suggActivity === level && styles.activityBtnTextActive]}>
+                        {level === "sedentary" ? "Sedentary" : level === "moderate" ? "Moderate" : "Very Active"}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Recommended Result */}
+                <View style={styles.suggestedResult}>
+                  <Text style={styles.suggestedResultLabel}>Recommended daily intake</Text>
+                  {suggestedOz !== null ? (
+                    <>
+                      <Text style={[styles.suggestedOz, { color: stage.color }]}>{suggestedOz} oz</Text>
+                      <Text style={styles.suggestedMl}>{ozToMl(suggestedOz)} ml</Text>
+                      {suggestedOz === 128 && (
+                        <Text style={styles.suggestedCap}>Max recommendation is 1 gallon (128oz)</Text>
+                      )}
+                    </>
+                  ) : (
+                    <Text style={styles.suggestedPlaceholder}>Enter your details above</Text>
+                  )}
+                </View>
+
+                <View style={styles.modalBtnRow}>
+                  <TouchableOpacity style={styles.modalCancel} onPress={closeGoalModal}>
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalConfirm, { backgroundColor: suggestedOz !== null ? stage.color : "#CCCCCC" }]}
+                    onPress={handleUseSuggestedGoal}
+                    disabled={suggestedOz === null}
+                  >
+                    <Text style={styles.modalConfirmText}>Use This Goal</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+                </View>
+              </TouchableWithoutFeedback>
+              {/* Android: floating Done toolbar above keyboard */}
+              {Platform.OS === "android" && kbHeight > 0 && (
+                <View style={[styles.androidKbBar, { bottom: kbHeight }]}>
+                  <TouchableOpacity onPress={Keyboard.dismiss}>
+                    <Text style={[styles.androidKbDone, { color: stage.color }]}>Done</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+        {/* iOS: InputAccessoryView docked above keyboard */}
+        {Platform.OS === "ios" && (
+          <InputAccessoryView nativeID={KB_ACCESSORY_ID}>
+            <View style={styles.iosKbBar}>
+              <TouchableOpacity onPress={Keyboard.dismiss}>
+                <Text style={[styles.iosKbDone, { color: stage.color }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
+      </Modal>
+
+      <ReelConfetti visible={reelConfettiVisible} originY={reelFrameY} />
+      <JackpotCelebration
+        visible={showCelebration}
+        goal={goal}
+        onDismiss={() => {
+          setShowCelebration(false);
+          setShowFactCard(true);
+          // After first-ever jackpot (lifetime count was 0 when it fired), show paywall once
+          if (!isPro && lifetimeJackpots <= 1) {
+            setTimeout(() => openPaywall('first_jackpot'), 1200);
+          }
+        }}
+      />
+      <FactJokeCard visible={showFactCard} onDismiss={() => setShowFactCard(false)} />
+      <StreakMilestoneCard milestone={streakMilestone} onDismiss={() => setStreakMilestone(null)} />
+      <ParticleOverlay particles={sprayParticles} visible={sprayVisible} />
+
+      {/* Health Info Modal */}
+      <Modal visible={showHealthModal} transparent animationType="fade" onRequestClose={() => setShowHealthModal(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowHealthModal(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={[styles.modalBox, { paddingVertical: 28, backgroundColor: "#ffffff" }]}>
+                <Text style={[styles.modalTitle, { fontSize: 18, color: "#1a1a2e" }]}>
+                  {healthPermissionGranted ? "♥ Apple Health" : "🩶 Apple Health"}
+                </Text>
+                <View style={[styles.modalDivider, { backgroundColor: "rgba(200,160,0,0.3)" }]} />
+                <Text style={{ color: "#444444", fontSize: 14, lineHeight: 22, textAlign: "center", marginTop: 10, marginBottom: 20, paddingHorizontal: 8 }}>
+                  {healthPermissionGranted && healthSyncEnabled
+                    ? "Your hydration data is being synced to Apple Health after each drink."
+                    : healthPermissionGranted && !healthSyncEnabled
+                    ? "Apple Health sync is currently turned off. Enable it in Settings."
+                    : "Enable Apple Health sync in your iPhone Settings to track hydration across all your health apps."}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.modalTab, { backgroundColor: GOLD, paddingVertical: 12, paddingHorizontal: 32, borderRadius: 24 }]}
+                  onPress={() => setShowHealthModal(false)}
+                >
+                  <Text style={[styles.modalTabText, styles.modalTabTextActive, { fontSize: 14 }]}>Got it</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Settings Modal */}
+      <Modal
+        visible={showSettingsModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowSettingsModal(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: 16,
+            borderBottomWidth: 1,
+            borderBottomColor: 'rgba(200,160,0,0.3)',
+          }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a1a2e' }}>⚙️ Settings</Text>
+            <TouchableOpacity
+              onPress={() => setShowSettingsModal(false)}
+              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ fontSize: 20, color: '#c8a000' }}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 20, paddingBottom: 60 }}
+            showsVerticalScrollIndicator={true}
+            scrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            bounces={true}
+          >
+
+                {/* Apple Health toggle — only shown on iOS */}
+                {Platform.OS === "ios" && (
+                  <View style={{ marginTop: 20 }}>
+                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>APPLE HEALTH</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <View style={{ flex: 1, marginRight: 16 }}>
+                        <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>Sync to Apple Health</Text>
+                        <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                          {healthPermissionGranted
+                            ? "Save each drink to Apple Health as a Water sample"
+                            : "Permission not granted — tap Allow in the system dialog to enable"}
+                        </Text>
+                      </View>
+                      <Switch
+                        value={healthSyncEnabled && healthPermissionGranted}
+                        onValueChange={(val) => {
+                          if (!healthPermissionGranted) {
+                            requestHealthPermissionIfNeeded();
+                          } else {
+                            toggleHealthSync(val);
+                          }
+                        }}
+                        trackColor={{ false: "#cccccc", true: "#34C759" }}
+                        thumbColor="#ffffff"
+                        ios_backgroundColor="#e0e0e0"
+                      />
+                    </View>
+                    <View style={{ marginTop: 10, height: 1, backgroundColor: "rgba(200,160,0,0.3)" }} />
+                    <Text style={{ color: "#888888", fontSize: 11, marginTop: 10, textAlign: "center" }}>
+                      Existing Health data is never deleted when sync is turned off
+                    </Text>
+                  </View>
+                )}
+
+                {Platform.OS !== "ios" && (
+                  <Text style={{ color: "#555555", fontSize: 13, textAlign: "center", marginTop: 20, lineHeight: 20 }}>
+                    Apple Health is only available on iPhone.
+                  </Text>
+                )}
+
+                {/* Notifications section */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>NOTIFICATIONS</Text>
+                  {notifPermissionStatus === "denied" && (
+                    <TouchableOpacity
+                      onPress={() => Linking.openURL("app-settings:").catch(() => {})}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,59,48,0.08)", borderWidth: 1, borderColor: "rgba(255,59,48,0.3)", borderRadius: 10, padding: 12, marginBottom: 14 }}
+                    >
+                      <Text style={{ fontSize: 16 }}>🔕</Text>
+                      <Text style={{ flex: 1, color: "#C0152A", fontSize: 12, lineHeight: 18 }}>
+                        Notifications are disabled in iOS Settings — tap here to enable them.
+                      </Text>
+                      <Text style={{ color: "#C0152A", fontSize: 12, fontWeight: "700" }}>›</Text>
+                    </TouchableOpacity>
+                  )}
+                  {(
+                    [
+                      { label: "All Notifications", sub: "Master switch for all reminders", key: "notif_master_enabled", val: notifMasterEnabled, set: setNotifMasterEnabled },
+                      { label: "Morning Kickoff", sub: "Daily 7:30am reminder to start hydrating", key: "notif_morning_enabled", val: notifMorningEnabled, set: setNotifMorningEnabled },
+                      { label: "Progress Updates", sub: "Midday, afternoon, evening and goal alerts", key: "notif_progress_enabled", val: notifProgressEnabled, set: setNotifProgressEnabled },
+                      { label: "Streak Alerts", sub: "Warnings when your streak is at risk", key: "notif_streak_enabled", val: notifStreakEnabled, set: setNotifStreakEnabled },
+                    ] as { label: string; sub: string; key: string; val: boolean; set: (v: boolean) => void }[]
+                  ).map((row, i) => (
+                    <View key={row.key}>
+                      {i > 0 && <View style={{ height: 1, backgroundColor: "rgba(200,160,0,0.3)", marginVertical: 12 }} />}
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                        <View style={{ flex: 1, marginRight: 16 }}>
+                          <Text style={{
+                            color: i === 0 ? "#1a1a2e" : (notifMasterEnabled ? "#1a1a2e" : "rgba(26,26,46,0.35)"),
+                            fontSize: i === 0 ? 15 : 14, fontWeight: i === 0 ? "600" : "500", marginBottom: 2,
+                          }}>{row.label}</Text>
+                          <Text style={{ color: "#555555", fontSize: 11, lineHeight: 16 }}>{row.sub}</Text>
+                        </View>
+                        <Switch
+                          value={row.val && (i === 0 || notifMasterEnabled)}
+                          disabled={(i > 0 && !notifMasterEnabled) || !isPro}
+                          onValueChange={async (v) => {
+                            if (!isPro) { openPaywall('notifications_setting'); return; }
+                            row.set(v);
+                            try { await AsyncStorage.setItem(row.key, String(v)); } catch {}
+                            // Use refs (not closed-over state) so we always read the
+                            // latest hydration values. Pass the new toggle value as an
+                            // explicit override so the reschedule sees it immediately —
+                            // the setState above hasn't propagated yet.
+                            const h  = totalHydrationRef.current;
+                            const g  = goalRef.current;
+                            const gh = goalHistoryRef.current;
+                            const curPct = g > 0 ? Math.min(h / g, 1) : 0;
+                            const curStreak = (() => {
+                              let s = 0; const d = new Date();
+                              while ((gh[getDateKey(d)] ?? 0) >= 1.0) { s++; d.setDate(d.getDate() - 1); }
+                              return s;
+                            })();
+                            const prefOverride: NotifPrefs = {};
+                            if      (row.key === 'notif_master_enabled')   prefOverride.master   = v;
+                            else if (row.key === 'notif_morning_enabled')  prefOverride.morning  = v;
+                            else if (row.key === 'notif_progress_enabled') prefOverride.progress = v;
+                            else if (row.key === 'notif_streak_enabled')   prefOverride.streak   = v;
+                            rescheduleSmartNotifications(curPct, curStreak, Math.max(0, g - h), prefOverride);
+                          }}
+                          trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                          thumbColor="#ffffff"
+                          ios_backgroundColor="#e0e0e0"
+                        />
+                        {!isPro && <Text style={{ fontSize: 12, marginLeft: 4 }}>🔒</Text>}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Sound Effects toggle */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>SOUND</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flex: 1, marginRight: 16 }}>
+                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.4)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
+                        Sound Effects{!isPro ? " 🔒" : ""}
+                      </Text>
+                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                        Slot machine spins, water logs, badge unlocks and more
+                      </Text>
+                    </View>
+                    <Switch
+                      value={soundEnabled}
+                      disabled={!isPro}
+                      onValueChange={async (val) => {
+                        if (!isPro) { openPaywall('sound_setting'); return; }
+                        setSoundEnabledState(val);
+                        setSoundEnabled(val);
+                        try { await AsyncStorage.setItem("sound_enabled", String(val)); } catch {}
+                      }}
+                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      thumbColor="#ffffff"
+                      ios_backgroundColor="#e0e0e0"
+                    />
+                  </View>
+                </View>
+
+                {/* Sound Pack selector */}
+                <View style={{ marginTop: 20 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 12 }}>SOUND PACK</Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+                    {ALL_SOUND_PACKS.map((pack) => {
+                      const isSelected = selectedSoundPack === pack.id;
+                      const locked = pack.isPro && !isPro;
+                      return (
+                        <TouchableOpacity
+                          key={pack.id}
+                          activeOpacity={0.8}
+                          style={{
+                            width: "47%",
+                            borderRadius: 12,
+                            borderWidth: isSelected ? 2 : 1,
+                            borderColor: isSelected ? "#c8a000" : "rgba(200,160,0,0.25)",
+                            backgroundColor: isSelected ? "rgba(200,160,0,0.08)" : "rgba(0,0,0,0.03)",
+                            padding: 12,
+                            opacity: locked ? 0.65 : 1,
+                          }}
+                          onPress={async () => {
+                            if (locked) { openPaywall('sound_pack'); return; }
+                            setSelectedSoundPack(pack.id);
+                            try {
+                              await AsyncStorage.setItem("selected_sound_pack", pack.id);
+                              await setActivePack(pack.id);
+                            } catch {}
+                          }}
+                        >
+                          {/* PRO badge */}
+                          {pack.isPro && (
+                            <View style={{
+                              position: "absolute", top: 6, right: 6,
+                              backgroundColor: "#c8a000", borderRadius: 4,
+                              paddingHorizontal: 5, paddingVertical: 2,
+                            }}>
+                              <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
+                            </View>
+                          )}
+                          <Text style={{ fontSize: 26, marginBottom: 4 }}>{pack.emoji}</Text>
+                          <Text style={{ color: isSelected ? "#c8a000" : "#1a1a2e", fontSize: 13, fontWeight: "700", marginBottom: 2 }}>
+                            {pack.name}
+                          </Text>
+                          <Text style={{ color: "#666666", fontSize: 10, lineHeight: 14 }} numberOfLines={2}>
+                            {pack.description}
+                          </Text>
+                          {/* Preview button */}
+                          <TouchableOpacity
+                            style={{
+                              position: "absolute", bottom: 8, right: 8,
+                              width: 26, height: 26, borderRadius: 13,
+                              backgroundColor: previewingPack === pack.id ? "#c8a000" : "rgba(200,160,0,0.15)",
+                              alignItems: "center", justifyContent: "center",
+                            }}
+                            onPress={async () => {
+                              if (previewingPack === pack.id) {
+                                setPreviewingPack(null);
+                                await stopPreview();
+                              } else {
+                                setPreviewingPack(pack.id);
+                                await previewPack(pack.id);
+                                setTimeout(() => setPreviewingPack(null), 3000);
+                              }
+                            }}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Text style={{ fontSize: 10 }}>{previewingPack === pack.id ? "⏹" : "▶"}</Text>
+                          </TouchableOpacity>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Haptic Feedback toggle */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>HAPTICS</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flex: 1, marginRight: 16 }}>
+                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.4)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
+                        Haptic Feedback{!isPro ? " 🔒" : ""}
+                      </Text>
+                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                        Vibration on taps, reel stops, jackpots and milestones
+                      </Text>
+                    </View>
+                    <Switch
+                      value={hapticsEnabled}
+                      disabled={!isPro}
+                      onValueChange={async (val) => {
+                        if (!isPro) { openPaywall('haptics_setting'); return; }
+                        setHapticsEnabled(val);
+                        try { await AsyncStorage.setItem("haptics_enabled", String(val)); } catch {}
+                      }}
+                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      thumbColor="#ffffff"
+                      ios_backgroundColor="#e0e0e0"
+                    />
+                  </View>
+                </View>
+                {/* CLOUD SYNC section */}
+                <View style={{ marginTop: 24, marginBottom: 8 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>CLOUD SYNC</Text>
+                  {!isAuthenticated ? (
+                    <View>
+                      <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 12 }}>
+                        Back up your data to the cloud and sync across devices.
+                      </Text>
+                      <TouchableOpacity
+                        style={{ backgroundColor: "#FFD700", borderRadius: 12, paddingVertical: 14, alignItems: "center" }}
+                        onPress={() => { setShowSettingsModal(false); setTimeout(() => setShowAuthModal(true), 300); }}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>☁️  Enable Cloud Sync</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 10 }}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: syncingHistory ? "#FFD700" : "#4CAF50" }} />
+                        <Text style={{ color: syncingHistory ? "#FFD700" : "#4CAF50", fontSize: 13, fontWeight: "600" }}>
+                          {syncingHistory ? `Syncing… ${Math.round(syncProgress * 100)}%` : "Synced"}
+                        </Text>
+                        {lastSyncTime && !syncingHistory && (
+                          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
+                            · {new Date(lastSyncTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </Text>
+                        )}
+                      </View>
+                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{user?.email}</Text>
+                      <TouchableOpacity
+                        style={{ borderWidth: 1.5, borderColor: "rgba(255,215,0,0.4)", borderRadius: 12, paddingVertical: 13, alignItems: "center", opacity: syncingHistory ? 0.5 : 1 }}
+                        disabled={syncingHistory}
+                        onPress={() => {
+                          setSyncingHistory(true);
+                          syncAllHistory((pct) => setSyncProgress(pct)).finally(() => {
+                            setSyncingHistory(false);
+                            setSyncProgress(0);
+                            AsyncStorage.getItem('cloud_last_sync').then((v) => { if (v) setLastSyncTime(v); }).catch(() => {});
+                          });
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={{ color: "#FFD700", fontSize: 14, fontWeight: "700" }}>🔄  Sync Now</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={{ paddingVertical: 10, alignItems: "center" }}
+                        onPress={() => {
+                          Alert.alert("Sign Out", "Sign out of cloud sync? Your local data is not affected.", [
+                            { text: "Cancel", style: "cancel" },
+                            { text: "Sign Out", style: "destructive", onPress: () => { signOut(); } },
+                          ]);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={{ color: "#FF6B6B", fontSize: 14, fontWeight: "600" }}>Sign Out</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+
+                {/* DATA section — CSV export */}
+                <View style={{ marginTop: 24, marginBottom: 8 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>DATA</Text>
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: "row", alignItems: "center", justifyContent: "center",
+                      borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 12,
+                      paddingVertical: 14, paddingHorizontal: 16, gap: 8,
+                      opacity: exportLoading ? 0.6 : 1,
+                    }}
+                    onPress={handleExportCSV}
+                    disabled={exportLoading}
+                    activeOpacity={0.8}
+                  >
+                    {exportLoading
+                      ? <ActivityIndicator size="small" color="#c8a000" />
+                      : <Text style={{ fontSize: 18 }}>⬇️</Text>
+                    }
+                    <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>
+                      {isPro ? "Export Hydration History" : "Export Hydration History 🔒"}
+                    </Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center" }}>
+                    Exports up to 30 days as a CSV file
+                  </Text>
+
+                  {/* Delete Account — only shown when signed in */}
+                  {isAuthenticated && (
+                    <TouchableOpacity
+                      style={{ marginTop: 20, paddingVertical: 10, alignItems: "center" }}
+                      onPress={() =>
+                        Alert.alert(
+                          "Delete Account",
+                          "This permanently deletes all your Supabase cloud data and signs you out. Your local data on this device is not affected.",
+                          [
+                            { text: "Cancel", style: "cancel" },
+                            {
+                              text: "Delete Account",
+                              style: "destructive",
+                              onPress: () => { deleteAccount(); },
+                            },
+                          ]
+                        )
+                      }
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ color: "#FF6B6B", fontSize: 13, fontWeight: "600" }}>Delete My Account</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+          </ScrollView>
+        </View>
+      </Modal>
+
+      {/* Promo Code Modal */}
+      <Modal visible={showPromoModal} transparent animationType="fade" onRequestClose={() => { setShowPromoModal(false); setPromoCode(''); }}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+            <View style={{ backgroundColor: '#0d0030', borderRadius: 20, borderWidth: 2, borderColor: 'rgba(255,215,0,0.5)', padding: 28, width: '100%', alignItems: 'center' }}>
+              <Text style={{ fontSize: 36, marginBottom: 8 }}>🎁</Text>
+              <Text style={{ color: '#FFD700', fontSize: 22, fontWeight: '900', marginBottom: 4, letterSpacing: 1 }}>Redeem Promo Code</Text>
+              <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, marginBottom: 24, textAlign: 'center' }}>
+                Enter your code to unlock Liquid Luck Pro
+              </Text>
+              <TextInput
+                style={{
+                  width: '100%', borderWidth: 1.5, borderColor: 'rgba(255,215,0,0.5)',
+                  borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16,
+                  color: '#FFD700', fontSize: 20, fontWeight: '800', letterSpacing: 4,
+                  textAlign: 'center', backgroundColor: 'rgba(255,215,0,0.06)', marginBottom: 20,
+                }}
+                placeholder="XXXXXXXX"
+                placeholderTextColor="rgba(255,215,0,0.3)"
+                value={promoCode}
+                onChangeText={(t) => setPromoCode(t.replace(/[^A-Za-z0-9]/g, '').toUpperCase())}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                returnKeyType="done"
+                onSubmitEditing={redeemPromoCode}
+                maxLength={20}
+                editable={!promoLoading}
+              />
+              <TouchableOpacity
+                style={{
+                  width: '100%', backgroundColor: '#FFD700', borderRadius: 14,
+                  paddingVertical: 16, alignItems: 'center', marginBottom: 12,
+                  opacity: promoLoading ? 0.6 : 1,
+                }}
+                onPress={redeemPromoCode}
+                disabled={promoLoading}
+                activeOpacity={0.85}
+              >
+                {promoLoading
+                  ? <ActivityIndicator color="#0a0520" />
+                  : <Text style={{ color: '#0a0520', fontSize: 17, fontWeight: '900' }}>Redeem</Text>
+                }
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ paddingVertical: 10 }}
+                onPress={() => { setShowPromoModal(false); setPromoCode(''); }}
+                activeOpacity={0.7}
+              >
+                <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14 }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* Export Summary Modal */}
+      <Modal visible={showExportSummary} transparent animationType="fade" onRequestClose={() => setShowExportSummary(false)}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", alignItems: "center", padding: 24 }}>
+          <View style={{ backgroundColor: "#0d0030", borderRadius: 20, borderWidth: 2, borderColor: "rgba(255,215,0,0.5)", padding: 28, width: "100%", alignItems: "center" }}>
+            <Text style={{ fontSize: 36, marginBottom: 8 }}>✅</Text>
+            <Text style={{ color: "#FFD700", fontSize: 22, fontWeight: "900", marginBottom: 4 }}>Ready to Export!</Text>
+            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, marginBottom: 20, textAlign: "center" }}>
+              Your hydration history is packaged and ready to share
+            </Text>
+            <View style={{ width: "100%", gap: 10, marginBottom: 24 }}>
+              {[
+                ["📅", "Days included", `${exportSummary?.days ?? 0} days`],
+                ["💧", "Total consumed", `${exportSummary?.totalConsumed ?? 0} oz`],
+                ["✨", "True hydration", `${exportSummary?.totalHydrated ?? 0} oz`],
+                ["🔥", "Best streak", `${exportSummary?.bestStreak ?? 0} days`],
+              ].map(([emoji, label, value]) => (
+                <View key={label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14 }}>
+                  <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 13 }}>{emoji} {label}</Text>
+                  <Text style={{ color: "#FFD700", fontSize: 14, fontWeight: "700" }}>{value}</Text>
+                </View>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={{ width: "100%", backgroundColor: "#FFD700", borderRadius: 14, paddingVertical: 16, alignItems: "center", marginBottom: 10 }}
+              onPress={() => exportSummary && shareExportFile(exportSummary.filePath)}
+              activeOpacity={0.85}
+            >
+              <Text style={{ color: "#0a0520", fontSize: 16, fontWeight: "900" }}>📤 Share File</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ paddingVertical: 12 }}
+              onPress={() => {
+                if (exportSummary) { try { new FSFile(exportSummary.filePath).delete(); } catch {} }
+                setShowExportSummary(false);
+                setExportSummary(null);
+              }}
+            >
+              <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 14 }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Auth Modal (cloud sync sign-in) */}
+      <AuthModal
+        visible={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onAuthSuccess={() => {
+          setShowAuthModal(false);
+          AsyncStorage.getItem('cloud_last_sync').then((v) => { if (v) setLastSyncTime(v); }).catch(() => {});
+        }}
+      />
+
+      {/* Quick Add Customization Modal */}
+      <QuickAddCustomModal
+        visible={showQuickAddModal}
+        currentAmounts={quickAddAmounts}
+        onSave={async (amounts) => {
+          setQuickAddAmounts(amounts);
+          setShowQuickAddModal(false);
+          try { await AsyncStorage.setItem("custom_quick_add_amounts", JSON.stringify(amounts)); } catch {}
+        }}
+        onCancel={() => setShowQuickAddModal(false)}
+      />
+
+      {/* Morning toast notification */}
+      {toastVisible && (
+        <Animated.View pointerEvents="none" style={{
+          position: "absolute", top: 60, left: 20, right: 20, zIndex: 1000,
+          backgroundColor: "rgba(0,0,10,0.9)", borderRadius: 14,
+          borderWidth: 1, borderColor: GOLD,
+          paddingVertical: 14, paddingHorizontal: 18,
+          alignItems: "center",
+          opacity: toastAnim,
+          transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }],
+        }}>
+          <Text style={{ color: GOLD, fontSize: 15, fontWeight: "800", textAlign: "center" }}>
+            ☀️ Good morning! New day started
+          </Text>
+          <Text style={{ color: "rgba(255,215,0,0.75)", fontSize: 12, marginTop: 4, textAlign: "center" }}>
+            {"Let's hit your goal today! 💧"}
+          </Text>
+        </Animated.View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  container: { flex: 1, backgroundColor: "#e8a5a5" },
+  scroll: { paddingBottom: 40 },
+  header: {
+    alignItems: "center",
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: "#e8a5a5",
+  },
+  headerTitle: { fontSize: 28, fontWeight: "bold", color: "#ffffff" },
+  headerDate: { fontSize: 14, color: "rgba(255,255,255,0.85)", marginTop: 4 },
+  progressSection: { alignItems: "center", marginTop: 30 },
+  progressRing: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    borderWidth: 8,
+    borderColor: "rgba(255,255,255,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  intakeText: { fontSize: 42, fontWeight: "bold", color: "#ffffff" },
+  unitText: { fontSize: 18, color: "rgba(255,255,255,0.85)" },
+  mlText: { fontSize: 13, color: "rgba(255,255,255,0.7)" },
+  goalText: { marginTop: 12, fontSize: 14, color: "rgba(255,255,255,0.85)" },
+  progressBarContainer: {
+    height: 14,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 7,
+    marginHorizontal: 24,
+    marginTop: 20,
+    overflow: "hidden",
+  },
+  progressBarFill: { height: "100%", borderRadius: 7 },
+  progressLabel: {
+    textAlign: "center",
+    color: "rgba(255,255,255,0.85)",
+    marginTop: 8,
+    fontSize: 13,
+  },
+  sectionTitle: {
+    color: "#ffffff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 24,
+    marginTop: 28,
+    marginBottom: 12,
+  },
+  quickAddGrid: {
+    paddingHorizontal: 24,
     gap: 8,
   },
-  stepContainer: {
+  quickAddRow: {
+    flexDirection: "row",
     gap: 8,
-    marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  quickBtn: {
+    flex: 1,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.85)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
   },
+  quickBtnText: { fontSize: 15, fontWeight: "bold", color: "#ffffff" },
+  quickBtnMl: { fontSize: 10, color: "rgba(255,255,255,0.7)", marginTop: 2 },
+  customRow: { flexDirection: "row", paddingHorizontal: 24, gap: 12 },
+  input: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    color: "#ffffff",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  addBtn: {
+    borderRadius: 12,
+    paddingHorizontal: 24,
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.35)",
+  },
+  addBtnText: { color: "#ffffff", fontWeight: "bold", fontSize: 16 },
+  actionRow: {
+    flexDirection: "row",
+    paddingHorizontal: 24,
+    gap: 8,
+    marginTop: 20,
+  },
+  secondaryBtn: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.4)",
+  },
+  secondaryBtnText: { color: "#ffffff", fontSize: 13 },
+  historySection: { marginHorizontal: 24, marginTop: 8 },
+  historyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    gap: 8,
+  },
+  historyDate: { color: "rgba(255,255,255,0.85)", fontSize: 12, width: 55 },
+  historyBarBg: {
+    flex: 1,
+    height: 8,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  historyBarFill: { height: "100%", borderRadius: 4 },
+  historyOz: { fontSize: 12, color: "#ffffff", width: 40, textAlign: "right" },
+  emptyText: { color: "rgba(255,255,255,0.7)", textAlign: "center", marginTop: 12 },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.85)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalBox: {
+    backgroundColor: "#F8F9FA",
+    borderRadius: 24,
+    padding: 32,
+    width: "90%",
+    maxHeight: "88%",
+    borderWidth: 1.5,
+    borderColor: "rgba(0,0,0,0.1)",
+  },
+  modalTitle: {
+    color: "#1A1A2E",
+    fontSize: 24,
+    fontWeight: "bold",
+    marginBottom: 14,
+    textAlign: "center",
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: "rgba(0,0,0,0.1)",
+    marginBottom: 18,
+  },
+
+  // Tabs
+  modalTabs: {
+    flexDirection: "row",
+    backgroundColor: "#EEEEEE",
+    borderRadius: 12,
+    marginBottom: 20,
+    padding: 4,
+  },
+  modalTab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: "center",
+    borderRadius: 9,
+  },
+  modalTabInactive: {
+    backgroundColor: "#EEEEEE",
+  },
+  modalTabActive: {
+    backgroundColor: "transparent",
+  },
+  modalTabText: {
+    color: "#666666",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  modalTabTextActive: {
+    color: "#ffffff",
+  },
+
+  // Custom tab
+  modalInput: {
+    backgroundColor: "#ffffff",
+    color: "#1A1A2E",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    fontSize: 18,
+    borderWidth: 1.5,
+    borderColor: "#CCCCCC",
+  },
+  modalMl: { color: "#666666", fontSize: 14, marginTop: 8, marginLeft: 4 },
+  modalBtnRow: { flexDirection: "row", gap: 12, marginTop: 20 },
+  modalCancel: {
+    flex: 1,
+    backgroundColor: "#EEEEEE",
+    borderRadius: 16,
+    height: 56,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalCancelText: { color: "#666666", fontSize: 18, fontWeight: "600" },
+  modalConfirm: {
+    flex: 1,
+    borderRadius: 16,
+    height: 56,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalConfirmText: { color: "#ffffff", fontWeight: "bold", fontSize: 18 },
+
+  // Gallon tab
+  gallonPreset: {
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#E0E0E0",
+  },
+  gallonPresetLabel: { color: "#888888", fontSize: 14, marginBottom: 4 },
+  gallonPresetOz: { color: "#1A1A2E", fontSize: 22, fontWeight: "bold" },
+  gallonPresetMl: { color: "#888888", fontSize: 13, marginTop: 2 },
+
+  // Suggested tab
+  modalFieldLabel: {
+    color: "#1A1A2E",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 4,
+    marginTop: 10,
+  },
+  modalInputRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "center",
+  },
+  toggleGroup: {
+    flexDirection: "row",
+    backgroundColor: "#EEEEEE",
+    borderRadius: 10,
+    padding: 2,
+  },
+  toggleBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  toggleBtnActive: {
+    backgroundColor: "#ffffff",
+  },
+  toggleBtnText: {
+    color: "#888888",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  toggleBtnTextActive: {
+    color: "#1A1A2E",
+  },
+  activityRow: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  activityBtn: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#E0E0E0",
+  },
+  activityBtnActive: {
+    backgroundColor: "transparent",
+    borderColor: "transparent",
+  },
+  activityBtnText: {
+    color: "#666666",
+    fontSize: 11,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  activityBtnTextActive: {
+    color: "#ffffff",
+  },
+  suggestedResult: {
+    alignItems: "center",
+    paddingVertical: 16,
+    marginTop: 14,
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E0E0E0",
+  },
+  suggestedResultLabel: { color: "#888888", fontSize: 13, marginBottom: 4 },
+  suggestedOz: { fontSize: 28, fontWeight: "bold" },
+  suggestedMl: { color: "#666666", fontSize: 14, marginTop: 2 },
+  suggestedPlaceholder: { color: "#AAAAAA", fontSize: 13, textAlign: "center", paddingHorizontal: 16 },
+  suggestedCap: { color: "#AAAAAA", fontSize: 11, marginTop: 4 },
+  dropsSection: { flexDirection: "row", justifyContent: "center", alignItems: "flex-end", gap: 16, marginTop: 24, paddingHorizontal: 16 },
+  dropCol: { alignItems: "center", gap: 6 },
+  dropLabel: { fontSize: 10, fontWeight: "700", color: "rgba(255,255,255,0.85)", letterSpacing: 1, textAlign: "center" },
+  dualBarSection: { marginHorizontal: 24, marginTop: 14, gap: 8 },
+  barRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  barRowLabel: { fontSize: 10, color: "rgba(255,255,255,0.75)", width: 82 },
+  barPct: { fontSize: 11, fontWeight: "700", color: "#ffffff", width: 34, textAlign: "right" },
+  stageLabel: { color: "#ffffff", fontSize: 15, fontWeight: "700", letterSpacing: 1.5, marginTop: 10, textTransform: "uppercase", textAlign: "center" },
+  pickerRow: { flexDirection: "row", justifyContent: "center", gap: 16, marginBottom: 2 },
+  inputModeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, marginBottom: 4 },
+  modeToggle: { flexDirection: "row", backgroundColor: "#EEEEEE", borderRadius: 8, padding: 2 },
+  modeBtn: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6 },
+  modeBtnText: { fontSize: 12, fontWeight: "600", color: "#888888" },
+  modeBtnTextActive: { color: "#ffffff" },
+  typeInput: {
+    backgroundColor: "#ffffff",
+    color: "#1A1A2E",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    fontSize: 16,
+    borderWidth: 1.5,
+    borderColor: "#CCCCCC",
+    marginBottom: 2,
+  },
+  typeHeightRow: { flexDirection: "row", gap: 10 },
+  validationError: { color: "#E53935", fontSize: 11, marginTop: 2, marginBottom: 2 },
+  customHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 24, marginTop: 28, marginBottom: 12 },
+  customUnitToggle: { flexDirection: "row", backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 8, padding: 2 },
+  customUnitBtn: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 6 },
+  customUnitBtnText: { color: "rgba(255,255,255,0.55)", fontSize: 13, fontWeight: "600" },
+  customUnitBtnTextActive: { color: "#ffffff" },
+  customConversion: { color: "rgba(255,255,255,0.6)", fontSize: 13, marginTop: 4, paddingHorizontal: 24 },
+  kbToolbar: { alignItems: "flex-end", paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.08)", marginBottom: 10 },
+  kbDoneBtn: { fontSize: 16, fontWeight: "700", paddingVertical: 12, paddingHorizontal: 14, minWidth: 44, minHeight: 44, textAlign: "center", textAlignVertical: "center" },
+  iosKbBar: { backgroundColor: "#F0F0F0", borderTopWidth: 1, borderTopColor: "#CCCCCC", paddingHorizontal: 16, paddingVertical: 10, alignItems: "flex-end" },
+  iosKbDone: { fontSize: 17, fontWeight: "700", paddingVertical: 6, paddingHorizontal: 12 },
+  androidKbBar: { position: "absolute", left: 0, right: 0, backgroundColor: "#F0F0F0", borderTopWidth: 1, borderTopColor: "#CCCCCC", paddingHorizontal: 16, paddingVertical: 10, alignItems: "flex-end", zIndex: 999 },
+  androidKbDone: { fontSize: 17, fontWeight: "700", paddingVertical: 6, paddingHorizontal: 12 },
+  customModalQuickBtn: { flex: 1, borderWidth: 1.5, borderRadius: 10, paddingVertical: 10, alignItems: "center", backgroundColor: "#ffffff" },
+  customModalQuickBtnText: { fontSize: 13, fontWeight: "700" },
+  customModalQuickBtnMl: { fontSize: 10, color: "#888888", marginTop: 2 },
+
+  // Beverage Breakdown
+  breakdownSection: { marginHorizontal: 24, marginTop: 8 },
+  breakdownRow: { flexDirection: "row", alignItems: "center", marginBottom: 8, gap: 8 },
+  breakdownEmoji: { fontSize: 16, width: 22, textAlign: "center" },
+  breakdownDot: { width: 10, height: 10, borderRadius: 5 },
+  breakdownLabel: { color: "rgba(255,255,255,0.85)", fontSize: 13, width: 76 },
+  breakdownAmountGroup: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  breakdownOzText: { fontSize: 13, color: "#ffffff" },
+  breakdownMlText: { fontSize: 11, color: "rgba(255,255,255,0.6)" },
+  breakdownPct: { fontSize: 15, fontWeight: "bold", minWidth: 40, textAlign: "right" },
+  breakdownBarBg: { flex: 1, height: 8, backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 4, overflow: "hidden" },
+  breakdownBarFill: { height: "100%", borderRadius: 4 },
+  breakdownOz: { fontSize: 12, color: "#ffffff", width: 40, textAlign: "right" },
+
+  // History expanded breakdown
+  historyExpandedBreakdown: { backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 10, padding: 10, marginBottom: 8, marginLeft: 63 },
+  historyBreakdownItem: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  historyBreakdownLabel: { color: "rgba(255,255,255,0.8)", fontSize: 11, flex: 1 },
+  historyBreakdownOz: { color: "#ffffff", fontSize: 11, fontWeight: "600" },
+  historyBreakdownMl: { fontSize: 10, color: "rgba(255,255,255,0.55)" },
+  historyBreakdownPct: { fontSize: 13, fontWeight: "bold", minWidth: 34, textAlign: "right" },
+
+  // Category picker modal
+  categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, justifyContent: "center", marginBottom: 8 },
+  categoryBtn: { width: "46%", borderWidth: 2, borderRadius: 14, paddingVertical: 14, alignItems: "center", backgroundColor: "#ffffff" },
+  categoryEmoji: { fontSize: 28, marginBottom: 4 },
+  categoryLabel: { fontSize: 13, fontWeight: "700" },
 });
+
+const casinoActionBtn: import("react-native").ViewStyle = {
+  flex: 1,
+  backgroundColor: "rgba(255,215,0,0.1)",
+  borderRadius: 10,
+  paddingVertical: 12,
+  alignItems: "center",
+  borderWidth: 1,
+  borderColor: "rgba(255,215,0,0.4)",
+};
+const casinoActionBtnText: import("react-native").TextStyle = {
+  color: "#FFD700",
+  fontSize: 13,
+  fontWeight: "600",
+};

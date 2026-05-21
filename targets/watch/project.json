@@ -1,0 +1,9 @@
+{
+  "type": "watch-app",
+  "deploymentTarget": "8.0",
+  "bundleIdentifier": "com.wimsby.liquidluck.watchapp",
+  "name": "LiquidLuckWatch",
+  "entitlements": {
+    "com.apple.security.application-groups": ["group.com.wimsby.liquidluck"]
+  }
+}
