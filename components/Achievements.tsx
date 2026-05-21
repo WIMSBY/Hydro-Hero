@@ -10,6 +10,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
+  AppState,
   Dimensions,
   Easing,
   Modal,
@@ -260,6 +261,16 @@ function AchConfetti({ visible }: { visible: boolean }) {
         ]),
       ]).start();
     });
+    // Stop all animations when app goes to background
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" || state === "inactive") {
+        pieces.forEach((p) => {
+          p.x.stopAnimation(); p.y.stopAnimation();
+          p.rot.stopAnimation(); p.op.stopAnimation();
+        });
+      }
+    });
+    return () => sub.remove();
   }, [visible]);
 
   if (!visible) return null;
@@ -595,7 +606,7 @@ const bdgStyles = StyleSheet.create({
 });
 
 // ─── Main Achievements component ──────────────────────────────────────────────
-export default function Achievements({
+function Achievements({
   trigger,
   streak,
   goalHistory,
@@ -775,6 +786,14 @@ export default function Achievements({
     </View>
   );
 }
+
+// Re-render only when trigger, streak, or goalHistory changes; badge progress
+// details (totalHydration etc.) only matter inside the detail modal
+export default React.memo(Achievements, (prev, next) =>
+  prev.trigger === next.trigger &&
+  prev.streak === next.streak &&
+  prev.goalHistory === next.goalHistory
+);
 
 const achStyles = StyleSheet.create({
   wrapper: {

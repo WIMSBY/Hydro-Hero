@@ -3,13 +3,13 @@
  *
  * Full-screen paywall modal in Liquid Luck Art Deco casino theme.
  * - Animated slot reel cycles through Pro feature names
- * - Two purchase cards: Lifetime ($4.99) and Annual ($9.99/yr)
- * - Primary CTA: "Start 7 Day Free Trial" (annual)
- * - Secondary CTA: "Get Lifetime Access — $4.99" (lifetime)
+ * - Two purchase cards: Monthly ($1.99/mo) and Lifetime ($4.99 once)
+ * - Primary CTA: "Subscribe Monthly — $1.99/mo"
+ * - Secondary CTA: "Get Lifetime Access — $4.99"
  * - Gracefully falls back to "Coming Soon" alert if no App Store products exist
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -89,7 +89,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
     return () => { if (reelTimer.current) clearInterval(reelTimer.current); };
   }, [visible, reelFade, reelSlide]);
 
-  async function tryPurchase(packageType: 'annual' | 'lifetime') {
+  async function tryPurchase(packageType: 'monthly' | 'lifetime') {
     setPurchasing(true);
     try {
       const Purchases = require('react-native-purchases').default;
@@ -97,16 +97,16 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       const pkgs = offerings?.current?.availablePackages ?? [];
 
       let pkg = pkgs.find((p: any) =>
-        packageType === 'annual'
-          ? p.packageType === 'ANNUAL' || p.identifier?.toLowerCase().includes('annual')
+        packageType === 'monthly'
+          ? p.packageType === 'MONTHLY' || p.identifier?.toLowerCase().includes('monthly')
           : p.packageType === 'LIFETIME' || p.identifier?.toLowerCase().includes('lifetime')
       );
 
       // Fallback: try product identifier match
       if (!pkg) {
-        const targetId = packageType === 'lifetime'
-          ? 'com.wimsby.liquidluck.pro.lifetime'
-          : 'com.wimsby.liquidluck.pro.annual';
+        const targetId = packageType === 'monthly'
+          ? 'com.wimsby.liquidluck.pro.monthly'
+          : 'com.wimsby.liquidluck.pro.lifetime';
         pkg = pkgs.find((p: any) => p.product?.productIdentifier === targetId);
       }
 
@@ -198,51 +198,51 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
             ))}
           </View>
 
-          {/* Purchase cards */}
+          {/* Purchase cards — MONTHLY (left) and LIFETIME (right, highlighted) */}
           <View style={s.cardsRow}>
-            {/* Lifetime card */}
+            {/* Monthly card */}
+            <TouchableOpacity
+              style={s.cardMonthly}
+              onPress={() => tryPurchase('monthly')}
+              disabled={purchasing}
+              activeOpacity={0.85}
+            >
+              <Text style={s.cardLabel}>MONTHLY</Text>
+              <Text style={s.cardPrice}>$1.99</Text>
+              <Text style={s.cardSub}>$1.99 / month{'\n'}Cancel anytime</Text>
+            </TouchableOpacity>
+
+            {/* Lifetime card — highlighted as best value */}
             <TouchableOpacity
               style={s.cardLifetime}
               onPress={() => tryPurchase('lifetime')}
               disabled={purchasing}
               activeOpacity={0.85}
             >
-              <Text style={s.cardLabel}>LIFETIME</Text>
-              <Text style={s.cardPrice}>$4.99</Text>
-              <Text style={s.cardSub}>Pay once{'\n'}own forever</Text>
-            </TouchableOpacity>
-
-            {/* Annual card */}
-            <TouchableOpacity
-              style={s.cardAnnual}
-              onPress={() => tryPurchase('annual')}
-              disabled={purchasing}
-              activeOpacity={0.85}
-            >
               <View style={s.bestValueBadge}>
                 <Text style={s.bestValueTxt}>BEST VALUE</Text>
               </View>
-              <Text style={[s.cardLabel, { color: BG }]}>ANNUAL</Text>
-              <Text style={[s.cardPrice, { color: BG }]}>$9.99/yr</Text>
-              <Text style={[s.cardSub, { color: 'rgba(10,5,32,0.7)' }]}>Less than{'\n'}$1 a month</Text>
+              <Text style={[s.cardLabel, { color: BG }]}>LIFETIME</Text>
+              <Text style={[s.cardPrice, { color: BG }]}>$4.99</Text>
+              <Text style={[s.cardSub, { color: 'rgba(10,5,32,0.7)' }]}>$4.99 once{'\n'}Pay once, own forever</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Primary CTA */}
+          {/* Primary CTA — monthly */}
           <TouchableOpacity
             style={[s.primaryBtn, purchasing && { opacity: 0.6 }]}
-            onPress={() => tryPurchase('annual')}
+            onPress={() => tryPurchase('monthly')}
             disabled={purchasing}
             activeOpacity={0.85}
           >
             {purchasing ? (
               <ActivityIndicator color={BG} />
             ) : (
-              <Text style={s.primaryBtnTxt}>Start 7 Day Free Trial</Text>
+              <Text style={s.primaryBtnTxt}>Subscribe Monthly — $1.99/mo</Text>
             )}
           </TouchableOpacity>
 
-          {/* Secondary CTA */}
+          {/* Secondary CTA — lifetime */}
           <TouchableOpacity
             style={[s.secondaryBtn, purchasing && { opacity: 0.6 }]}
             onPress={() => tryPurchase('lifetime')}
@@ -269,7 +269,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
           {/* Terms */}
           <Text style={s.terms}>
             By purchasing you agree to our Terms of Service and Privacy Policy.{'\n'}
-            Subscriptions auto-renew unless cancelled 24 hours before renewal.
+            Monthly subscription auto-renews at $1.99/mo unless cancelled 24 hours before renewal.
           </Text>
 
           <View style={{ height: 32 }} />
@@ -318,11 +318,11 @@ const s = StyleSheet.create({
 
   cardsRow: { flexDirection: 'row', gap: 12, width: '100%', marginBottom: 20 },
 
-  cardLifetime: {
+  cardMonthly: {
     flex: 1, borderRadius: 16, borderWidth: 2, borderColor: GOLD,
     backgroundColor: CARD_BG, padding: 16, alignItems: 'center',
   },
-  cardAnnual: {
+  cardLifetime: {
     flex: 1, borderRadius: 16, backgroundColor: GOLD,
     padding: 16, alignItems: 'center', overflow: 'hidden',
   },

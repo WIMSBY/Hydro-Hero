@@ -29,7 +29,7 @@ class LLWidgetSync: NSObject {
 
   @objc(updateData:goalOz:pct:)
   func updateData(hydrationOz: Double, goalOz: Double, pct: Double) {
-    guard let defaults = UserDefaults(suiteName: "group.com.wimsby.liquidluck") else { return }
+    guard let defaults = UserDefaults(suiteName: "group.com.wimsby.hydrationstation") else { return }
     defaults.set(hydrationOz, forKey: "hydrationOz")
     defaults.set(goalOz,      forKey: "goalOz")
     defaults.set(pct,         forKey: "hydrationPct")

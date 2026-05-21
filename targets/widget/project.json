@@ -1,9 +1,9 @@
 {
   "type": "widget",
   "deploymentTarget": "16.0",
-  "bundleIdentifier": "com.wimsby.liquidluck.widget",
+  "bundleIdentifier": "com.wimsby.hydrationstation.widget",
   "name": "LiquidLuckWidget",
   "entitlements": {
-    "com.apple.security.application-groups": ["group.com.wimsby.liquidluck"]
+    "com.apple.security.application-groups": ["group.com.wimsby.hydrationstation"]
   }
 }

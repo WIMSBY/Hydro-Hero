@@ -9,9 +9,12 @@
 import React, { useCallback, useState } from 'react';
 import {
   Alert,
+  InputAccessoryView,
   Keyboard,
+  KeyboardAvoidingView,
   Linking,
   Modal,
+  Platform,
   ScrollView,
   Share,
   StatusBar,
@@ -145,8 +148,12 @@ async function fireJackpotNotif(username: string) {
   const flag = `squad_jackpot_notif_${username}_${dateKey(new Date())}`;
   const already = await AsyncStorage.getItem(flag);
   if (already) return;
-  await AsyncStorage.setItem(flag, '1');
   try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+    // Write dedup flag BEFORE scheduling so a crash between write and schedule
+    // never causes a second attempt to fire the same notification.
+    await AsyncStorage.setItem(flag, '1');
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `${username} hit their jackpot! 🎰`,
@@ -339,6 +346,7 @@ function CheerOnModal({
                     placeholderTextColor="rgba(255,255,255,0.3)"
                     style={s.cheerInput}
                     multiline
+                    inputAccessoryViewID="cheer-msg-done"
                   />
                   {custom.length > 0 && (
                     <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => send(custom)}>
@@ -351,6 +359,15 @@ function CheerOnModal({
           </TouchableWithoutFeedback>
         </View>
       </TouchableWithoutFeedback>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID="cheer-msg-done">
+          <View style={{ backgroundColor: '#f1f1f1', padding: 8, alignItems: 'flex-end' }}>
+            <TouchableOpacity onPress={Keyboard.dismiss} style={{ paddingVertical: 4, paddingHorizontal: 16 }}>
+              <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: '600' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
     </Modal>
   );
 }
@@ -362,41 +379,64 @@ function PasteCodeModal({
   const [input, setInput] = useState('');
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <View style={s.overlay}>
-          <TouchableWithoutFeedback onPress={() => {}}>
-            <View style={s.modalBox}>
-              <TouchableOpacity style={s.closeBtn} onPress={onClose}>
-                <Text style={s.closeTxt}>✕</Text>
-              </TouchableOpacity>
-              <Text style={s.modalTitle}>{title}</Text>
-              <Text style={s.modalSub}>Paste the code your squad member shared with you.</Text>
-              <TextInput
-                value={input}
-                onChangeText={setInput}
-                placeholder="Paste progress code here..."
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                style={[s.codeInput, { height: 90 }]}
-                multiline
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <TouchableOpacity
-                style={[s.actionBtn, { backgroundColor: input.length > 10 ? GOLD : 'rgba(255,215,0,0.2)' }]}
-                onPress={() => { onSubmit(input); setInput(''); }}
-                disabled={input.length <= 10}
-              >
-                <Text style={[s.actionBtnTxt, { color: input.length > 10 ? '#0a0520' : 'rgba(255,255,255,0.4)' }]}>
-                  Decode & Preview
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
-                <Text style={s.cancelBtnTxt}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={s.overlay}>
+            <TouchableWithoutFeedback onPress={() => {}}>
+              <View style={s.modalBox}>
+                <TouchableOpacity style={s.closeBtn} onPress={onClose}>
+                  <Text style={s.closeTxt}>✕</Text>
+                </TouchableOpacity>
+                <Text style={s.modalTitle}>{title}</Text>
+                <Text style={s.modalSub}>Paste the code your squad member shared with you.</Text>
+                <TextInput
+                  value={input}
+                  onChangeText={setInput}
+                  placeholder="Paste progress code here..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  style={[s.codeInput, { height: 90 }]}
+                  multiline
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  inputAccessoryViewID="paste-code-done"
+                />
+                {Platform.OS === 'android' && (
+                  <TouchableOpacity
+                    onPress={Keyboard.dismiss}
+                    style={{ alignSelf: 'flex-end', paddingVertical: 6, paddingHorizontal: 12, marginTop: 4 }}
+                  >
+                    <Text style={{ color: GOLD, fontSize: 13, fontWeight: '700' }}>Done</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[s.actionBtn, { backgroundColor: input.length > 10 ? GOLD : 'rgba(255,215,0,0.2)' }]}
+                  onPress={() => { onSubmit(input); setInput(''); }}
+                  disabled={input.length <= 10}
+                >
+                  <Text style={[s.actionBtnTxt, { color: input.length > 10 ? '#0a0520' : 'rgba(255,255,255,0.4)' }]}>
+                    Decode & Preview
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
+                  <Text style={s.cancelBtnTxt}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
+      {Platform.OS === 'ios' && (
+        <InputAccessoryView nativeID="paste-code-done">
+          <View style={{ backgroundColor: '#f1f1f1', padding: 8, alignItems: 'flex-end' }}>
+            <TouchableOpacity onPress={Keyboard.dismiss} style={{ paddingVertical: 4, paddingHorizontal: 16 }}>
+              <Text style={{ color: '#007AFF', fontSize: 16, fontWeight: '600' }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      )}
     </Modal>
   );
 }
@@ -797,6 +837,7 @@ export default function PartnersScreen() {
                 style={s.usernameInput}
                 maxLength={24}
                 returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
               />
               <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 2 }}>
                 Tap avatar to change • Tap name to edit
@@ -979,7 +1020,7 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: CARD_BORD,
     padding: 22, paddingBottom: 36, maxHeight: '88%',
   },
-  closeBtn: { alignSelf: 'flex-end', padding: 4, marginBottom: 6 },
+  closeBtn: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-end' },
   closeTxt: { color: 'rgba(255,255,255,0.55)', fontSize: 18 },
   modalTitle: {
     color: GOLD, fontSize: 18, fontWeight: '800', marginBottom: 6, textAlign: 'center',

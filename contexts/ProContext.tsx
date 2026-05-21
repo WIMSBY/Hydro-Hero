@@ -10,6 +10,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Session-level set: tracks which trigger IDs have already shown the paywall this session
 const sessionShownTriggers = new Set<string>();
@@ -64,6 +65,12 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
 
   const checkProStatus = useCallback(async () => {
     try {
+      const promo = await AsyncStorage.getItem('promo_lifetime_unlocked');
+      if (promo === 'true') { setIsPro(true); return; }
+      const lifetime = await AsyncStorage.getItem('hasLifetimeAccess');
+      if (lifetime === 'true') { setIsPro(true); return; }
+    } catch {}
+    try {
       const Purchases = require('react-native-purchases').default;
       const info = await Purchases.getCustomerInfo();
       const active = info?.entitlements?.active ?? {};
@@ -75,6 +82,12 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      try {
+        const promo = await AsyncStorage.getItem('promo_lifetime_unlocked');
+        if (promo === 'true') { setIsPro(true); setIsLoading(false); return; }
+        const lifetime = await AsyncStorage.getItem('hasLifetimeAccess');
+        if (lifetime === 'true') { setIsPro(true); setIsLoading(false); return; }
+      } catch {}
       try {
         const Purchases = require('react-native-purchases').default;
         const info = await Purchases.getCustomerInfo();

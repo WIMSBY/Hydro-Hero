@@ -515,6 +515,10 @@ function Screen3({ onStart }: { onStart: () => void }) {
       <Text style={s.emojiRow}>💧  🥤  ☕  🍊  🏃  🍺  🍹</Text>
       <Text style={s.emojiNote}>Every drink type has a hydration rating — some count more than others!</Text>
 
+      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, textAlign: "center", marginBottom: 16, lineHeight: 16, paddingHorizontal: 8 }}>
+        💧 We'll ask permission to send you hydration reminders — you can adjust these any time in Settings.
+      </Text>
+
       <TouchableOpacity style={screenS.primaryBtn} onPress={onStart} activeOpacity={0.8}>
         <Text style={screenS.primaryBtnText}>START PLAYING</Text>
       </TouchableOpacity>

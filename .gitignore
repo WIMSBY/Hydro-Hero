@@ -41,3 +41,9 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Admin tools — local only, never ship
+admin/
+
+# Claude Code local session data
+.claude/

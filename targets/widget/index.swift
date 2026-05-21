@@ -2,7 +2,7 @@ import WidgetKit
 import SwiftUI
 
 // MARK: - Shared App Group ID
-private let appGroupID = "group.com.wimsby.liquidluck"
+private let appGroupID = "group.com.wimsby.hydrationstation"
 
 // MARK: - Timeline Entry
 struct HydrationEntry: TimelineEntry {

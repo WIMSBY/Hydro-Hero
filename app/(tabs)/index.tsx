@@ -5543,6 +5543,14 @@ export default function WaterTracker() {
                   )}
                 </View>
 
+                {/* About / Legal */}
+                <View style={{ marginTop: 32, marginBottom: 8, alignItems: "center" }}>
+                  <TouchableOpacity onPress={() => Linking.openURL("https://liquidluck.netlify.app/privacy-policy.html").catch(() => {})} activeOpacity={0.7}>
+                    <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: "#bbbbbb", fontSize: 11, marginTop: 8 }}>Hydration Station v1.0.0</Text>
+                </View>
+
           </ScrollView>
         </View>
       </Modal>

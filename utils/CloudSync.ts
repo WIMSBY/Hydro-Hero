@@ -134,6 +134,16 @@ export async function syncTodayLog(): Promise<void> {
 }
 
 /**
+ * Cancel any pending debounced sync (call when app goes to background).
+ */
+export function cancelPendingSync(): void {
+  if (_debounceTimer) {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = null;
+  }
+}
+
+/**
  * Debounced syncTodayLog — call this after every drink log.
  * Collapses rapid successive logs into a single Supabase write.
  */

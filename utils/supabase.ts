@@ -5,8 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 // Replace these with your real Supabase project URL and anon key.
 // The app works fully without them — cloud sync is simply unavailable.
 
-const SUPABASE_URL      = 'YOUR_SUPABASE_URL';
-const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+export const SUPABASE_URL      = 'https://uhmdjjdozsyraahtlull.supabase.co';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVobWRqamRvenN5cmFhaHRsdWxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQwNjUyNjAsImV4cCI6MjA1OTY0MTI2MH0.fnwRyb4djDjs7b9xCcDyna6rQG7lMvKGLfJwFbx0RJg';
 
 // ─── Configuration guard ──────────────────────────────────────────────────────
 // True only when real (non-placeholder) credentials are present.
