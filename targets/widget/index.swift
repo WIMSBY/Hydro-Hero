@@ -149,7 +149,7 @@ struct SmallView: View {
                 }
 
                 // App name
-                Text("LIQUID LUCK")
+                Text("HYDRO HERO")
                     .font(.system(size: 7, weight: .bold))
                     .foregroundColor(gold.opacity(0.5))
                     .kerning(1.2)
@@ -180,7 +180,7 @@ struct MediumView: View {
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.white.opacity(0.5))
                     Spacer()
-                    Text("LIQUID LUCK")
+                    Text("HYDRO HERO")
                         .font(.system(size: 7, weight: .bold))
                         .foregroundColor(gold.opacity(0.45))
                         .kerning(1.2)
@@ -311,7 +311,7 @@ struct LiquidLuckWidget: Widget {
                 LiquidLuckEntryView(entry: entry)
             }
         }
-        .configurationDisplayName("Liquid Luck")
+        .configurationDisplayName("Hydro Hero")
         .description("Your daily hydration progress at a glance.")
         .supportedFamilies([.systemSmall, .systemMedium])
     }

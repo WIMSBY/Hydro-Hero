@@ -11,6 +11,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getRevenueCatPurchases } from '../utils/revenueCat';
 
 // Session-level set: tracks which trigger IDs have already shown the paywall this session
 const sessionShownTriggers = new Set<string>();
@@ -71,7 +72,8 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
       if (lifetime === 'true') { setIsPro(true); return; }
     } catch {}
     try {
-      const Purchases = require('react-native-purchases').default;
+      const Purchases = getRevenueCatPurchases();
+      if (!Purchases) return;
       const info = await Purchases.getCustomerInfo();
       const active = info?.entitlements?.active ?? {};
       setIsPro(active['pro'] !== undefined);
@@ -89,7 +91,8 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
         if (lifetime === 'true') { setIsPro(true); setIsLoading(false); return; }
       } catch {}
       try {
-        const Purchases = require('react-native-purchases').default;
+        const Purchases = getRevenueCatPurchases();
+        if (!Purchases) return;
         const info = await Purchases.getCustomerInfo();
         const active = info?.entitlements?.active ?? {};
         setIsPro(active['pro'] !== undefined);
@@ -110,7 +113,7 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
     } else {
       // Paywall not available yet — show a simple alert
       Alert.alert(
-        'Liquid Luck Pro',
+        'Hydro Hero Pro',
         'Upgrade to Pro to unlock all features — coming soon!',
         [{ text: 'OK' }],
       );

@@ -426,7 +426,7 @@ function Screen1({ onNext }: { onNext: () => void }) {
     <View style={screenS.container}>
       <AnimatedDrop />
 
-      <Text style={screenS.title}>LIQUID LUCK</Text>
+      <Text style={screenS.title}>HYDRO HERO</Text>
       <Text style={screenS.subtitle}>Your Casino-Style Hydration Tracker</Text>
 
       <Text style={screenS.body}>
@@ -435,7 +435,7 @@ function Screen1({ onNext }: { onNext: () => void }) {
       </Text>
 
       <TouchableOpacity style={screenS.primaryBtn} onPress={onNext} activeOpacity={0.8}>
-        <Text style={screenS.primaryBtnText}>LET'S GO</Text>
+        <Text style={screenS.primaryBtnText}>LET&apos;S GO</Text>
       </TouchableOpacity>
     </View>
   );
@@ -516,7 +516,7 @@ function Screen3({ onStart }: { onStart: () => void }) {
       <Text style={s.emojiNote}>Every drink type has a hydration rating — some count more than others!</Text>
 
       <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, textAlign: "center", marginBottom: 16, lineHeight: 16, paddingHorizontal: 8 }}>
-        💧 We'll ask permission to send you hydration reminders — you can adjust these any time in Settings.
+        💧 We&apos;ll ask permission to send you hydration reminders — you can adjust these any time in Settings.
       </Text>
 
       <TouchableOpacity style={screenS.primaryBtn} onPress={onStart} activeOpacity={0.8}>

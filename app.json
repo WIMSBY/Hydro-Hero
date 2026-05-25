@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Hydration Station",
+    "name": "Hydro Hero",
     "slug": "hydration-station",
-    "description": "Track your daily water intake with Hydration Station",
+    "description": "Track your daily water intake with Hydro Hero",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -13,9 +13,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.wimsby.hydrationstation",
       "appleTeamId": "2GPWB6H7M2",
+      "buildNumber": "2",
       "infoPlist": {
-        "NSHealthShareUsageDescription": "Hydration Station reads health data to provide personalized hydration insights",
-        "NSHealthUpdateUsageDescription": "Hydration Station saves your water intake to Apple Health to keep all your health data in one place",
+        "NSHealthShareUsageDescription": "Hydro Hero reads health data to provide personalized hydration insights",
+        "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {

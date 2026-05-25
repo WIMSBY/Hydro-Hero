@@ -1,7 +1,7 @@
 /**
  * components/AuthModal.tsx
  *
- * Art Deco casino-themed authentication modal for Liquid Luck.
+ * Art Deco casino-themed authentication modal for Hydro Hero.
  * Handles both Sign In and Create Account flows via Supabase.
  * "Maybe Later" closes without signing in — local data is always preserved.
  */
@@ -138,7 +138,7 @@ function SignInTab({ onSuccess }: { onSuccess: () => void }) {
         onPress={() =>
           Alert.alert(
             'Reset Password',
-            'Open the Liquid Luck website or check your email for a password reset link.\n\n(Password reset via email is sent by Supabase.)',
+            'Open the Hydro Hero website or check your email for a password reset link.\n\n(Password reset via email is sent by Supabase.)',
           )
         }
       >

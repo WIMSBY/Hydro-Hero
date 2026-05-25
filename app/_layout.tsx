@@ -11,25 +11,13 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { AuthProvider } from "../contexts/AuthContext";
 import { ProProvider } from "../contexts/ProContext";
 import { LLThemeProvider } from "../contexts/ThemeContext";
+import { configureRevenueCat } from "../utils/revenueCat";
 
 export const unstable_settings = {
   initialRouteName: "(tabs)",
 };
 
-// Initialize RevenueCat once at module load — wrapped in try/catch so it
-// never crashes the app if the SDK or network is unavailable.
-try {
-  const Purchases = require("react-native-purchases").default;
-  const { LOG_LEVEL } = require("react-native-purchases");
-
-  Purchases.configure({ apiKey: "test_wsArEpJYdCbUKYIvLIwTPUVVRDy" });
-
-  if (__DEV__) {
-    Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-  }
-} catch {
-  // RevenueCat not available — app continues without Pro features
-}
+configureRevenueCat();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();

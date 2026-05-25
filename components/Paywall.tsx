@@ -1,7 +1,7 @@
 /**
  * components/Paywall.tsx
  *
- * Full-screen paywall modal in Liquid Luck Art Deco casino theme.
+ * Full-screen paywall modal in Hydro Hero Art Deco casino theme.
  * - Animated slot reel cycles through Pro feature names
  * - Two purchase cards: Monthly ($1.99/mo) and Lifetime ($4.99 once)
  * - Primary CTA: "Subscribe Monthly — $1.99/mo"
@@ -23,6 +23,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { getRevenueCatPurchases } from '../utils/revenueCat';
 
 const GOLD = '#FFD700';
 const GOLD_DIM = '#c8a000';
@@ -92,7 +93,15 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
   async function tryPurchase(packageType: 'monthly' | 'lifetime') {
     setPurchasing(true);
     try {
-      const Purchases = require('react-native-purchases').default;
+      const Purchases = getRevenueCatPurchases();
+      if (!Purchases) {
+        Alert.alert(
+          'Coming Soon!',
+          'Purchases are not available in this build yet.',
+          [{ text: 'OK' }],
+        );
+        return;
+      }
       const offerings = await Purchases.getOfferings();
       const pkgs = offerings?.current?.availablePackages ?? [];
 
@@ -139,7 +148,11 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
   async function handleRestore() {
     setRestoring(true);
     try {
-      const Purchases = require('react-native-purchases').default;
+      const Purchases = getRevenueCatPurchases();
+      if (!Purchases) {
+        Alert.alert('Restore Unavailable', 'Purchases are not available in this build yet.', [{ text: 'OK' }]);
+        return;
+      }
       const info = await Purchases.restorePurchases();
       const active = info?.entitlements?.active ?? {};
       if (active['pro'] !== undefined) {
@@ -172,7 +185,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
         >
           {/* Header */}
           <Text style={s.crown}>👑</Text>
-          <Text style={s.title}>LIQUID LUCK PRO</Text>
+          <Text style={s.title}>HYDRO HERO PRO</Text>
           <Text style={s.subtitle}>Unlock the full casino experience</Text>
 
           {/* Animated reel */}

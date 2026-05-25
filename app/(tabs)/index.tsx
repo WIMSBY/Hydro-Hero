@@ -1004,7 +1004,7 @@ const presetStyles = StyleSheet.create({
 });
 
 // ==========================================
-//  LIQUID LUCK CASINO COMPONENTS
+//  HYDRO HERO CASINO COMPONENTS
 // ==========================================
 const GOLD = "#FFD700";
 const GOLD_DIM = "#c8a000";
@@ -1092,8 +1092,8 @@ function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number })
       <View style={mqStyles.titleRow}>
         <Text style={mqStyles.star}>⭐</Text>
         <View style={{ alignItems: "center" }}>
-          <Text style={mqStyles.title}>LIQUID LUCK</Text>
-          <Text style={mqStyles.subtitle}>HYDRATION STATION</Text>
+          <Text style={mqStyles.title}>HYDRO HERO</Text>
+          <Text style={mqStyles.subtitle}>HYDRATION TRACKER</Text>
         </View>
         <Text style={mqStyles.star}>⭐</Text>
       </View>
@@ -2609,7 +2609,7 @@ function JackpotCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boo
       {/* Card — always on top */}
       <View style={jpStyles.card}>
         <Animated.Text style={[jpStyles.jackpotText, { transform: [{ scale: pulseAnim }] }]}>
-          🎆 LIQUID LUCK!
+          🎆 HYDRO HERO!
         </Animated.Text>
         <Text style={jpStyles.emojiRow}>🎆🎇✨🏆🍀🎆</Text>
         <Text style={jpStyles.mainText}>You hit your daily hydration goal!</Text>
@@ -2652,7 +2652,7 @@ const MILESTONE_MESSAGES: Record<number, string> = {
   3: "You're on fire! Keep it up!",
   7: "One full week! You're a hydration hero!",
   14: "Two weeks strong! Unstoppable!",
-  30: "30 days! You're a Liquid Luck legend!",
+  30: "30 days! You're a Hydro Hero legend!",
 };
 
 function StreakMilestoneCard({
@@ -2941,7 +2941,7 @@ export default function WaterTracker() {
   const [weatherBannerDismissed, setWeatherBannerDismissed] = useState(false);
   const [weatherTempF, setWeatherTempF] = useState<number | null>(null);
 
-  // Casino / Liquid Luck
+  // Casino / Hydro Hero
   const [selectedCategory, setSelectedCategory] = useState<BevCategory>("water");
   const [spinning, setSpinning] = useState(false);
   const [jackpotSpinning, setJackpotSpinning] = useState(false);
@@ -3113,7 +3113,7 @@ export default function WaterTracker() {
       if (asked === "1") return;
       Alert.alert(
         "Apple Health",
-        "Liquid Luck would like to save your hydration data to Apple Health so all your health data stays in one place.",
+        "Hydro Hero would like to save your hydration data to Apple Health so all your health data stays in one place.",
         [
           {
             text: "Not Now",
@@ -3243,7 +3243,7 @@ export default function WaterTracker() {
     if (morningOn && !goalHit) {
       await schedDaily(7, 30,
         "Good morning! Time to hydrate 💧",
-        "Your Liquid Luck jackpot is waiting — start spinning!"
+        "Your Hydro Hero jackpot is waiting — start spinning!"
       );
     }
 
@@ -3525,7 +3525,7 @@ export default function WaterTracker() {
         await checkProStatus();
         setShowPromoModal(false);
         setPromoCode('');
-        Alert.alert('🎉 Welcome to Pro!', 'You now have lifetime access to Liquid Luck Pro!', [{ text: "Let's Go!" }]);
+        Alert.alert('🎉 Welcome to Pro!', 'You now have lifetime access to Hydro Hero Pro!', [{ text: "Let's Go!" }]);
       } else {
         Alert.alert('Invalid Code', 'That promo code is not valid.', [{ text: 'OK' }]);
       }
@@ -3671,7 +3671,7 @@ export default function WaterTracker() {
       }
       await Sharing.shareAsync(filePath, {
         mimeType: "text/csv",
-        dialogTitle: "Share your Liquid Luck history",
+        dialogTitle: "Share your Hydro Hero history",
         UTI: "public.comma-separated-values-text",
       });
     } catch {
@@ -4378,7 +4378,7 @@ export default function WaterTracker() {
         3:  ["3 Day Streak! 🔥",   "You're on fire — 3 days of hitting your goal!"],
         7:  ["One Week Streak! 🏆", "A full week of jackpots — you're a hydration legend!"],
         14: ["Two Week Streak! 👑", "14 days straight — unstoppable!"],
-        30: ["30 Day Streak! 🌊",  "A whole month of jackpots — you're a Liquid Luck legend!"],
+        30: ["30 Day Streak! 🌊",  "A whole month of jackpots — you're a Hydro Hero legend!"],
       };
       if (STREAK_NOTIFS[streak]) {
         playStreakSound();
@@ -5548,7 +5548,7 @@ export default function WaterTracker() {
                   <TouchableOpacity onPress={() => Linking.openURL("https://liquidluck.netlify.app/privacy-policy.html").catch(() => {})} activeOpacity={0.7}>
                     <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
                   </TouchableOpacity>
-                  <Text style={{ color: "#bbbbbb", fontSize: 11, marginTop: 8 }}>Hydration Station v1.0.0</Text>
+                  <Text style={{ color: "#bbbbbb", fontSize: 11, marginTop: 8 }}>Hydro Hero v1.0.0</Text>
                 </View>
 
           </ScrollView>
@@ -5563,7 +5563,7 @@ export default function WaterTracker() {
               <Text style={{ fontSize: 36, marginBottom: 8 }}>🎁</Text>
               <Text style={{ color: '#FFD700', fontSize: 22, fontWeight: '900', marginBottom: 4, letterSpacing: 1 }}>Redeem Promo Code</Text>
               <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, marginBottom: 24, textAlign: 'center' }}>
-                Enter your code to unlock Liquid Luck Pro
+                Enter your code to unlock Hydro Hero Pro
               </Text>
               <TextInput
                 style={{

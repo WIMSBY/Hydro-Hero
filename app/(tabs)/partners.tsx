@@ -241,8 +241,8 @@ function ShareCodeModal({
     try { await Share.share({ message: text }); } catch {}
   };
   const emailShare = () => {
-    const subj = encodeURIComponent('My Liquid Luck Progress');
-    const body = encodeURIComponent(`Here is my hydration progress code — paste it into Liquid Luck to see my stats!\n\n${code}`);
+    const subj = encodeURIComponent('My Hydro Hero Progress');
+    const body = encodeURIComponent(`Here is my hydration progress code — paste it into Hydro Hero to see my stats!\n\n${code}`);
     Linking.openURL(`mailto:?subject=${subj}&body=${body}`).catch(() => {});
   };
 
@@ -269,7 +269,7 @@ function ShareCodeModal({
               <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share()}>
                 <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>📋 Copy / Share Code</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={s.actionBtn} onPress={() => share('Hey! Here\'s my Liquid Luck progress code 💧')}>
+              <TouchableOpacity style={s.actionBtn} onPress={() => share('Hey! Here\'s my Hydro Hero progress code 💧')}>
                 <Text style={s.actionBtnTxt}>💬 Share via Messages</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actionBtn} onPress={emailShare}>
@@ -317,7 +317,7 @@ function CheerOnModal({
   const [custom, setCustom] = useState('');
 
   const send = async (msg: string) => {
-    const text = `${msg} — sent from Liquid Luck 💧`;
+    const text = `${msg} — sent from Hydro Hero 💧`;
     try { await Share.share({ message: text }); } catch {}
   };
 
@@ -581,7 +581,7 @@ function SquadMemberCard({
           <Text style={[s.cardBtnTxt, { color: GOLD }]}>📣 Cheer On</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.cardBtn} onPress={() =>
-          Share.share({ message: `Hey! Share your Liquid Luck progress code so I can see how you are doing! — sent from Liquid Luck 💧` })
+          Share.share({ message: `Hey! Share your Hydro Hero progress code so I can see how you are doing! — sent from Hydro Hero 💧` })
         }>
           <Text style={s.cardBtnTxt}>💬 Request</Text>
         </TouchableOpacity>

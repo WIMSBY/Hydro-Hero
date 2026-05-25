@@ -1,7 +1,7 @@
 /**
  * utils/SoundPacks.ts
  *
- * Defines the four available sound packs for Liquid Luck.
+ * Defines the four available sound packs for Hydro Hero.
  * Each pack specifies tone parameters for every SoundRole.
  *
  * ┌─ TO REPLACE WITH REAL AUDIO FILES ────────────────────────────────────────┐
@@ -64,7 +64,7 @@ const classicPack: SoundPack = {
   name: 'Classic',
   emoji: '💧',
   description: 'Clean and simple water sounds',
-  tagline: 'The original Liquid Luck experience',
+  tagline: 'The original Hydro Hero experience',
   isPro: false,
   tones: {
     // Soft UI click

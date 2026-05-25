@@ -166,7 +166,7 @@ struct ContentView: View {
                 HStack(spacing: 4) {
                     Text("💧")
                         .font(.system(size: 11))
-                    Text("LIQUID LUCK")
+                    Text("HYDRO HERO")
                         .font(.system(size: 9, weight: .black))
                         .foregroundColor(gold)
                         .kerning(1.5)
