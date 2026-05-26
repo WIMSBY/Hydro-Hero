@@ -41,12 +41,15 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: HapticTab,
+        tabBarLabelStyle: { fontSize: 10, marginTop: -2 },
+        tabBarIconStyle: { marginTop: 2 },
+        tabBarStyle: { height: 65, paddingTop: 4 },
       }}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={22} name="house.fill" color={color} />,
         }}
       />
       <Tabs.Screen
@@ -55,7 +58,7 @@ export default function TabLayout() {
           title: 'Stats',
           tabBarIcon: ({ color }) => (
             <LockedTabIcon isPro={isPro}>
-              <MaterialIcons name="bar-chart" size={28} color={isPro ? color : 'rgba(150,150,150,0.7)'} />
+              <MaterialIcons name="bar-chart" size={22} color={isPro ? color : 'rgba(150,150,150,0.7)'} />
             </LockedTabIcon>
           ),
         }}
@@ -72,14 +75,14 @@ export default function TabLayout() {
         name="partners"
         options={{
           title: 'Squad',
-          tabBarIcon: ({ color }) => <MaterialIcons name="group" size={28} color={color} />,
+          tabBarIcon: ({ color }) => <MaterialIcons name="group" size={22} color={color} />,
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
           title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={22} name="paperplane.fill" color={color} />,
         }}
       />
     </Tabs>

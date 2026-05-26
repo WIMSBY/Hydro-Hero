@@ -13,6 +13,7 @@ import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } 
 import { syncWidgetData } from "../../utils/WidgetDataSync";
 import { initWatch, teardownWatch, sendHydrationUpdate, setWatchMessageHandler } from "../../utils/WatchManager";
 import { useIsFocused } from "@react-navigation/native";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { File as FSFile, Paths as FSPaths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as Location from "expo-location";
@@ -2055,7 +2056,7 @@ function BeverageSelector({
   return (
     <View style={bvStyles.wrapper}>
       <View style={bvStyles.labelRow}>
-        <Text style={bvStyles.sectionLabel}>BEVERAGE</Text>
+        <Text style={bvStyles.sectionLabel}>SELECT A BEVERAGE  ⌄</Text>
         <TouchableOpacity onPress={onEditBevs} style={bvStyles.editBtn} activeOpacity={0.7}>
           <Text style={bvStyles.editTxt}>✏️</Text>
         </TouchableOpacity>
@@ -2080,7 +2081,7 @@ const bvStyles = StyleSheet.create({
   editTxt: { fontSize: 13 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   btn: { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", minWidth: 52 },
-  customBtn: { borderColor: GOLD, backgroundColor: "rgba(255,215,0,0.08)" },
+  customBtn: { borderColor: "rgba(255,215,0,0.35)", borderStyle: "dashed", backgroundColor: "rgba(255,255,255,0.06)" },
   name: { color: "#ffffff", fontWeight: "600", marginTop: 2, textAlign: "center" },
 });
 
@@ -2883,6 +2884,7 @@ const factStyles = StyleSheet.create({
 });
 
 export default function WaterTracker() {
+  const tabBarHeight = useBottomTabBarHeight();
   const { colors, isDark, bgAnim, toggleTheme } = useTheme();
   const { isPro, openPaywall, checkProStatus } = useProContext();
   const { isAuthenticated, user, signOut, deleteAccount } = useAuth();
@@ -4415,7 +4417,7 @@ export default function WaterTracker() {
       <StarParticles />
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <Animated.ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: 0 }]}
+        contentContainerStyle={[styles.scroll, { paddingTop: 0, paddingBottom: tabBarHeight + 24 }]}
         keyboardShouldPersistTaps="handled"
         style={{ transform: [{ translateX: screenShakeAnim }] }}
       >
@@ -4452,6 +4454,14 @@ export default function WaterTracker() {
         {/* Quick Bet Buttons */}
         <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}>
           <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
+          <TouchableOpacity
+            onPress={() => { playButtonTapSound(); setShowCustomModal(true); }}
+            activeOpacity={0.7}
+            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center", marginRight: 8 }}
+            accessibilityLabel="Enter custom amount"
+          >
+            <Text style={{ fontSize: 22, lineHeight: 24, color: GOLD, fontWeight: "700" }}>＋</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => { if (!isPro) { openPaywall('customize_quick_add'); return; } setShowQuickAddModal(true); }}
             activeOpacity={0.7}
@@ -4657,29 +4667,35 @@ export default function WaterTracker() {
 
                   {/* Drink selector */}
                   <Text style={[styles.modalFieldLabel, { marginTop: 16 }]}>Select Drink</Text>
-                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
-                    {CATEGORIES.map((cat) => {
-                      const isSel = cat.key === selectedCategory;
-                      return (
-                        <TouchableOpacity
-                          key={cat.key}
-                          style={{
-                            width: "22%",
-                            borderWidth: 2,
-                            borderRadius: 12,
-                            paddingVertical: 8,
-                            alignItems: "center",
-                            backgroundColor: isSel ? cat.color + "22" : "#ffffff",
-                            borderColor: isSel ? cat.color : "#E0E0E0",
-                          }}
-                          onPress={() => setSelectedCategory(cat.key)}
-                        >
-                          <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
-                          <Text style={{ fontSize: 10, fontWeight: "700", color: isSel ? cat.color : "#666", marginTop: 2, textAlign: "center" }}>{cat.label}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
+                  <ScrollView
+                    style={{ maxHeight: 240 }}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator
+                  >
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
+                      {CATEGORIES.map((cat) => {
+                        const isSel = cat.key === selectedCategory;
+                        return (
+                          <TouchableOpacity
+                            key={cat.key}
+                            style={{
+                              width: "22%",
+                              borderWidth: 2,
+                              borderRadius: 12,
+                              paddingVertical: 8,
+                              alignItems: "center",
+                              backgroundColor: isSel ? cat.color + "22" : "#ffffff",
+                              borderColor: isSel ? cat.color : "#E0E0E0",
+                            }}
+                            onPress={() => setSelectedCategory(cat.key)}
+                          >
+                            <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
+                            <Text style={{ fontSize: 10, fontWeight: "700", color: isSel ? cat.color : "#666", marginTop: 2, textAlign: "center" }}>{cat.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </ScrollView>
 
                   {/* Buttons */}
                   <View style={styles.modalBtnRow}>
