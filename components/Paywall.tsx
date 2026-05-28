@@ -3,10 +3,8 @@
  *
  * Full-screen paywall modal in Hydro Hero Art Deco casino theme.
  * - Animated slot reel cycles through Pro feature names
- * - Two purchase cards: Monthly ($1.99/mo) and Lifetime ($4.99 once)
- * - Primary CTA: "Subscribe Monthly — $1.99/mo"
- * - Secondary CTA: "Get Lifetime Access — $4.99"
- * - Gracefully falls back to "Coming Soon" alert if no App Store products exist
+ * - Two purchase cards: Monthly + Lifetime, prices read live from RevenueCat
+ * - Falls back to baseline labels if RC offerings aren't reachable
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -63,6 +61,9 @@ interface PaywallProps {
   onPurchaseSuccess: () => void;
 }
 
+const MONTHLY_PRICE_FALLBACK = '$1.99';
+const LIFETIME_PRICE_FALLBACK = '$9.99';
+
 export default function Paywall({ visible, onClose, onPurchaseSuccess }: PaywallProps) {
   const [reelIdx, setReelIdx] = useState(0);
   const reelFade = useRef(new Animated.Value(1)).current;
@@ -70,6 +71,41 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
   const [purchasing, setPurchasing] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const reelTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [monthlyPkg, setMonthlyPkg] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [lifetimePkg, setLifetimePkg] = useState<any>(null);
+
+  const monthlyPrice = monthlyPkg?.product?.priceString ?? MONTHLY_PRICE_FALLBACK;
+  const lifetimePrice = lifetimePkg?.product?.priceString ?? LIFETIME_PRICE_FALLBACK;
+
+  // Load offerings whenever the paywall becomes visible
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const Purchases = getRevenueCatPurchases();
+        if (!Purchases) return;
+        const offerings = await Purchases.getOfferings();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pkgs: any[] = offerings?.current?.availablePackages ?? [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const monthly = pkgs.find((p: any) =>
+          p.packageType === 'MONTHLY' || p.identifier?.toLowerCase().includes('monthly')
+        );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const lifetime = pkgs.find((p: any) =>
+          p.packageType === 'LIFETIME' || p.identifier?.toLowerCase().includes('lifetime')
+        );
+        if (!cancelled) {
+          setMonthlyPkg(monthly ?? null);
+          setLifetimePkg(lifetime ?? null);
+        }
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [visible]);
 
   // Spin reel animation
   useEffect(() => {
@@ -221,8 +257,8 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
               activeOpacity={0.85}
             >
               <Text style={s.cardLabel}>MONTHLY</Text>
-              <Text style={s.cardPrice}>$1.99</Text>
-              <Text style={s.cardSub}>$1.99 / month{'\n'}Cancel anytime</Text>
+              <Text style={s.cardPrice}>{monthlyPrice}</Text>
+              <Text style={s.cardSub}>{monthlyPrice} / month{'\n'}Cancel anytime</Text>
             </TouchableOpacity>
 
             {/* Lifetime card — highlighted as best value */}
@@ -236,8 +272,8 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
                 <Text style={s.bestValueTxt}>BEST VALUE</Text>
               </View>
               <Text style={[s.cardLabel, { color: BG }]}>LIFETIME</Text>
-              <Text style={[s.cardPrice, { color: BG }]}>$4.99</Text>
-              <Text style={[s.cardSub, { color: 'rgba(10,5,32,0.7)' }]}>$4.99 once{'\n'}Pay once, own forever</Text>
+              <Text style={[s.cardPrice, { color: BG }]}>{lifetimePrice}</Text>
+              <Text style={[s.cardSub, { color: 'rgba(10,5,32,0.7)' }]}>{lifetimePrice} once{'\n'}Pay once, own forever</Text>
             </TouchableOpacity>
           </View>
 
@@ -251,7 +287,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
             {purchasing ? (
               <ActivityIndicator color={BG} />
             ) : (
-              <Text style={s.primaryBtnTxt}>Subscribe Monthly — $1.99/mo</Text>
+              <Text style={s.primaryBtnTxt}>Subscribe Monthly — {monthlyPrice}/mo</Text>
             )}
           </TouchableOpacity>
 
@@ -262,7 +298,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
             disabled={purchasing}
             activeOpacity={0.85}
           >
-            <Text style={s.secondaryBtnTxt}>Get Lifetime Access — $4.99</Text>
+            <Text style={s.secondaryBtnTxt}>Get Lifetime Access — {lifetimePrice}</Text>
           </TouchableOpacity>
 
           {/* Restore */}
@@ -282,7 +318,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
           {/* Terms */}
           <Text style={s.terms}>
             By purchasing you agree to our Terms of Service and Privacy Policy.{'\n'}
-            Monthly subscription auto-renews at $1.99/mo unless cancelled 24 hours before renewal.
+            Monthly subscription auto-renews at {monthlyPrice}/mo unless cancelled 24 hours before renewal.
           </Text>
 
           <View style={{ height: 32 }} />
