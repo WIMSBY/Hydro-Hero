@@ -136,7 +136,23 @@ function normalizePayload(raw: any): CodePayload | null {
   }
 
   if (typeof raw.username === 'string') {
-    return raw as CodePayload;
+    const now = typeof raw.timestamp === 'number' ? raw.timestamp : Date.now();
+    return {
+      v: typeof raw.v === 'number' ? raw.v : 1,
+      username: raw.username,
+      avatar: typeof raw.avatar === 'string' ? raw.avatar : '💧',
+      hydrationOz: Number(raw.hydrationOz) || 0,
+      hydrationPct: Number(raw.hydrationPct) || 0,
+      goalOz: Number(raw.goalOz) || 64,
+      streak: Number(raw.streak) || 0,
+      breakdown: raw.breakdown && typeof raw.breakdown === 'object' ? raw.breakdown : {},
+      weekHistory: Array.isArray(raw.weekHistory) ? raw.weekHistory : [],
+      lifetimeJackpots: Number(raw.lifetimeJackpots) || 0,
+      savedAt: Number(raw.savedAt) || now,
+      codeTimestamp: Number(raw.codeTimestamp) || now,
+      timestamp: now,
+      expiresAt: typeof raw.expiresAt === 'number' ? raw.expiresAt : now + 24 * 60 * 60 * 1000,
+    };
   }
 
   return null;
@@ -579,7 +595,9 @@ function SquadMemberCard({
   onUpdate: () => void;
   onRemove: () => void;
 }) {
-  const totalBev = Object.values(member.breakdown).reduce((a, b) => a + b, 0);
+  const breakdown = member.breakdown ?? {};
+  const weekHistory = member.weekHistory ?? [];
+  const totalBev = Object.values(breakdown).reduce((a, b) => a + b, 0);
   const hitGoal = member.hydrationPct >= 1.0;
 
   return (
@@ -614,13 +632,13 @@ function SquadMemberCard({
       {/* Beverage bar */}
       {totalBev > 0 && (
         <View style={{ marginBottom: 6 }}>
-          <BevBar breakdown={member.breakdown} total={totalBev} />
+          <BevBar breakdown={breakdown} total={totalBev} />
         </View>
       )}
 
       {/* Week history dots */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <WeekDots history={member.weekHistory} />
+        <WeekDots history={weekHistory} />
         <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9 }}>last 7 days</Text>
         <View style={{ flex: 1 }} />
         <Text style={{ color: GOLD, fontSize: 11 }}>🏆 {member.lifetimeJackpots}</Text>

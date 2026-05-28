@@ -16,10 +16,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.wimsby.hydrationstation",
       "appleTeamId": "2GPWB6H7M2",
-      "buildNumber": "5",
+      "buildNumber": "6",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Hydro Hero reads health data to provide personalized hydration insights",
         "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
+        "NSLocationWhenInUseUsageDescription": "Hydro Hero uses your approximate location to check the local temperature and suggest extra hydration on hot days. Your location is never stored or shared.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
@@ -72,7 +73,15 @@
       "@bacons/apple-targets",
       "./plugins/withWidgetData",
       "expo-updates",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "project": "hydro-hero",
+          "organization": "wimsby"
+        }
+      ]
     ],
     "updates": {
       "url": "https://u.expo.dev/0e008050-c62f-466f-bfd8-9310a7504fc8",

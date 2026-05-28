@@ -19,6 +19,7 @@ import * as Sharing from "expo-sharing";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as Haptics from "expo-haptics";
+import * as Sentry from "@sentry/react-native";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useProContext } from "../../contexts/ProContext";
 import { useAuth } from "../../contexts/AuthContext";
@@ -3163,6 +3164,23 @@ export default function WaterTracker() {
 
   async function fetchWeatherAdjustment() {
     try {
+      const current = await Location.getForegroundPermissionsAsync();
+      if (current.status === "denied") return;
+
+      if (current.status === "undetermined") {
+        const consent = await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Hot-Day Goal Boost",
+            "Hydro Hero can check the local temperature to suggest extra ounces on hot days. Your approximate location is used once per session and is never stored or shared.",
+            [
+              { text: "Not Now", style: "cancel", onPress: () => resolve(false) },
+              { text: "Allow", onPress: () => resolve(true) },
+            ]
+          );
+        });
+        if (!consent) return;
+      }
+
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
@@ -5395,6 +5413,26 @@ export default function WaterTracker() {
                       <Text style={{ color: "#FF6B6B", fontSize: 13, fontWeight: "600" }}>Delete My Account</Text>
                     </TouchableOpacity>
                   )}
+                </View>
+
+                {/* Feedback */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>FEEDBACK</Text>
+                  <TouchableOpacity
+                    style={{ borderWidth: 1.5, borderColor: "rgba(200,160,0,0.4)", borderRadius: 12, paddingVertical: 13, alignItems: "center" }}
+                    onPress={() => {
+                      setShowSettingsModal(false);
+                      setTimeout(() => {
+                        try { Sentry.showFeedbackWidget(); } catch {}
+                      }, 350);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "700" }}>💬 Send Feedback</Text>
+                  </TouchableOpacity>
+                  <Text style={{ color: "#888888", fontSize: 12, marginTop: 8, textAlign: "center" }}>
+                    Found a bug or have an idea? Let us know.
+                  </Text>
                 </View>
 
                 {/* About / Legal */}
