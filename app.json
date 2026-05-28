@@ -4,6 +4,9 @@
     "slug": "hydration-station",
     "description": "Track your daily water intake with Hydro Hero",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hydrationstation",
@@ -13,7 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.wimsby.hydrationstation",
       "appleTeamId": "2GPWB6H7M2",
-      "buildNumber": "3",
+      "buildNumber": "4",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Hydro Hero reads health data to provide personalized hydration insights",
         "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
@@ -68,8 +71,14 @@
       "react-native-health",
       "@bacons/apple-targets",
       "./plugins/withWidgetData",
+      "expo-updates",
       "expo-secure-store"
     ],
+    "updates": {
+      "url": "https://u.expo.dev/0e008050-c62f-466f-bfd8-9310a7504fc8",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

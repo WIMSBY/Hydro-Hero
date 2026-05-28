@@ -96,6 +96,8 @@ interface CodePayload extends SquadMember {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+const MAX_PASTE_CHARS = 6000;
+
 function dateKey(d: Date) {
   return `water_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
 }
@@ -109,10 +111,53 @@ function encodePayload(obj: object): string {
   } catch { return ''; }
 }
 
+function extractProgressCode(input: string): string {
+  const normalized = input.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+  const compact = normalized.replace(/\s+/g, '');
+  const candidates = compact.match(/[A-Za-z0-9_-]{80,}/g);
+  if (!candidates || candidates.length === 0) return compact;
+  return candidates.reduce((longest, candidate) =>
+    candidate.length > longest.length ? candidate : longest
+  );
+}
+
+function normalizePayload(raw: any): CodePayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+
+  if (raw.v === 2) {
+    const now = typeof raw.t === 'number' ? raw.t : Date.now();
+    return {
+      v: 2,
+      username: typeof raw.u === 'string' ? raw.u : 'Anonymous',
+      avatar: typeof raw.a === 'string' ? raw.a : '💧',
+      hydrationOz: Number(raw.h) || 0,
+      hydrationPct: Number(raw.p) || 0,
+      goalOz: Number(raw.g) || 64,
+      streak: Number(raw.s) || 0,
+      breakdown: {},
+      weekHistory: Array.isArray(raw.w) ? raw.w : [],
+      lifetimeJackpots: Number(raw.j) || 0,
+      savedAt: now,
+      codeTimestamp: now,
+      timestamp: now,
+      expiresAt: typeof raw.e === 'number' ? raw.e : now + 24 * 60 * 60 * 1000,
+    };
+  }
+
+  if (typeof raw.username === 'string') {
+    return raw as CodePayload;
+  }
+
+  return null;
+}
+
 function decodePayload(code: string): CodePayload | null {
   try {
-    const b64 = code.trim().replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(decodeURIComponent(escape(atob(b64))));
+    const cleanCode = extractProgressCode(code);
+    const b64 = cleanCode.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64.padEnd(Math.ceil(b64.length / 4) * 4, '=');
+    const raw = JSON.parse(decodeURIComponent(escape(atob(padded))));
+    return normalizePayload(raw);
   } catch { return null; }
 }
 
@@ -267,7 +312,7 @@ function ShareCodeModal({
               </View>
 
               <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share()}>
-                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>📋 Copy / Share Code</Text>
+                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>📋 Share Code Only</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actionBtn} onPress={() => share('Hey! Here\'s my Hydro Hero progress code 💧')}>
                 <Text style={s.actionBtnTxt}>💬 Share via Messages</Text>
@@ -377,6 +422,19 @@ function PasteCodeModal({
   visible, title, onSubmit, onClose,
 }: { visible: boolean; title: string; onSubmit: (code: string) => void; onClose: () => void }) {
   const [input, setInput] = useState('');
+  const extractedCode = extractProgressCode(input);
+  const canDecode = extractedCode.length > 10;
+
+  const handleChangeText = (next: string) => {
+    setInput(next.length > MAX_PASTE_CHARS ? next.slice(0, MAX_PASTE_CHARS) : next);
+  };
+
+  const handleSubmit = () => {
+    Keyboard.dismiss();
+    onSubmit(extractedCode);
+    setInput('');
+  };
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
@@ -391,10 +449,10 @@ function PasteCodeModal({
                   <Text style={s.closeTxt}>✕</Text>
                 </TouchableOpacity>
                 <Text style={s.modalTitle}>{title}</Text>
-                <Text style={s.modalSub}>Paste the code your squad member shared with you.</Text>
+                <Text style={s.modalSub}>Paste the code, or paste the whole message your squad member shared.</Text>
                 <TextInput
                   value={input}
-                  onChangeText={setInput}
+                  onChangeText={handleChangeText}
                   placeholder="Paste progress code here..."
                   placeholderTextColor="rgba(255,255,255,0.3)"
                   style={[s.codeInput, { height: 90 }]}
@@ -403,6 +461,11 @@ function PasteCodeModal({
                   autoCorrect={false}
                   inputAccessoryViewID="paste-code-done"
                 />
+                {input.length >= MAX_PASTE_CHARS && (
+                  <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 6 }}>
+                    Paste was trimmed to keep the app responsive.
+                  </Text>
+                )}
                 {Platform.OS === 'android' && (
                   <TouchableOpacity
                     onPress={Keyboard.dismiss}
@@ -412,11 +475,11 @@ function PasteCodeModal({
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
-                  style={[s.actionBtn, { backgroundColor: input.length > 10 ? GOLD : 'rgba(255,215,0,0.2)' }]}
-                  onPress={() => { onSubmit(input); setInput(''); }}
-                  disabled={input.length <= 10}
+                  style={[s.actionBtn, { backgroundColor: canDecode ? GOLD : 'rgba(255,215,0,0.2)' }]}
+                  onPress={handleSubmit}
+                  disabled={!canDecode}
                 >
-                  <Text style={[s.actionBtnTxt, { color: input.length > 10 ? '#0a0520' : 'rgba(255,255,255,0.4)' }]}>
+                  <Text style={[s.actionBtnTxt, { color: canDecode ? '#0a0520' : 'rgba(255,255,255,0.4)' }]}>
                     Decode & Preview
                   </Text>
                 </TouchableOpacity>
@@ -713,21 +776,18 @@ export default function PartnersScreen() {
   // ── Generate my progress code ────────────────────────────────────────────────
   function generateCode() {
     const now = Date.now();
-    const payload: CodePayload = {
-      v: 1,
-      username: username || 'Anonymous',
-      avatar,
-      hydrationOz: myHydration,
-      hydrationPct: myPct,
-      goalOz: myGoal,
-      streak: myStreak,
-      breakdown: myBreakdown,
-      weekHistory: myWeekHist,
-      lifetimeJackpots: myJackpots,
-      savedAt: now,
-      codeTimestamp: now,
-      timestamp: now,
-      expiresAt: now + 24 * 60 * 60 * 1000,
+    const payload = {
+      v: 2,
+      u: username || 'Anonymous',
+      a: avatar,
+      h: Math.round(myHydration * 10) / 10,
+      p: Math.round(myPct * 1000) / 1000,
+      g: myGoal,
+      s: myStreak,
+      w: myWeekHist,
+      j: myJackpots,
+      t: now,
+      e: now + 24 * 60 * 60 * 1000,
     };
     const code = encodePayload(payload);
     setMyCode(code);
