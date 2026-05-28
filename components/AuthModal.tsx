@@ -25,9 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const BG       = '#0a0520';
-const CARD_BG  = 'rgba(255,255,255,0.06)';
 const GOLD     = '#FFD700';
-const GOLD_D   = '#c8a000';
 const BORDER   = 'rgba(255,215,0,0.35)';
 const MUTED    = 'rgba(255,255,255,0.45)';
 

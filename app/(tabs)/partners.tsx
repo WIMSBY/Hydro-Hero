@@ -35,7 +35,6 @@ const BG        = '#0a0520';
 const CARD_BG   = 'rgba(255,255,255,0.07)';
 const CARD_BORD = 'rgba(255,215,0,0.28)';
 const GOLD      = '#FFD700';
-const GOLD_D    = '#c8a000';
 
 const BEV_COLORS: Record<string, string> = {
   water: '#1565C0', coffee: '#7B4F2E', tea: '#8B7355', icedtea: '#C8A000',
@@ -44,14 +43,6 @@ const BEV_COLORS: Record<string, string> = {
   sports: '#2E8B4A', milk: '#AAAAAA', protein: '#8844AA',
   beer: '#D4881A', wine: '#8B1A3A', cocktail: '#7B1A8B',
   energy: '#AACC00', energyshot: '#CC8800', hotchoc: '#5C3317', spirits: '#AA6622',
-};
-const BEV_LABELS: Record<string, string> = {
-  water: 'Water', coffee: 'Coffee', tea: 'Tea', icedtea: 'Iced Tea',
-  soda: 'Soda', flavored: 'Flavored Water', coconut: 'Coconut Water',
-  juice: 'Juice', lemonade: 'Lemonade', fruit: 'Fruit Drinks',
-  sports: 'Sports Drink', milk: 'Milk', protein: 'Protein Shake',
-  beer: 'Beer', wine: 'Wine', cocktail: 'Cocktail',
-  energy: 'Energy Drink', energyshot: 'Energy Shot', hotchoc: 'Hot Chocolate', spirits: 'Spirits',
 };
 const BEV_KEYS = [
   'water','coffee','tea','icedtea','soda','flavored','coconut',
@@ -730,7 +721,6 @@ export default function PartnersScreen() {
   const [previewPayload, setPreviewPayload] = useState<CodePayload | null>(null);
   const [isUpdateFor, setIsUpdateFor] = useState<string | null>(null); // username being updated
   const [cheerFor, setCheerFor]       = useState<string | null>(null);
-  const [updateFor, setUpdateFor]     = useState<string | null>(null);
 
   const [myCode, setMyCode] = useState('');
 
@@ -815,7 +805,6 @@ export default function PartnersScreen() {
     setPreviewPayload(payload);
     setShowPreview(true);
     setShowAdd(false);
-    setUpdateFor(isUpdateFor);
   }
 
   // ── Confirm adding / updating ────────────────────────────────────────────────
@@ -869,7 +858,6 @@ export default function PartnersScreen() {
   }
 
   const myTotalBev = Object.values(myBreakdown).reduce((a, b) => a + b, 0);
-  const displayName = username || 'You';
 
   return (
     <View style={s.root}>

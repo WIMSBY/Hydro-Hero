@@ -24,6 +24,7 @@ import {
 const { width: SW, height: SH } = Dimensions.get("window");
 const GOLD = "#FFD700";
 const BADGE_SIZE = 70;
+const UNLOCK_DISMISS_LABELS = ["AWESOME!", "NICE!", "LOVE IT!", "KEEP GOING!", "GOT IT!"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type BevCategory = "water" | "soda" | "coffee" | "juice" | "sports" | "beer" | "cocktail";
@@ -271,7 +272,7 @@ function AchConfetti({ visible }: { visible: boolean }) {
       }
     });
     return () => sub.remove();
-  }, [visible]);
+  }, [visible, pieces]);
 
   if (!visible) return null;
   return (
@@ -300,11 +301,12 @@ function AchConfetti({ visible }: { visible: boolean }) {
 
 // ─── Unlock animation modal ───────────────────────────────────────────────────
 function BadgeUnlockModal({
-  badge, visible, onDismiss,
+  badge, visible, onDismiss, dismissLabel,
 }: {
   badge: BadgeDef | null;
   visible: boolean;
   onDismiss: () => void;
+  dismissLabel: string;
 }) {
   const backdropAnim = useRef(new Animated.Value(0)).current;
   const burstAnim   = useRef(new Animated.Value(0)).current;
@@ -335,7 +337,7 @@ function BadgeUnlockModal({
       dismissTimer.current = setTimeout(() => setShowDismiss(true), 2000);
     }
     return () => { if (dismissTimer.current) clearTimeout(dismissTimer.current); };
-  }, [visible, badge?.id]);
+  }, [visible, badge, backdropAnim, burstAnim, scaleAnim, spinAnim, textAnim]);
 
   const rotate = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ["720deg", "0deg"] });
 
@@ -379,7 +381,7 @@ function BadgeUnlockModal({
         <Animated.Text style={[ulStyles.badgeDesc, { opacity: textAnim }]}>{badge.description}</Animated.Text>
         {showDismiss && (
           <TouchableOpacity style={ulStyles.dismissBtn} onPress={onDismiss} activeOpacity={0.8}>
-            <Text style={ulStyles.dismissText}>AWESOME!</Text>
+            <Text style={ulStyles.dismissText}>{dismissLabel}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -633,6 +635,8 @@ function Achievements({
   // Unlock animation queue
   const unlockQueueRef = useRef<BadgeDef[]>([]);
   const [currentUnlock, setCurrentUnlock] = useState<BadgeDef | null>(null);
+  const [unlockSequenceIndex, setUnlockSequenceIndex] = useState(0);
+  const unlockSequenceIndexRef = useRef(0);
   const isShowingRef = useRef(false);
 
   useEffect(() => {
@@ -663,6 +667,8 @@ function Achievements({
     isShowingRef.current = true;
     const next = unlockQueueRef.current[0];
     unlockQueueRef.current = unlockQueueRef.current.slice(1);
+    setUnlockSequenceIndex(unlockSequenceIndexRef.current);
+    unlockSequenceIndexRef.current += 1;
     setCurrentUnlock(next);
   }, []);
 
@@ -707,7 +713,10 @@ function Achievements({
       // Queue unlock animations and fire sound callback
       unlockQueueRef.current = [...unlockQueueRef.current, ...newlyUnlocked];
       onBadgeUnlocked?.();
-      if (!isShowingRef.current) showNextUnlock();
+      if (!isShowingRef.current) {
+        unlockSequenceIndexRef.current = 0;
+        showNextUnlock();
+      }
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trigger, loaded]);
@@ -782,6 +791,7 @@ function Achievements({
         badge={currentUnlock}
         visible={currentUnlock !== null}
         onDismiss={handleUnlockDismiss}
+        dismissLabel={UNLOCK_DISMISS_LABELS[unlockSequenceIndex % UNLOCK_DISMISS_LABELS.length]}
       />
     </View>
   );

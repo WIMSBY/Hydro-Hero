@@ -4,9 +4,11 @@ import {
   Animated,
   Dimensions,
   Easing,
+  Modal,
   Platform,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -60,11 +62,7 @@ function AnimatedDrop() {
     );
     pulse.start();
     return () => pulse.stop();
-  }, []);
-
-  // fillAnim drives the SVG rect height via JS — nativeDriver: false required
-  const fillH = fillAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 178] });
-  const fillY = fillAnim.interpolate({ inputRange: [0, 1], outputRange: [190, 12] });
+  }, [fillAnim, pulseAnim]);
 
   // We must render the Animated rect outside SVG as a regular View overlay
   // because react-native-svg does not support Animated values directly.
@@ -73,7 +71,7 @@ function AnimatedDrop() {
   useEffect(() => {
     const id = fillAnim.addListener(({ value }) => setFillVal(value));
     return () => fillAnim.removeListener(id);
-  }, []);
+  }, [fillAnim]);
 
   const computedH = Math.round(178 * fillVal);
   const computedY = 190 - computedH;
@@ -204,7 +202,7 @@ function ConfettiBurst({ visible }: { visible: boolean }) {
         ]),
       ]).start();
     });
-  }, [visible]);
+  }, [visible, pieces]);
 
   if (!visible) return null;
   return (
@@ -451,6 +449,26 @@ interface Screen2Props {
 function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
   // Suggested goal calculation (simple: weight/2 oz, capped to reasonable range)
   const suggested = 80; // ~150 lb person default
+  const [showCustomGoal, setShowCustomGoal] = useState(false);
+  const [customGoalDraft, setCustomGoalDraft] = useState("");
+
+  function openCustomGoal() {
+    const currentCustom =
+      selectedGoal !== null &&
+      selectedGoal !== 64 &&
+      selectedGoal !== 128 &&
+      selectedGoal !== suggested;
+    setCustomGoalDraft(String(currentCustom ? selectedGoal : 96));
+    setShowCustomGoal(true);
+  }
+
+  function saveCustomGoal() {
+    const parsed = Number(customGoalDraft);
+    if (!Number.isFinite(parsed) || parsed <= 0) return;
+    const rounded = Math.round(parsed);
+    onSelect(Math.min(Math.max(rounded, 1), 300));
+    setShowCustomGoal(false);
+  }
 
   return (
     <View style={screenS.container}>
@@ -487,13 +505,50 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
             selectedGoal !== 128 &&
             selectedGoal !== suggested
           }
-          onPress={() => onSelect(96)}
+          onPress={openCustomGoal}
         />
       </View>
+
+      <Text style={s.goalSafetyNote}>
+        Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
+      </Text>
 
       <TouchableOpacity style={screenS.primaryBtn} onPress={onNext} activeOpacity={0.8}>
         <Text style={screenS.primaryBtnText}>SET MY GOAL</Text>
       </TouchableOpacity>
+
+      <Modal
+        visible={showCustomGoal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCustomGoal(false)}
+      >
+        <View style={s.modalOverlay}>
+          <View style={s.customGoalBox}>
+            <Text style={s.customGoalTitle}>CUSTOM GOAL</Text>
+            <Text style={s.customGoalSubtitle}>Enter your daily goal in ounces.</Text>
+            <TextInput
+              value={customGoalDraft}
+              onChangeText={(text) => setCustomGoalDraft(text.replace(/[^0-9]/g, ""))}
+              keyboardType="number-pad"
+              autoFocus
+              selectTextOnFocus
+              maxLength={3}
+              style={s.customGoalInput}
+              placeholder="96"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+            />
+            <View style={s.customGoalActions}>
+              <TouchableOpacity style={s.customGoalCancel} onPress={() => setShowCustomGoal(false)} activeOpacity={0.8}>
+                <Text style={s.customGoalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={s.customGoalSave} onPress={saveCustomGoal} activeOpacity={0.8}>
+                <Text style={s.customGoalSaveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -557,6 +612,79 @@ const s = StyleSheet.create({
     fontWeight: "600",
   },
   goalList: { width: "100%", marginBottom: 24 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,10,0.78)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  customGoalBox: {
+    width: "100%",
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: "#FFD700",
+    backgroundColor: "#0a0520",
+    padding: 24,
+    alignItems: "center",
+  },
+  customGoalTitle: {
+    fontSize: 20,
+    fontWeight: "900",
+    color: "#FFD700",
+    letterSpacing: 3,
+    marginBottom: 8,
+  },
+  customGoalSubtitle: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.6)",
+    marginBottom: 18,
+  },
+  customGoalInput: {
+    width: 120,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,215,0,0.65)",
+    color: "#ffffff",
+    fontSize: 30,
+    fontWeight: "900",
+    textAlign: "center",
+    paddingVertical: 10,
+    marginBottom: 22,
+  },
+  customGoalActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  customGoalCancel: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    paddingVertical: 12,
+    paddingHorizontal: 22,
+  },
+  customGoalCancelText: {
+    color: "rgba(255,255,255,0.75)",
+    fontWeight: "800",
+  },
+  customGoalSave: {
+    borderRadius: 18,
+    backgroundColor: "#FFD700",
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+  },
+  customGoalSaveText: {
+    color: "#0a0520",
+    fontWeight: "900",
+  },
+  goalSafetyNote: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: "center",
+    marginBottom: 18,
+    paddingHorizontal: 8,
+  },
   stepList: { width: "100%", marginBottom: 16 },
   emojiRow: {
     fontSize: 24,

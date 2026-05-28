@@ -27,7 +27,18 @@ import {
   debouncedSyncTodayLog, syncBeverageEntry, syncAchievements,
   pullCloudData, syncAllHistory, cancelPendingSync,
 } from "../../utils/CloudSync";
-import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from "react";
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+  withDelay,
+  withRepeat,
+  cancelAnimation,
+  runOnJS,
+  Easing as REasing,
+} from "react-native-reanimated";
 import {
   ActivityIndicator,
   Alert,
@@ -110,178 +121,11 @@ function mergeBreakdown(stored: Record<string, number>): Record<BevCategory, num
   return { ...EMPTY_BREAKDOWN, ...stored } as Record<BevCategory, number>;
 }
 
-// --- Water Drop Trackers ---
-const WATER_DROP_PATH = "M 100 12 C 68 52 20 92 20 132 C 20 165 57 190 100 190 C 143 190 180 165 180 132 C 180 92 132 52 100 12 Z";
-const DROP_SIZE = 210;
-
-interface TrueHydrationDropProps { pct: number; oz: number; goal: number }
-function TrueHydrationDrop({ pct, oz, goal }: TrueHydrationDropProps) {
-  const fillH = Math.round(200 * pct);
-  const fillY = 200 - fillH;
-  const pctLabel = Math.round(pct * 100);
-  return (
-    <View style={{ width: DROP_SIZE, height: DROP_SIZE }}>
-      <Svg width={DROP_SIZE} height={DROP_SIZE} viewBox="0 0 200 200">
-        <Defs>
-          <ClipPath id="leftDropClip">
-            <Path d={WATER_DROP_PATH} />
-          </ClipPath>
-          <LinearGradient id="rainbowGradDrop" x1="0" y1="1" x2="0" y2="0">
-            <Stop offset="0" stopColor="#FF0000" stopOpacity="1" />
-            <Stop offset="0.2" stopColor="#FF7700" stopOpacity="1" />
-            <Stop offset="0.4" stopColor="#FFEE00" stopOpacity="1" />
-            <Stop offset="0.6" stopColor="#00CC44" stopOpacity="1" />
-            <Stop offset="0.8" stopColor="#0088FF" stopOpacity="1" />
-            <Stop offset="1" stopColor="#8800FF" stopOpacity="1" />
-          </LinearGradient>
-        </Defs>
-        <Rect x={0} y={0} width={200} height={200} fill="rgba(255,255,255,0.12)" clipPath="url(#leftDropClip)" />
-        {fillH > 0 && (
-          <Rect x={0} y={fillY} width={200} height={fillH} fill="url(#rainbowGradDrop)" clipPath="url(#leftDropClip)" />
-        )}
-        <Path d={WATER_DROP_PATH} fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth={3} />
-      </Svg>
-      <View style={dropStyles.overlay} pointerEvents="none">
-        <Text style={dropStyles.pctText}>{pctLabel}%</Text>
-        <Text style={dropStyles.ozText}>{oz.toFixed(1)} oz</Text>
-        <Text style={dropStyles.mlText}>{ozToMl(oz)} ml</Text>
-        <Text style={dropStyles.goalSubText}>of {Math.round(goal)} oz goal</Text>
-      </View>
-    </View>
-  );
-}
-
-
-const dropStyles = StyleSheet.create({
-  overlay: { position: "absolute", top: 0, left: 0, width: DROP_SIZE, height: DROP_SIZE, alignItems: "center", justifyContent: "center" },
-  pctText: { fontSize: 28, fontWeight: "bold", color: "#ffffff", textShadowColor: "rgba(0,0,0,0.6)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
-  ozText: { fontSize: 13, fontWeight: "700", color: "#ffffff", textShadowColor: "rgba(0,0,0,0.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
-  mlText: { fontSize: 11, color: "rgba(255,255,255,0.85)", textShadowColor: "rgba(0,0,0,0.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
-  goalSubText: { fontSize: 11, color: "rgba(255,255,255,0.75)", textShadowColor: "rgba(0,0,0,0.5)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3, marginTop: 2 },
-});
-
-const brkStyles = StyleSheet.create({
-  wrapper: { marginHorizontal: 24, marginTop: 14, gap: 7 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8 },
-  dot: { width: 9, height: 9, borderRadius: 5 },
-  name: { fontSize: 12, color: "rgba(255,255,255,0.9)", width: 58 },
-  barTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: "rgba(255,255,255,0.15)", overflow: "hidden" },
-  barFill: { height: "100%", borderRadius: 4 },
-  oz: { fontSize: 12, color: "rgba(255,255,255,0.75)", width: 44, textAlign: "right" },
-  pct: { fontSize: 12, fontWeight: "700", color: "#ffffff", width: 34, textAlign: "right" },
-});
-
 function ozToMl(oz: number) {
   return Math.round(oz * 29.5735);
 }
 
-// --- Waterfall Celebration ---
 const SCREEN_W = Dimensions.get("window").width;
-const STREAM_COLORS = ["#64B5F6", "#1E88E5", "#0D47A1", "#42A5F5", "#1565C0", "#90CAF9"];
-const STREAM_COUNT = 14;
-
-interface WaterfallProps {
-  visible: boolean;
-  goal: number;
-  stageColor: string;
-  onDismiss: () => void;
-}
-function WaterfallCelebration({ visible, goal, stageColor, onDismiss }: WaterfallProps) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const streamAnims = useRef(
-    Array.from({ length: STREAM_COUNT }, () => new Animated.Value(0))
-  ).current;
-
-  const goalTime = useRef("");
-
-  useEffect(() => {
-    if (visible) {
-      const now = new Date();
-      const h = now.getHours();
-      const m = now.getMinutes().toString().padStart(2, "0");
-      const ampm = h >= 12 ? "PM" : "AM";
-      goalTime.current = `Reached at ${h % 12 || 12}:${m} ${ampm}`;
-
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-      streamAnims.forEach((anim, i) => {
-        anim.setValue(0);
-        Animated.loop(
-          Animated.timing(anim, {
-            toValue: 1,
-            duration: 1200 + (i % 5) * 180,
-            delay: i * 80,
-            useNativeDriver: true,
-          })
-        ).start();
-      });
-    } else {
-      streamAnims.forEach((a) => a.stopAnimation());
-    }
-  }, [visible]);
-
-  function dismiss() {
-    Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
-      streamAnims.forEach((a) => a.stopAnimation());
-      onDismiss();
-    });
-  }
-
-  if (!visible) return null;
-
-  const screenH = Dimensions.get("window").height;
-
-  return (
-    <Animated.View style={[celebStyles.overlay, { opacity: fadeAnim }]} pointerEvents="box-none">
-      {streamAnims.map((anim, i) => {
-        const x = (SCREEN_W / (STREAM_COUNT + 1)) * (i + 1) + (Math.sin(i * 1.7) * 18);
-        const color = STREAM_COLORS[i % STREAM_COLORS.length];
-        const translateY = anim.interpolate({ inputRange: [0, 1], outputRange: [-60, screenH + 60] });
-        return (
-          <Animated.View key={i} style={[celebStyles.stream, { left: x, transform: [{ translateY }] }]}>
-            {Array.from({ length: 8 }).map((_, j) => (
-              <View key={j} style={[celebStyles.droplet, { backgroundColor: color, marginTop: j * 28 + (i % 3) * 8 }]} />
-            ))}
-          </Animated.View>
-        );
-      })}
-      <View style={celebStyles.card}>
-        <Text style={celebStyles.cardEmoji}>💧</Text>
-        <Text style={celebStyles.cardTitle}>Hydration Goal Achieved!</Text>
-        <Text style={[celebStyles.cardGoal, { color: stageColor }]}>
-          {Math.round(goal)} oz / {ozToMl(goal)} ml
-        </Text>
-        <Text style={celebStyles.cardTime}>{goalTime.current}</Text>
-        <Text style={celebStyles.cardEmojis}>💧🌊💦🎉</Text>
-        <TouchableOpacity style={[celebStyles.dismissBtn, { backgroundColor: stageColor }]} onPress={dismiss}>
-          <Text style={celebStyles.dismissBtnText}>Amazing!</Text>
-        </TouchableOpacity>
-      </View>
-    </Animated.View>
-  );
-}
-
-const celebStyles = StyleSheet.create({
-  overlay: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: "rgba(10,20,80,0.92)", zIndex: 9999,
-    alignItems: "center", justifyContent: "center",
-  },
-  stream: { position: "absolute", top: 0, alignItems: "center" },
-  droplet: { width: 8, height: 10, borderRadius: 4, opacity: 0.85 },
-  card: {
-    backgroundColor: "#F0F7FF", borderRadius: 24, padding: 28,
-    alignItems: "center", width: "82%",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16,
-    elevation: 20, zIndex: 10000,
-  },
-  cardEmoji: { fontSize: 48, marginBottom: 8 },
-  cardTitle: { fontSize: 26, fontWeight: "bold", color: "#1A1A2E", textAlign: "center", marginBottom: 8 },
-  cardGoal: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
-  cardTime: { fontSize: 13, color: "#888888", marginBottom: 12 },
-  cardEmojis: { fontSize: 24, letterSpacing: 4, marginBottom: 20 },
-  dismissBtn: { paddingHorizontal: 40, paddingVertical: 14, borderRadius: 16 },
-  dismissBtnText: { color: "#ffffff", fontSize: 18, fontWeight: "bold" },
-});
 
 // --- Trophy System ---
 interface Trophy {
@@ -646,7 +490,7 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPick
       scrollRef.current?.scrollTo({ y: selectedIndex * PICKER_ITEM_H, animated: false });
     }, 80);
     return () => clearTimeout(t);
-  }, []);
+  }, [selectedIndex]);
 
   const snapToIndex = (y: number) => {
     const idx = Math.max(0, Math.min(items.length - 1, Math.round(y / PICKER_ITEM_H)));
@@ -712,46 +556,6 @@ const pickerStyles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.03)",
   },
   unitLabel: { color: "#888888", fontSize: 11, marginTop: 2, marginBottom: 4 },
-});
-
-// --- Pace Indicator ---
-const DAY_START_H = 7;
-const DAY_END_H = 22;
-
-function PaceIndicator({ intake, goal }: { intake: number; goal: number }) {
-  const now = new Date();
-  const nowH = now.getHours() + now.getMinutes() / 60;
-  const elapsed = Math.max(0, Math.min(1, (nowH - DAY_START_H) / (DAY_END_H - DAY_START_H)));
-  const paceTarget = elapsed * goal;
-  const deficit = paceTarget - intake;
-  const userFrac = intake / goal;
-
-  let label: string, color: string, icon: string;
-  if (userFrac >= 1.0)        { label = "Crushed It!";      color = "#0D6EE8"; icon = "🏆"; }
-  else if (deficit <= 4)      { label = "On Pace";          color = "#1E9E4A"; icon = "✅"; }
-  else if (deficit <= 12)     { label = "Slightly Behind";  color = "#E8920A"; icon = "⚠️"; }
-  else                        { label = "Well Behind";      color = "#C0152A"; icon = "🚨"; }
-
-
-  return (
-    <View style={paceStyles.row}>
-      <View style={[paceStyles.pill, { backgroundColor: color + "33", borderColor: color }]}>
-        <Text style={paceStyles.pillIcon}>{icon}</Text>
-        <Text style={[paceStyles.pillLabel, { color }]}>{label}</Text>
-      </View>
-      <Text style={paceStyles.sub}>
-        {userFrac >= 1 ? "Goal complete 🎉" : deficit > 0 ? `${deficit.toFixed(1)} oz behind pace` : `${Math.abs(deficit).toFixed(1)} oz ahead of pace`}
-      </Text>
-    </View>
-  );
-}
-
-const paceStyles = StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 24, marginTop: 10 },
-  pill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1.5 },
-  pillIcon: { fontSize: 13 },
-  pillLabel: { fontSize: 13, fontWeight: "700" },
-  sub: { fontSize: 12, color: "rgba(255,255,255,0.7)", flexShrink: 1 },
 });
 
 // --- Weekly Summary Card ---
@@ -1009,8 +813,6 @@ const presetStyles = StyleSheet.create({
 // ==========================================
 const GOLD = "#FFD700";
 const GOLD_DIM = "#c8a000";
-const AQ_NAVY = "#0a0520";
-
 // --- Star Particles ---
 function StarParticles() {
   const N = 14;
@@ -1654,15 +1456,15 @@ function ArtDecoVault({
         wf1.setValue(0); wf2.setValue(0); wf3.setValue(0);
         setStrips({ s1, s2, s3 });
         Animated.sequence([
-          Animated.timing(y1, { toValue: endY - 12, duration: 1880, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(y1, { toValue: endY - 12, duration: 2480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
           Animated.timing(y1, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
         ]).start(() => flashReel(wf1));
         Animated.sequence([
-          Animated.timing(y2, { toValue: endY - 12, duration: 2680, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(y2, { toValue: endY - 12, duration: 3680, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
           Animated.timing(y2, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
         ]).start(() => flashReel(wf2));
         Animated.sequence([
-          Animated.timing(y3, { toValue: endY - 12, duration: 3480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(y3, { toValue: endY - 12, duration: 4880, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
           Animated.timing(y3, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
         ]).start(() => flashReel(wf3));
       } else {
@@ -2319,7 +2121,7 @@ function StatsBar({
 }) {
   const secs = [
     { label: "DAILY GOAL", val: `${Math.round(statGoal)} oz` },
-    { label: "HYDRATED", val: `${hydration.toFixed(1)} oz\n${Math.round(Math.min(hydration / statGoal, 1) * 100)}%` },
+    { label: "HYDRATED", val: `${hydration.toFixed(1)} oz\n${Math.round((statGoal > 0 ? hydration / statGoal : 0) * 100)}%` },
     { label: "CONSUMED", val: `${statIntake.toFixed(1)} oz\n${ozToMl(statIntake)} ml` },
     { label: "STREAK", val: streak > 0 ? `${streak} 🔥` : "0" },
   ];
@@ -2458,79 +2260,112 @@ const FW_COLORS = [
   ["#ffffff", "#eeeeee", "#aaaaaa"],
   ["#aa44ff", "#cc88ff", "#7700cc"],
 ];
-const FW_BURST = 28; // particles per explosion
 
-interface FWParticle {
-  x: Animated.Value;
-  y: Animated.Value;
-  op: Animated.Value;
-  size: number;
-  color: string;
-}
+// Reanimated firework. Each particle owns its own sharedValues and animations
+// run on the UI thread, bypassing RCTNativeAnimatedTurboModule entirely.
+// That module's flushOperationQueues was the crash site in Build 3 (SIGSEGV
+// inside convertNSExceptionToJSError) — see crash log incident 5890CCFA.
+const FW_POOL_SIZE = 120;
+const PER_VOLLEY = 10;
 
-// FW_POOL_SIZE = max particles per cycle: (3+3+4) positions × 28 = 280
-const FW_POOL_SIZE = FW_BURST * 10;
+type ParticleHandle = {
+  fire: (originX: number, originY: number, dx: number, dy: number, color: string, size: number) => void;
+  reset: () => void;
+};
+
+const Particle = React.forwardRef<ParticleHandle>((_, ref) => {
+  const x = useSharedValue(-9999);
+  const y = useSharedValue(-9999);
+  const op = useSharedValue(0);
+  const size = useSharedValue(3);
+  const color = useSharedValue<string>('#FFD700');
+
+  useImperativeHandle(ref, () => ({
+    fire(originX, originY, dx, dy, c, s) {
+      cancelAnimation(x);
+      cancelAnimation(y);
+      cancelAnimation(op);
+      size.value = s;
+      color.value = c;
+      x.value = originX;
+      y.value = originY;
+      op.value = 1;
+      x.value = withTiming(originX + dx, { duration: 900, easing: REasing.out(REasing.cubic) });
+      y.value = withSequence(
+        withTiming(originY + dy, { duration: 500, easing: REasing.out(REasing.quad) }),
+        withTiming(originY + dy + 80 + Math.random() * 60, { duration: 400, easing: REasing.in(REasing.quad) }),
+      );
+      op.value = withDelay(300, withTiming(0, { duration: 600 }));
+    },
+    reset() {
+      cancelAnimation(x);
+      cancelAnimation(y);
+      cancelAnimation(op);
+      op.value = 0;
+    },
+  }), [x, y, op, size, color]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    opacity: op.value,
+    backgroundColor: color.value,
+    width: size.value,
+    height: size.value,
+    borderRadius: size.value / 2,
+    transform: [{ translateX: x.value }, { translateY: y.value }],
+  }));
+
+  return <Reanimated.View pointerEvents="none" style={[jpStyles.particleBase, animStyle]} />;
+});
+Particle.displayName = 'JackpotParticle';
 
 function JackpotCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boolean; goal: number; onDismiss: () => void }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const pulseAnim = useRef(new Animated.Value(1)).current;
   const goalTime = useRef("");
   const screenW = Dimensions.get("window").width;
   const screenH = Dimensions.get("window").height;
 
-  // Pooled firework particles — created once, reused every cycle via setValue
-  const fwPool = useRef<FWParticle[]>(
-    Array.from({ length: FW_POOL_SIZE }, () => ({
-      x: new Animated.Value(-9999),
-      y: new Animated.Value(-9999),
-      op: new Animated.Value(0),
-      size: 3,
-      color: '#FFD700',
-    }))
-  );
+  const particleRefs = useRef<Array<ParticleHandle | null>>([]);
+  if (particleRefs.current.length === 0) {
+    particleRefs.current = Array(FW_POOL_SIZE).fill(null);
+  }
   const poolIdx = useRef(0);
-  const [, forceUpdateFW] = useReducer((n: number) => n + 1, 0);
   const fwTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const fwLoopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dismissed = useRef(false);
 
+  const fade = useSharedValue(0);
+  const pulse = useSharedValue(1);
+  const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
+  const pulseStyle = useAnimatedStyle(() => ({ transform: [{ scale: pulse.value }] }));
+
   function clearFwTimers() {
     fwTimers.current.forEach(clearTimeout);
     fwTimers.current = [];
-    if (fwLoopTimer.current) clearTimeout(fwLoopTimer.current);
+    if (fwLoopTimer.current) {
+      clearTimeout(fwLoopTimer.current);
+      fwLoopTimer.current = null;
+    }
   }
 
-  function launchVolley(positions: { x: number; y: number }[], colorOffset: number) {
-    const allAnims: Animated.CompositeAnimation[] = [];
-    positions.forEach(({ x, y }, i) => {
-      const palette = FW_COLORS[(colorOffset + i) % FW_COLORS.length];
-      for (let j = 0; j < FW_BURST; j++) {
-        const p = fwPool.current[poolIdx.current % FW_POOL_SIZE];
+  function resetAllParticles() {
+    for (const p of particleRefs.current) p?.reset();
+  }
+
+  function fireVolley(positions: { x: number; y: number }[], colorOffset: number) {
+    positions.forEach(({ x: vx, y: vy }, posIdx) => {
+      const palette = FW_COLORS[(colorOffset + posIdx) % FW_COLORS.length];
+      for (let j = 0; j < PER_VOLLEY; j++) {
+        const p = particleRefs.current[poolIdx.current % FW_POOL_SIZE];
         poolIdx.current++;
-        // Update non-animated properties (plain mutation — no React overhead)
-        p.size = 2 + Math.random() * 3;
-        p.color = palette[Math.floor(Math.random() * palette.length)];
-        // Reset animated values to burst origin
-        p.x.setValue(x); p.y.setValue(y); p.op.setValue(1);
-        const angle = (j / FW_BURST) * Math.PI * 2;
+        if (!p) continue;
+        const angle = (j / PER_VOLLEY) * Math.PI * 2;
         const speed = 60 + Math.random() * 120;
         const dx = Math.cos(angle) * speed;
-        const rawDy = Math.sin(angle) * speed - (40 + Math.random() * 40);
-        allAnims.push(Animated.parallel([
-          Animated.timing(p.x, { toValue: x + dx, duration: 900, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
-          Animated.sequence([
-            Animated.timing(p.y, { toValue: y + rawDy, duration: 500, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
-            Animated.timing(p.y, { toValue: y + rawDy + 80 + Math.random() * 60, duration: 400, useNativeDriver: true, easing: Easing.in(Easing.quad) }),
-          ]),
-          Animated.sequence([
-            Animated.delay(300),
-            Animated.timing(p.op, { toValue: 0, duration: 600, useNativeDriver: true }),
-          ]),
-        ]));
+        const dy = Math.sin(angle) * speed - (40 + Math.random() * 40);
+        const c = palette[Math.floor(Math.random() * palette.length)];
+        const s = 2 + Math.random() * 3;
+        p.fire(vx, vy, dx, dy, c, s);
       }
     });
-    forceUpdateFW(); // trigger re-render so new p.size/p.color are reflected
-    Animated.parallel(allAnims).start();
   }
 
   function startFireworks() {
@@ -2544,16 +2379,16 @@ function JackpotCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boo
     const midY = screenH * 0.28;
     const highY = screenH * 0.22;
 
-    launchVolley([{ x: left, y: topY }, { x: center, y: midY }, { x: right, y: topY }], 0);
+    fireVolley([{ x: left, y: topY }, { x: center, y: midY }, { x: right, y: topY }], 0);
 
     fwTimers.current.push(setTimeout(() => {
       if (!dismissed.current)
-        launchVolley([{ x: screenW * 0.35, y: highY }, { x: screenW * 0.65, y: topY }, { x: center, y: screenH * 0.32 }], 2);
+        fireVolley([{ x: screenW * 0.35, y: highY }, { x: screenW * 0.65, y: topY }, { x: center, y: screenH * 0.32 }], 2);
     }, 600));
 
     fwTimers.current.push(setTimeout(() => {
       if (!dismissed.current)
-        launchVolley([
+        fireVolley([
           { x: left * 0.6, y: midY }, { x: left, y: topY },
           { x: right, y: midY }, { x: right * 1.1, y: topY },
         ], 4);
@@ -2570,61 +2405,63 @@ function JackpotCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boo
       const now = new Date();
       const h = now.getHours(); const m = now.getMinutes().toString().padStart(2, "0");
       goalTime.current = `${h % 12 || 12}:${m} ${h >= 12 ? "PM" : "AM"}`;
-      Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-      Animated.loop(Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.1, duration: 550, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 0.95, duration: 550, useNativeDriver: true }),
-      ])).start();
+      fade.value = withTiming(1, { duration: 400 });
+      pulse.value = withRepeat(
+        withSequence(
+          withTiming(1.1, { duration: 550 }),
+          withTiming(0.95, { duration: 550 }),
+        ),
+        -1,
+        true,
+      );
       startFireworks();
-    } else {
-      clearFwTimers();
-      fwPool.current.forEach(p => { p.op.stopAnimation(); p.op.setValue(0); });
     }
-    return () => clearFwTimers();
+    return () => {
+      dismissed.current = true;
+      clearFwTimers();
+      cancelAnimation(fade);
+      cancelAnimation(pulse);
+      resetAllParticles();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   function dismiss() {
     dismissed.current = true;
     clearFwTimers();
-    Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
-      fwPool.current.forEach(p => { p.op.setValue(0); });
-      onDismiss();
+    cancelAnimation(pulse);
+    resetAllParticles();
+    fade.value = withTiming(0, { duration: 300 }, (finished) => {
+      'worklet';
+      if (finished) runOnJS(onDismiss)();
     });
   }
 
   if (!visible) return null;
 
   return (
-    <Animated.View style={[jpStyles.overlay, { opacity: fadeAnim }]} pointerEvents="box-none">
-      {/* Pooled firework particles — always 280 views, most invisible */}
-      {fwPool.current.map((p, i) => (
-        <Animated.View key={i} pointerEvents="none" style={{
-          position: "absolute",
-          width: p.size, height: p.size, borderRadius: p.size / 2,
-          backgroundColor: p.color,
-          opacity: p.op,
-          transform: [{ translateX: p.x as any }, { translateY: p.y as any }],
-        }} />
+    <Reanimated.View style={[jpStyles.overlay, fadeStyle]} pointerEvents="box-none">
+      {Array.from({ length: FW_POOL_SIZE }).map((_, i) => (
+        <Particle key={i} ref={(r) => { particleRefs.current[i] = r; }} />
       ))}
-      {/* Card — always on top */}
       <View style={jpStyles.card}>
-        <Animated.Text style={[jpStyles.jackpotText, { transform: [{ scale: pulseAnim }] }]}>
+        <Reanimated.Text style={[jpStyles.jackpotText, pulseStyle]}>
           🎆 HYDRO HERO!
-        </Animated.Text>
+        </Reanimated.Text>
         <Text style={jpStyles.emojiRow}>🎆🎇✨🏆🍀🎆</Text>
-        <Text style={jpStyles.mainText}>You hit your daily hydration goal!</Text>
+        <Text style={jpStyles.mainText}>You hit the Jackpot! Congratulations on hitting your daily goal!</Text>
         <Text style={jpStyles.subText}>{Math.round(jpGoal)} oz / {ozToMl(jpGoal)} ml</Text>
         <Text style={jpStyles.timeText}>Reached at {goalTime.current}</Text>
         <TouchableOpacity style={jpStyles.claimBtn} onPress={dismiss} activeOpacity={0.85}>
-          <Text style={jpStyles.claimText}>🍀 COLLECT YOUR LUCK!</Text>
+          <Text style={jpStyles.claimText}>Awesome!</Text>
         </TouchableOpacity>
       </View>
-    </Animated.View>
+    </Reanimated.View>
   );
 }
 const jpStyles = StyleSheet.create({
   overlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,10,0.94)", zIndex: 9999, alignItems: "center", justifyContent: "center" },
+  particleBase: { position: "absolute" },
   card: { backgroundColor: "#0a0030", borderWidth: 2, borderColor: GOLD, borderRadius: 24, padding: 28, alignItems: "center", width: "86%", zIndex: 10000, shadowColor: GOLD, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 20 },
   jackpotText: { fontSize: 40, fontWeight: "900", color: GOLD, letterSpacing: 4, marginBottom: 10, textShadowColor: GOLD_DIM, textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 12 },
   emojiRow: { fontSize: 26, letterSpacing: 4, marginBottom: 12 },
@@ -2885,7 +2722,6 @@ const factStyles = StyleSheet.create({
 
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
-  const { colors, isDark, bgAnim, toggleTheme } = useTheme();
   const { isPro, openPaywall, checkProStatus } = useProContext();
   const { isAuthenticated, user, signOut, deleteAccount } = useAuth();
   const [intake, setIntake] = useState(0);
@@ -2950,6 +2786,7 @@ export default function WaterTracker() {
   const [reelConfettiVisible, setReelConfettiVisible] = useState(false);
   const [reelFrameY, setReelFrameY] = useState(300);
   const screenShakeAnim = useRef(new Animated.Value(0)).current;
+  const mainScrollRef = useRef<any>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [lastReelOz, setLastReelOz] = useState(0);
   const [pendingBetOz, setPendingBetOz] = useState<number | null>(null);
@@ -3497,10 +3334,19 @@ export default function WaterTracker() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Backup jackpot trigger — only fires when we're NOT already in a jackpot spin.
-  // This catches edge cases (e.g. first load where goal is already met).
+  // Backup jackpot trigger — fires only for edge cases like first load when
+  // goal was already met. The extra !showCelebration / !spinning guards keep
+  // it from racing the handleBet spin sequence, which would otherwise mount
+  // the celebration overlay while the slot machine is mid-animation.
   useEffect(() => {
-    if (totalHydration >= goal && goal > 0 && !jackpotFiredToday && !jackpotSpinning) {
+    if (
+      totalHydration >= goal &&
+      goal > 0 &&
+      !jackpotFiredToday &&
+      !jackpotSpinning &&
+      !spinning &&
+      !showCelebration
+    ) {
       const todayKey = getTodayKey();
       const celebKey = `goal_celebrated_${todayKey}`;
       setJackpotFiredToday(true);
@@ -3865,13 +3711,6 @@ export default function WaterTracker() {
     } catch {}
   }
 
-  async function savePreset(label: string, oz: number, category: BevCategory) {
-    const newPreset: Preset = { id: Date.now().toString(), label, oz, category };
-    const updated = [newPreset, ...presets].slice(0, 10);
-    setPresets(updated);
-    await AsyncStorage.setItem("water_presets", JSON.stringify(updated));
-  }
-
   async function deletePreset(id: string) {
     const updated = presets.filter((p) => p.id !== id);
     setPresets(updated);
@@ -4057,24 +3896,28 @@ export default function WaterTracker() {
 
     if (triggersJackpot) {
       // ── Jackpot spin sequence ──
+      mainScrollRef.current?.scrollTo({
+        y: Math.max(0, reelFrameY - 80),
+        animated: true,
+      });
       setJackpotSpinning(true);
       setSpinning(true);
       playJackpotSound();
 
       const bt = betTimersRef.current;
-      // Jackpot reel stop timings: reel1=2000ms, reel2=2800ms, reel3=3600ms
-      bt.push(setTimeout(() => { stopSpinSound(); playReelStopSound(0); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2000));
-      bt.push(setTimeout(() => { playReelStopSound(1); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2800));
-      bt.push(setTimeout(() => { playReelStopSound(2); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 3600));
+      // Jackpot reel stop timings: slower than normal so the machine stays readable.
+      bt.push(setTimeout(() => { stopSpinSound(); playReelStopSound(0); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2600));
+      bt.push(setTimeout(() => { playReelStopSound(1); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 3800));
+      bt.push(setTimeout(() => { playReelStopSound(2); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 5000));
 
       // Tank fills and spray fires after reels stop
       bt.push(setTimeout(() => {
         setDisplayedHydration((prev) => prev + hydrated);
         playWaterFillSound();
         fireSpray();
-      }, 3700));
+      }, 5200));
 
-      // Screen shake + jackpot haptic at 3600ms
+      // Screen shake + jackpot haptic when the final reel lands.
       bt.push(setTimeout(() => {
         haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
         screenShakeAnim.setValue(0);
@@ -4090,19 +3933,19 @@ export default function WaterTracker() {
           Animated.timing(screenShakeAnim, { toValue: 0, duration: 37, useNativeDriver: true }),
         ]).start();
         setReelConfettiVisible(true);
-      }, 3600));
+      }, 5000));
 
-      // Confetti disappears after 1s
-      bt.push(setTimeout(() => setReelConfettiVisible(false), 4600));
+      // Confetti lingers through the tank fill.
+      bt.push(setTimeout(() => setReelConfettiVisible(false), 6800));
 
-      // Jackpot overlay fades in at 4000ms
+      // Jackpot overlay fades in after the machine and tank finish.
       bt.push(setTimeout(() => {
         setSpinning(false);
         setJackpotSpinning(false);
         setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → JACKPOT! 🏆`);
         setShowCelebration(true);
         playWaterLogSound();
-      }, 4000));
+      }, 6200));
 
     } else {
       const bt = betTimersRef.current;
@@ -4121,11 +3964,6 @@ export default function WaterTracker() {
         playWaterFillSound();
       }, 3100));
     }
-  }
-
-  function promptCategory(oz: number) {
-    setPendingOz(oz);
-    setShowCategoryModal(true);
   }
 
   function handleCategorySelect(category: BevCategory) {
@@ -4354,8 +4192,8 @@ export default function WaterTracker() {
     );
   }
 
-  const hydrationPct = Math.min(goal > 0 ? totalHydration / goal : 0, 1);
-  const stage = getStage(hydrationPct);
+  const hydrationPct = goal > 0 ? totalHydration / goal : 0;
+  const stage = getStage(Math.min(hydrationPct, 1));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const suggestedOz = useMemo(() => calcSuggestedOz(), [
     weightMode, typeWeight, suggWeightLbs,
@@ -4417,6 +4255,7 @@ export default function WaterTracker() {
       <StarParticles />
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <Animated.ScrollView
+        ref={mainScrollRef}
         contentContainerStyle={[styles.scroll, { paddingTop: 0, paddingBottom: tabBarHeight + 24 }]}
         keyboardShouldPersistTaps="handled"
         style={{ transform: [{ translateX: screenShakeAnim }] }}
@@ -4428,7 +4267,7 @@ export default function WaterTracker() {
         {/* Art Deco Vault — unified tank + slot machine */}
         <View onLayout={(e) => setReelFrameY(e.nativeEvent.layout.y)}>
           <ArtDecoVault
-            pct={Math.min(displayedHydration / goal, 1)}
+            pct={goal > 0 ? displayedHydration / goal : 0}
             oz={displayedHydration}
             goal={goal}
             category={selectedCategory}
@@ -4869,6 +4708,9 @@ export default function WaterTracker() {
             {/* Title */}
             <Text style={styles.modalTitle}>💧 Set Daily Goal</Text>
             <View style={styles.modalDivider} />
+            <Text style={styles.goalSafetyNote}>
+              Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
+            </Text>
 
             {/* Tabs */}
             <View style={styles.modalTabs}>
@@ -5136,10 +4978,6 @@ export default function WaterTracker() {
         onDismiss={() => {
           setShowCelebration(false);
           setShowFactCard(true);
-          // After first-ever jackpot (lifetime count was 0 when it fired), show paywall once
-          if (!isPro && lifetimeJackpots <= 1) {
-            setTimeout(() => openPaywall('first_jackpot'), 1200);
-          }
         }}
       />
       <FactJokeCard visible={showFactCard} onDismiss={() => setShowFactCard(false)} />
@@ -5862,7 +5700,15 @@ const styles = StyleSheet.create({
   modalDivider: {
     height: 1,
     backgroundColor: "rgba(0,0,0,0.1)",
-    marginBottom: 18,
+    marginBottom: 12,
+  },
+  goalSafetyNote: {
+    color: "#666666",
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: "center",
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
 
   // Tabs
