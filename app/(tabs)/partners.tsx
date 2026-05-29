@@ -6,7 +6,7 @@
  * expire after 24 hours.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   InputAccessoryView,
@@ -28,6 +28,9 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
+import QRCode from 'react-native-qrcode-svg';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useProContext } from '../../contexts/ProContext';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -266,20 +269,12 @@ function WeekDots({ history }: { history: WeekDay[] }) {
   );
 }
 
+const DEEP_LINK_PREFIX = 'hydrohero://add?code=';
+
 function SimpleQRGrid({ code }: { code: string }) {
-  const SIZE = 11;
-  let seed = code.split('').reduce((a, c) => (((a << 5) - a) + c.charCodeAt(0)) | 0, 0) >>> 0;
-  const cells = Array.from({ length: SIZE * SIZE }, () => {
-    seed = ((seed * 1664525) + 1013904223) >>> 0;
-    return seed % 3 !== 0;
-  });
   return (
-    <View style={{ padding: 6, backgroundColor: '#fff', borderRadius: 6, alignSelf: 'center' }}>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', width: SIZE * 5 }}>
-        {cells.map((fill, i) => (
-          <View key={i} style={{ width: 5, height: 5, backgroundColor: fill ? '#111' : '#fff' }} />
-        ))}
-      </View>
+    <View style={{ padding: 12, backgroundColor: '#fff', borderRadius: 10, alignSelf: 'center' }}>
+      <QRCode value={`${DEEP_LINK_PREFIX}${code}`} size={240} ecl="L" backgroundColor="#fff" color="#000" />
     </View>
   );
 }
@@ -288,13 +283,13 @@ function SimpleQRGrid({ code }: { code: string }) {
 function ShareCodeModal({
   visible, code, onClose,
 }: { visible: boolean; code: string; onClose: () => void }) {
-  const share = async (extra = '') => {
-    const text = extra ? `${extra}\n\n${code}` : code;
-    try { await Share.share({ message: text }); } catch {}
+  const url = `${DEEP_LINK_PREFIX}${code}`;
+  const share = async (intro: string) => {
+    try { await Share.share({ message: `${intro}\n\n${url}` }); } catch {}
   };
   const emailShare = () => {
     const subj = encodeURIComponent('My Hydro Hero Progress');
-    const body = encodeURIComponent(`Here is my hydration progress code — paste it into Hydro Hero to see my stats!\n\n${code}`);
+    const body = encodeURIComponent(`Tap the link to add me to your Hydro Hero squad:\n\n${url}`);
     Linking.openURL(`mailto:?subject=${subj}&body=${body}`).catch(() => {});
   };
 
@@ -318,11 +313,8 @@ function ShareCodeModal({
                 </ScrollView>
               </View>
 
-              <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share()}>
-                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>📋 Share Code Only</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={s.actionBtn} onPress={() => share('Hey! Here\'s my Hydro Hero progress code 💧')}>
-                <Text style={s.actionBtnTxt}>💬 Share via Messages</Text>
+              <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share('Hey! Here\'s my Hydro Hero progress code 💧')}>
+                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>💬 Share via Messages</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actionBtn} onPress={emailShare}>
                 <Text style={s.actionBtnTxt}>✉️ Share via Email</Text>
@@ -375,42 +367,47 @@ function CheerOnModal({
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={s.overlay}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={s.modalBox}>
-              <TouchableOpacity style={s.closeBtn} onPress={onClose}>
-                <Text style={s.closeTxt}>✕</Text>
-              </TouchableOpacity>
-              <Text style={s.modalTitle}>📣 Cheer On {username}</Text>
-              <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
-                {CHEERS.map((msg, i) => (
-                  <TouchableOpacity key={i} style={s.cheerRow} onPress={() => send(msg)}>
-                    <Text style={s.cheerTxt}>{msg}</Text>
-                    <Text style={{ color: GOLD, fontSize: 13 }}>→</Text>
-                  </TouchableOpacity>
-                ))}
-                <View style={[s.cheerRow, { flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
-                  <TextInput
-                    value={custom}
-                    onChangeText={setCustom}
-                    placeholder="Write a custom message..."
-                    placeholderTextColor="rgba(255,255,255,0.3)"
-                    style={s.cheerInput}
-                    multiline
-                    inputAccessoryViewID="cheer-msg-done"
-                  />
-                  {custom.length > 0 && (
-                    <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => send(custom)}>
-                      <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>Send Custom Message</Text>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={s.overlay}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={s.modalBox}>
+                <TouchableOpacity style={s.closeBtn} onPress={onClose}>
+                  <Text style={s.closeTxt}>✕</Text>
+                </TouchableOpacity>
+                <Text style={s.modalTitle}>📣 Cheer On {username}</Text>
+                <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  {CHEERS.map((msg, i) => (
+                    <TouchableOpacity key={i} style={s.cheerRow} onPress={() => send(msg)}>
+                      <Text style={s.cheerTxt}>{msg}</Text>
+                      <Text style={{ color: GOLD, fontSize: 13 }}>→</Text>
                     </TouchableOpacity>
-                  )}
-                </View>
-              </ScrollView>
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
+                  ))}
+                  <View style={[s.cheerRow, { flexDirection: 'column', alignItems: 'stretch', gap: 8 }]}>
+                    <TextInput
+                      value={custom}
+                      onChangeText={setCustom}
+                      placeholder="Write a custom message..."
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      style={s.cheerInput}
+                      multiline
+                      inputAccessoryViewID="cheer-msg-done"
+                    />
+                    {custom.length > 0 && (
+                      <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => send(custom)}>
+                        <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>Send Custom Message</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
       {Platform.OS === 'ios' && (
         <InputAccessoryView nativeID="cheer-msg-done">
           <View style={{ backgroundColor: '#f1f1f1', padding: 8, alignItems: 'flex-end' }}>
@@ -468,6 +465,11 @@ function PasteCodeModal({
                   autoCorrect={false}
                   inputAccessoryViewID="paste-code-done"
                 />
+                {input.length > 0 && canDecode && (
+                  <Text style={{ color: GOLD, fontSize: 12, marginTop: 6, fontWeight: '600' }}>
+                    ✓ Progress code detected
+                  </Text>
+                )}
                 {input.length >= MAX_PASTE_CHARS && (
                   <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 6 }}>
                     Paste was trimmed to keep the app responsive.
@@ -507,6 +509,71 @@ function PasteCodeModal({
           </View>
         </InputAccessoryView>
       )}
+    </Modal>
+  );
+}
+
+// ─── Scan QR Code Modal ──────────────────────────────────────────────────────
+function ScanCodeModal({
+  visible, onScan, onClose,
+}: { visible: boolean; onScan: (raw: string) => void; onClose: () => void }) {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanned, setScanned] = useState(false);
+
+  useEffect(() => {
+    if (visible) setScanned(false);
+  }, [visible]);
+
+  const handleScan = (result: { data: string }) => {
+    if (scanned) return;
+    setScanned(true);
+    onScan(result.data);
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        {!permission ? null : !permission.granted ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
+            <Text style={{ fontSize: 56, marginBottom: 16 }}>📷</Text>
+            <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 10, textAlign: 'center' }}>
+              Camera Access Needed
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 24, textAlign: 'center', lineHeight: 20 }}>
+              Hydro Hero needs camera access to scan a squad member's QR code.
+            </Text>
+            <TouchableOpacity
+              style={[s.actionBtn, { backgroundColor: GOLD, width: '100%' }]}
+              onPress={requestPermission}
+            >
+              <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>Grant Camera Access</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
+              <Text style={s.cancelBtnTxt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <CameraView
+              style={{ flex: 1 }}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+              onBarcodeScanned={scanned ? undefined : handleScan}
+            />
+            <View style={{ position: 'absolute', top: 70, left: 0, right: 0, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10 }}>
+                Point at a Hydro Hero QR code
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={{ position: 'absolute', bottom: 60, alignSelf: 'center', paddingHorizontal: 36, paddingVertical: 14, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 14 }}
+              onPress={onClose}
+            >
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Cancel</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </View>
     </Modal>
   );
 }
@@ -735,6 +802,7 @@ export default function PartnersScreen() {
   const [showShare, setShowShare]     = useState(false);
   const [showEmoji, setShowEmoji]     = useState(false);
   const [showAdd, setShowAdd]         = useState(false);
+  const [showScan, setShowScan]       = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewPayload, setPreviewPayload] = useState<CodePayload | null>(null);
   const [isUpdateFor, setIsUpdateFor] = useState<string | null>(null); // username being updated
@@ -742,7 +810,16 @@ export default function PartnersScreen() {
 
   const [myCode, setMyCode] = useState('');
 
+  const { addCode } = useLocalSearchParams<{ addCode?: string }>();
+
   useFocusEffect(useCallback(() => { loadAll(); }, []));
+
+  useEffect(() => {
+    if (addCode) {
+      handleCodeSubmit(addCode);
+      router.setParams({ addCode: undefined });
+    }
+  }, [addCode]);
 
   // ── Data loading ────────────────────────────────────────────────────────────
   async function loadAll() {
@@ -818,6 +895,14 @@ export default function PartnersScreen() {
     const payload = decodePayload(raw);
     if (!payload || !payload.username) {
       Alert.alert('Invalid Code', 'This code could not be decoded. Make sure you copied the full code.');
+      return;
+    }
+    if (!isUpdateFor && members.some(m => m.username === payload.username)) {
+      setShowAdd(false);
+      Alert.alert(
+        `${payload.username} is already in your squad`,
+        `To refresh their progress, tap 🔄 Update on their card.`
+      );
       return;
     }
     setPreviewPayload(payload);
@@ -944,6 +1029,12 @@ export default function PartnersScreen() {
           <TouchableOpacity style={s.actionBtn} onPress={() => { setIsUpdateFor(null); setShowAdd(true); }}>
             <Text style={s.actionBtnTxt}>📋 Paste a Progress Code</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.actionBtn, { marginTop: 8 }]}
+            onPress={() => { setIsUpdateFor(null); setShowScan(true); }}
+          >
+            <Text style={s.actionBtnTxt}>📷 Scan QR Code</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Squad Members or Empty State */}
@@ -994,6 +1085,12 @@ export default function PartnersScreen() {
         title={isUpdateFor ? `Update ${isUpdateFor}'s Progress` : '📥 Add Squad Member'}
         onSubmit={handleCodeSubmit}
         onClose={() => { setShowAdd(false); setIsUpdateFor(null); }}
+      />
+
+      <ScanCodeModal
+        visible={showScan}
+        onScan={(raw) => { setShowScan(false); handleCodeSubmit(raw); }}
+        onClose={() => setShowScan(false)}
       />
 
       <PreviewModal

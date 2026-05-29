@@ -3,8 +3,10 @@ import {
   DefaultTheme,
   ThemeProvider,
 } from "@react-navigation/native";
-import { Stack } from "expo-router";
+import { Stack, router } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
+import * as Linking from "expo-linking";
 import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -13,6 +15,16 @@ import { ProProvider } from "../contexts/ProContext";
 import { LLThemeProvider } from "../contexts/ThemeContext";
 import { configureRevenueCat } from "../utils/revenueCat";
 import * as Sentry from '@sentry/react-native';
+
+function handleDeepLink(url: string) {
+  const { hostname, queryParams } = Linking.parse(url);
+  if (hostname === "add") {
+    const code = typeof queryParams?.code === "string" ? queryParams.code : null;
+    if (code) {
+      router.push({ pathname: "/(tabs)/partners", params: { addCode: code } });
+    }
+  }
+}
 
 Sentry.init({
   dsn: 'https://b3b652b828712e84d9a453721a530e58@o4511469395181568.ingest.de.sentry.io/4511469420281936',
@@ -37,6 +49,12 @@ configureRevenueCat();
 
 export default Sentry.wrap(function RootLayout() {
   const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    Linking.getInitialURL().then((url) => { if (url) handleDeepLink(url); });
+    const sub = Linking.addEventListener("url", ({ url }) => handleDeepLink(url));
+    return () => sub.remove();
+  }, []);
 
   return (
     <AuthProvider>
