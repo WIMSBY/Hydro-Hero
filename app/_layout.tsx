@@ -23,6 +23,8 @@ function handleDeepLink(url: string) {
     if (code) {
       router.push({ pathname: "/(tabs)/partners", params: { addCode: code } });
     }
+  } else if (hostname === "share") {
+    router.push({ pathname: "/(tabs)/partners", params: { showShare: "1" } });
   }
 }
 

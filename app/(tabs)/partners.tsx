@@ -6,7 +6,7 @@
  * expire after 24 hours.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
   InputAccessoryView,
@@ -720,7 +720,7 @@ function SquadMemberCard({
           <Text style={[s.cardBtnTxt, { color: GOLD }]}>📣 Cheer On</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.cardBtn} onPress={() =>
-          Share.share({ message: `Hey! Share your Hydro Hero progress code so I can see how you are doing! — sent from Hydro Hero 💧` })
+          Share.share({ message: `Hey ${member.username}! Could you send me your Hydro Hero progress code so I can see how you're doing? Tap to open your Share screen: hydrohero://share` })
         }>
           <Text style={s.cardBtnTxt}>💬 Request</Text>
         </TouchableOpacity>
@@ -810,16 +810,27 @@ export default function PartnersScreen() {
 
   const [myCode, setMyCode] = useState('');
 
-  const { addCode } = useLocalSearchParams<{ addCode?: string }>();
+  const { addCode, showShare: showShareParam } = useLocalSearchParams<{ addCode?: string; showShare?: string }>();
+  const processedAddCode = useRef<string | null>(null);
+  const processedShowShare = useRef<string | null>(null);
 
   useFocusEffect(useCallback(() => { loadAll(); }, []));
 
   useEffect(() => {
-    if (addCode) {
+    if (addCode && addCode !== processedAddCode.current) {
+      processedAddCode.current = addCode;
       handleCodeSubmit(addCode);
       router.setParams({ addCode: undefined });
     }
   }, [addCode]);
+
+  useEffect(() => {
+    if (showShareParam && showShareParam !== processedShowShare.current) {
+      processedShowShare.current = showShareParam;
+      generateCode();
+      router.setParams({ showShare: undefined });
+    }
+  }, [showShareParam]);
 
   // ── Data loading ────────────────────────────────────────────────────────────
   async function loadAll() {
@@ -1034,6 +1045,14 @@ export default function PartnersScreen() {
             onPress={() => { setIsUpdateFor(null); setShowScan(true); }}
           >
             <Text style={s.actionBtnTxt}>📷 Scan QR Code</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[s.actionBtn, { marginTop: 8 }]}
+            onPress={() => Share.share({
+              message: `Hey! I'm using Hydro Hero to track my hydration and I want you on my squad. Download it here: https://apps.apple.com/app/id6764692053`,
+            })}
+          >
+            <Text style={s.actionBtnTxt}>✉️ Invite a Friend</Text>
           </TouchableOpacity>
         </View>
 
