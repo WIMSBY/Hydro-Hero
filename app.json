@@ -70,7 +70,14 @@
           "sounds": []
         }
       ],
-      "@kingstinct/react-native-healthkit",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Hydro Hero reads health data to provide personalized hydration insights",
+          "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
+          "background": true
+        }
+      ],
       "@bacons/apple-targets",
       "./plugins/withWidgetData",
       "expo-updates",
