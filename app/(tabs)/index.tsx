@@ -22,12 +22,6 @@ import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useProContext } from "../../contexts/ProContext";
-import { useAuth } from "../../contexts/AuthContext";
-import AuthModal from "../../components/AuthModal";
-import {
-  debouncedSyncTodayLog, syncBeverageEntry, syncAchievements,
-  pullCloudData, syncAllHistory, cancelPendingSync,
-} from "../../utils/CloudSync";
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from "react";
 import Reanimated, {
   useSharedValue,
@@ -2724,7 +2718,6 @@ const factStyles = StyleSheet.create({
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
-  const { isAuthenticated, user, signOut, deleteAccount } = useAuth();
   const [intake, setIntake] = useState(0);
   const [goal, setGoal] = useState(DEFAULT_GOAL);
   const [history, setHistory] = useState<
@@ -2854,12 +2847,6 @@ export default function WaterTracker() {
   // Post-jackpot fact/joke card
   const [showFactCard, setShowFactCard] = useState(false);
 
-  // Cloud sync
-  const [showAuthModal,   setShowAuthModal]   = useState(false);
-  const [syncingHistory,  setSyncingHistory]  = useState(false);
-  const [syncProgress,    setSyncProgress]    = useState(0);
-  const [lastSyncTime,    setLastSyncTime]    = useState<string | null>(null);
-
   // CSV export
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportSummary, setShowExportSummary] = useState(false);
@@ -2906,22 +2893,6 @@ export default function WaterTracker() {
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Pull cloud data whenever user signs in, and run one-time history migration
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    pullCloudData().catch(() => {});
-    AsyncStorage.getItem('cloud_initial_sync_done').then((done) => {
-      if (done !== '1') {
-        setSyncingHistory(true);
-        syncAllHistory((pct) => setSyncProgress(pct)).finally(() => {
-          setSyncingHistory(false);
-          setSyncProgress(0);
-          AsyncStorage.getItem('cloud_last_sync').then((v) => { if (v) setLastSyncTime(v); }).catch(() => {});
-        });
-      }
-    }).catch(() => {});
-  }, [isAuthenticated]);
 
   async function checkOnboarding() {
     try {
@@ -3369,7 +3340,6 @@ export default function WaterTracker() {
         reloadSounds();
       } else if (state === "background" || state === "inactive") {
         teardownSounds();
-        cancelPendingSync();
       }
     });
     return () => {
@@ -3913,16 +3883,6 @@ export default function WaterTracker() {
       Notifications.cancelAllScheduledNotificationsAsync().catch(() => {});
     }
 
-    // Cloud sync (background, debounced — never blocks return)
-    debouncedSyncTodayLog();
-    syncBeverageEntry({
-      date:         new Date().toISOString().slice(0, 10),
-      beverageName: category,
-      rawOz:        oz,
-      hydratedOz:   hydratedOz,
-      efficiency:   hydratedOz / oz,
-    }).catch(() => {});
-
     // Push latest state to Apple Watch
     sendHydrationUpdate({
       hydrationOz: newHydration,
@@ -4435,7 +4395,7 @@ export default function WaterTracker() {
           lifetimeCoffeeLogs={lifetimeCoffeeLogs}
           lifetimeBeerLogs={lifetimeBeerLogs}
           firstDrinkTime={firstDrinkTime}
-          onBadgeUnlocked={() => { playBadgeUnlockSound(); syncAchievements().catch(() => {}); }}
+          onBadgeUnlocked={() => { playBadgeUnlockSound(); }}
         />
 
         {/* Weekly Summary */}
@@ -5335,67 +5295,6 @@ export default function WaterTracker() {
                     />
                   </View>
                 </View>
-                {/* CLOUD SYNC section */}
-                <View style={{ marginTop: 24, marginBottom: 8 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>CLOUD SYNC</Text>
-                  {!isAuthenticated ? (
-                    <View>
-                      <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 13, marginBottom: 12 }}>
-                        Back up your data to the cloud and sync across devices.
-                      </Text>
-                      <TouchableOpacity
-                        style={{ backgroundColor: "#FFD700", borderRadius: 12, paddingVertical: 14, alignItems: "center" }}
-                        onPress={() => { setShowSettingsModal(false); setTimeout(() => setShowAuthModal(true), 300); }}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>☁️  Enable Cloud Sync</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <View style={{ gap: 10 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: syncingHistory ? "#FFD700" : "#4CAF50" }} />
-                        <Text style={{ color: syncingHistory ? "#FFD700" : "#4CAF50", fontSize: 13, fontWeight: "600" }}>
-                          {syncingHistory ? `Syncing… ${Math.round(syncProgress * 100)}%` : "Synced"}
-                        </Text>
-                        {lastSyncTime && !syncingHistory && (
-                          <Text style={{ color: "rgba(255,255,255,0.35)", fontSize: 11 }}>
-                            · {new Date(lastSyncTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </Text>
-                        )}
-                      </View>
-                      <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 12 }}>{user?.email}</Text>
-                      <TouchableOpacity
-                        style={{ borderWidth: 1.5, borderColor: "rgba(255,215,0,0.4)", borderRadius: 12, paddingVertical: 13, alignItems: "center", opacity: syncingHistory ? 0.5 : 1 }}
-                        disabled={syncingHistory}
-                        onPress={() => {
-                          setSyncingHistory(true);
-                          syncAllHistory((pct) => setSyncProgress(pct)).finally(() => {
-                            setSyncingHistory(false);
-                            setSyncProgress(0);
-                            AsyncStorage.getItem('cloud_last_sync').then((v) => { if (v) setLastSyncTime(v); }).catch(() => {});
-                          });
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={{ color: "#FFD700", fontSize: 14, fontWeight: "700" }}>🔄  Sync Now</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={{ paddingVertical: 10, alignItems: "center" }}
-                        onPress={() => {
-                          Alert.alert("Sign Out", "Sign out of cloud sync? Your local data is not affected.", [
-                            { text: "Cancel", style: "cancel" },
-                            { text: "Sign Out", style: "destructive", onPress: () => { signOut(); } },
-                          ]);
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={{ color: "#FF6B6B", fontSize: 14, fontWeight: "600" }}>Sign Out</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-
                 {/* DATA section — CSV export */}
                 <View style={{ marginTop: 24, marginBottom: 8 }}>
                   <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>DATA</Text>
@@ -5421,30 +5320,9 @@ export default function WaterTracker() {
                   <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center" }}>
                     Exports up to 30 days as a CSV file
                   </Text>
-
-                  {/* Delete Account — only shown when signed in */}
-                  {isAuthenticated && (
-                    <TouchableOpacity
-                      style={{ marginTop: 20, paddingVertical: 10, alignItems: "center" }}
-                      onPress={() =>
-                        Alert.alert(
-                          "Delete Account",
-                          "This permanently deletes all your Supabase cloud data and signs you out. Your local data on this device is not affected.",
-                          [
-                            { text: "Cancel", style: "cancel" },
-                            {
-                              text: "Delete Account",
-                              style: "destructive",
-                              onPress: () => { deleteAccount(); },
-                            },
-                          ]
-                        )
-                      }
-                      activeOpacity={0.8}
-                    >
-                      <Text style={{ color: "#FF6B6B", fontSize: 13, fontWeight: "600" }}>Delete My Account</Text>
-                    </TouchableOpacity>
-                  )}
+                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 14, textAlign: "center", lineHeight: 16 }}>
+                    Your hydration data lives on this device. Your iPhone backup keeps it safe across new devices.
+                  </Text>
                 </View>
 
                 {/* Feedback */}
@@ -5576,16 +5454,6 @@ export default function WaterTracker() {
           </View>
         </View>
       </Modal>
-
-      {/* Auth Modal (cloud sync sign-in) */}
-      <AuthModal
-        visible={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        onAuthSuccess={() => {
-          setShowAuthModal(false);
-          AsyncStorage.getItem('cloud_last_sync').then((v) => { if (v) setLastSyncTime(v); }).catch(() => {});
-        }}
-      />
 
       {/* Quick Add Customization Modal */}
       <QuickAddCustomModal

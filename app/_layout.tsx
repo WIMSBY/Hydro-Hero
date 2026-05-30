@@ -10,7 +10,6 @@ import * as Linking from "expo-linking";
 import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { AuthProvider } from "../contexts/AuthContext";
 import { ProProvider } from "../contexts/ProContext";
 import { LLThemeProvider } from "../contexts/ThemeContext";
 import { configureRevenueCat } from "../utils/revenueCat";
@@ -59,23 +58,21 @@ export default Sentry.wrap(function RootLayout() {
   }, []);
 
   return (
-    <AuthProvider>
-      <ProProvider>
-        <LLThemeProvider>
-          <ThemeProvider
-            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-          >
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="modal"
-                options={{ presentation: "modal", title: "Modal" }}
-              />
-            </Stack>
-            <StatusBar style="auto" />
-          </ThemeProvider>
-        </LLThemeProvider>
-      </ProProvider>
-    </AuthProvider>
+    <ProProvider>
+      <LLThemeProvider>
+        <ThemeProvider
+          value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+        >
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="modal"
+              options={{ presentation: "modal", title: "Modal" }}
+            />
+          </Stack>
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </LLThemeProvider>
+    </ProProvider>
   );
 });
