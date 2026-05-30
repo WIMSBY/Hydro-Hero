@@ -16,7 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.wimsby.hydrationstation",
       "appleTeamId": "2GPWB6H7M2",
-      "buildNumber": "8",
+      "buildNumber": "9",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Hydro Hero reads health data to provide personalized hydration insights",
         "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
@@ -70,7 +70,7 @@
           "sounds": []
         }
       ],
-      "react-native-health",
+      "@kingstinct/react-native-healthkit",
       "@bacons/apple-targets",
       "./plugins/withWidgetData",
       "expo-updates",

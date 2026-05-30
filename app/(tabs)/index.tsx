@@ -11,6 +11,7 @@ import {
 } from "../../utils/SoundManager";
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
 import { syncWidgetData } from "../../utils/WidgetDataSync";
+import { seedDemoData, clearDemoData } from "../../utils/devSeed";
 import { initWatch, teardownWatch, sendHydrationUpdate, setWatchMessageHandler } from "../../utils/WatchManager";
 import { useIsFocused } from "@react-navigation/native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -4031,6 +4032,10 @@ export default function WaterTracker() {
     } else {
       const bt = betTimersRef.current;
       // ── Normal spin ──
+      mainScrollRef.current?.scrollTo({
+        y: Math.max(0, reelFrameY - 80),
+        animated: true,
+      });
       // Normal reel stop timings: reel1=1800ms, reel2=2025ms, reel3=2250ms
       setSpinning(true);
       bt.push(setTimeout(() => { stopSpinSound(); playReelStopSound(0); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 1800));
@@ -5394,6 +5399,78 @@ export default function WaterTracker() {
                     Your hydration data lives on this device. Your iPhone backup keeps it safe across new devices.
                   </Text>
                 </View>
+
+                {/* Dev-only: demo data for App Store screenshots (never ships — gated by __DEV__) */}
+                {__DEV__ && (
+                  <View style={{ marginTop: 24 }}>
+                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>SCREENSHOTS (DEV)</Text>
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: "row", alignItems: "center", justifyContent: "center",
+                        backgroundColor: "#c8a000", borderRadius: 12,
+                        paddingVertical: 14, paddingHorizontal: 16, gap: 8,
+                      }}
+                      onPress={() => seedDemoData("primed").catch(() => {})}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={{ fontSize: 18 }}>🎰</Text>
+                      <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>
+                        Seed — Primed Jackpot
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 16 }}>
+                      Sets today to ~88% (8 oz to go). Tap any bet to capture the live fireworks + fun fact. Best for the preview video.
+                    </Text>
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: "row", alignItems: "center", justifyContent: "center",
+                        backgroundColor: "#c8a000", borderRadius: 12,
+                        paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 16,
+                      }}
+                      onPress={() => seedDemoData("full").catch(() => {})}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={{ fontSize: 18 }}>🏆</Text>
+                      <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>
+                        Seed — Full (Goal Hit)
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 16 }}>
+                      Full gauge + 14-day streak. Best for stats, badges & a celebratory hero shot.
+                    </Text>
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: "row", alignItems: "center", justifyContent: "center",
+                        borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 12,
+                        paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 12,
+                      }}
+                      onPress={() => seedDemoData("mid").catch(() => {})}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={{ fontSize: 18 }}>🌓</Text>
+                      <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>
+                        Seed — In Progress (~50%)
+                      </Text>
+                    </TouchableOpacity>
+                    <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 16 }}>
+                      Half-full gauge, mid-day look. Same rich history & badges. Great for the home hero.
+                    </Text>
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: "row", alignItems: "center", justifyContent: "center",
+                        borderWidth: 1.5, borderColor: "rgba(192,21,42,0.5)", borderRadius: 12,
+                        paddingVertical: 12, paddingHorizontal: 16, gap: 8, marginTop: 16,
+                      }}
+                      onPress={() => clearDemoData().catch(() => {})}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={{ fontSize: 16 }}>🗑️</Text>
+                      <Text style={{ color: "#C0152A", fontSize: 14, fontWeight: "700" }}>
+                        Clear Demo Data
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
                 {/* Feedback */}
                 <View style={{ marginTop: 24 }}>

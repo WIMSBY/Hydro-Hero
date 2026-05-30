@@ -1,48 +1,56 @@
 /**
- * Apple Health (HealthKit) integration for Liquid Luck.
+ * Apple Health (HealthKit) integration for Hydro Hero.
  *
- * All calls are safe no-ops on Android, iPad sim without HealthKit,
- * and any environment where react-native-health is not installed.
+ * Backed by @kingstinct/react-native-healthkit (Nitro Modules, new-arch compatible).
+ * All calls are safe no-ops on Android, on simulators without HealthKit,
+ * and in any environment where the native module fails to load.
  * Every function swallows errors — the app must never crash because of Health.
  */
 
 import { Platform } from "react-native";
+
+const WATER_TYPE = "HKQuantityTypeIdentifierDietaryWater" as const;
 
 // Lazy conditional import — avoids crashes on Android and in Expo Go
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let HK: any = null;
 if (Platform.OS === "ios") {
   try {
-    HK = require("react-native-health").default;
+    HK = require("@kingstinct/react-native-healthkit");
   } catch {
-    // react-native-health not installed or not linked — all ops become no-ops
+    // Native module not linked — all ops become no-ops
   }
 }
 
+function moduleReady(): boolean {
+  return Platform.OS === "ios" && HK !== null && typeof HK.isHealthDataAvailable === "function";
+}
+
 /** True only when HealthKit is reachable on this device */
-export const isHealthAvailable: boolean = Platform.OS === "ios" && HK !== null;
+export const isHealthAvailable: boolean = (() => {
+  if (!moduleReady()) return false;
+  try {
+    return Boolean(HK.isHealthDataAvailable());
+  } catch {
+    return false;
+  }
+})();
 
 /**
  * Initialise HealthKit and request read+write permission for Water.
- * Returns true if permission was granted, false otherwise.
+ * Returns true if the authorization request succeeded (which does NOT
+ * mean the user granted — iOS deliberately doesn't expose that).
  */
 export async function initHealthKit(): Promise<boolean> {
   if (!isHealthAvailable) return false;
-  return new Promise((resolve) => {
-    try {
-      const permissions = {
-        permissions: {
-          read: [HK.Constants.Permissions.Water],
-          write: [HK.Constants.Permissions.Water],
-        },
-      };
-      HK.initHealthKit(permissions, (error: string) => {
-        resolve(!error);
-      });
-    } catch {
-      resolve(false);
-    }
-  });
+  try {
+    return await HK.requestAuthorization({
+      toShare: [WATER_TYPE],
+      toRead: [WATER_TYPE],
+    });
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -52,25 +60,13 @@ export async function initHealthKit(): Promise<boolean> {
  */
 export async function saveWaterSample(oz: number): Promise<string | null> {
   if (!isHealthAvailable) return null;
-  // react-native-health expects liters for water samples
-  const liters = oz * 0.0295735;
-  const timestamp = new Date().toISOString();
-  return new Promise((resolve) => {
-    try {
-      HK.saveWaterSamples(
-        { value: liters, startDate: timestamp, endDate: timestamp },
-        (error: string) => {
-          if (error) {
-            resolve(null);
-          } else {
-            resolve(timestamp);
-          }
-        }
-      );
-    } catch {
-      resolve(null);
-    }
-  });
+  const now = new Date();
+  try {
+    const saved = await HK.saveQuantitySample(WATER_TYPE, "fl_oz_us", oz, now, now);
+    return saved ? now.toISOString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -79,14 +75,15 @@ export async function saveWaterSample(oz: number): Promise<string | null> {
  */
 export async function deleteWaterSample(timestamp: string): Promise<void> {
   if (!isHealthAvailable || !timestamp) return;
-  return new Promise((resolve) => {
-    try {
-      const t = new Date(timestamp).getTime();
-      const startDate = new Date(t - 2000).toISOString();
-      const endDate = new Date(t + 2000).toISOString();
-      HK.deleteWaterSamples({ startDate, endDate }, () => resolve());
-    } catch {
-      resolve();
-    }
-  });
+  try {
+    const t = new Date(timestamp).getTime();
+    await HK.deleteObjects(WATER_TYPE, {
+      date: {
+        startDate: new Date(t - 2000),
+        endDate: new Date(t + 2000),
+      },
+    });
+  } catch {
+    // Silent — undo should never crash the app
+  }
 }
