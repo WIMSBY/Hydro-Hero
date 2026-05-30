@@ -2078,15 +2078,20 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
 
 // --- Result Box ---
 function ResultBox({ message }: { message: string | null }) {
-  const rawOzMatch = message?.match(/\+([\d.]+) oz logged/);
+  const rawOzMatch = message?.match(/\+([\d.]+) oz/);
   const rawOzNum = rawOzMatch ? parseFloat(rawOzMatch[1]) : 0;
+  const isJackpot = !!message?.includes("JACKPOT");
   return (
     <View style={rbStyles.wrapper}>
       <Text style={message ? rbStyles.result : rbStyles.idle}>
         {message ?? "Select your drink, place your bet and log it!"}
       </Text>
       {message && (
-        <Text style={rbStyles.sub}>{ozToMl(rawOzNum)} ml consumed • tank is filling up!</Text>
+        <Text style={rbStyles.sub}>
+          {isJackpot
+            ? `${rawOzNum} oz (${ozToMl(rawOzNum)} ml) • tank is full! 🏆`
+            : `${rawOzNum} oz (${ozToMl(rawOzNum)} ml) consumed • tank is filling up!`}
+        </Text>
       )}
     </View>
   );
@@ -3167,20 +3172,6 @@ export default function WaterTracker() {
       const current = await Location.getForegroundPermissionsAsync();
       if (current.status === "denied") return;
 
-      if (current.status === "undetermined") {
-        const consent = await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            "Hot-Day Goal Boost",
-            "Hydro Hero can check the local temperature to suggest extra ounces on hot days. Your approximate location is used once per session and is never stored or shared.",
-            [
-              { text: "Not Now", style: "cancel", onPress: () => resolve(false) },
-              { text: "Allow", onPress: () => resolve(true) },
-            ]
-          );
-        });
-        if (!consent) return;
-      }
-
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") return;
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low });
@@ -3856,7 +3847,7 @@ export default function WaterTracker() {
 
     // Fire immediate threshold notifications (once per day each)
     const todayKey2 = getTodayKey();
-    if (newHydPct >= 0.5) {
+    if (!isJackpot && newHydPct >= 0.5) {
       fireImmediateNotifOnce(
         `notif_50pct_fired_${todayKey2}`,
         "Halfway to the jackpot! 🎰",
@@ -3864,7 +3855,7 @@ export default function WaterTracker() {
         notifProgressEnabled,
       );
     }
-    if (newHydPct >= 0.8) {
+    if (!isJackpot && newHydPct >= 0.8) {
       fireImmediateNotifOnce(
         `notif_80pct_fired_${todayKey2}`,
         "So close to the jackpot! 💰",

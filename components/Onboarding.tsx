@@ -6,6 +6,7 @@ import {
   Easing,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -446,19 +447,55 @@ interface Screen2Props {
   onNext: () => void;
 }
 
+type ActivityLevel = "low" | "moderate" | "high";
+type SexInput = "female" | "male" | null;
+
+// Weight (lbs) × 0.5 baseline + activity bump (sweat loss).
+// Baseline matches the general/male recommendation; Female nudges down ~10%.
+// Rounded to nearest 4 oz and clamped to a safe 40–200 oz range.
+function computeGoalOz(weightLbs: number, activity: ActivityLevel, sex: SexInput): number {
+  const base = weightLbs * 0.5;
+  const activityBump = activity === "low" ? 0 : activity === "moderate" ? 16 : 32;
+  const sexAdjust = sex === "female" ? -8 : 0;
+  const total = base + activityBump + sexAdjust;
+  const clamped = Math.min(Math.max(total, 40), 200);
+  return Math.round(clamped / 4) * 4;
+}
+
 function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
-  // Suggested goal calculation (simple: weight/2 oz, capped to reasonable range)
-  const suggested = 80; // ~150 lb person default
+  const [weightLbs, setWeightLbs] = useState(160);
+  const [activity, setActivity] = useState<ActivityLevel>("moderate");
+  const [sex, setSex] = useState<SexInput>(null);
+
   const [showCustomGoal, setShowCustomGoal] = useState(false);
   const [customGoalDraft, setCustomGoalDraft] = useState("");
 
+  const recommended = computeGoalOz(weightLbs, activity, sex);
+
+  // While the user has the recommended preset selected, keep it in sync with
+  // the calculator. Presets stay sticky once tapped.
+  const prevRecommendedRef = useRef(recommended);
+  useEffect(() => {
+    if (selectedGoal === prevRecommendedRef.current) {
+      onSelect(recommended);
+    }
+    prevRecommendedRef.current = recommended;
+  }, [recommended, selectedGoal, onSelect]);
+
+  function bumpWeight(delta: number) {
+    setWeightLbs((w) => Math.min(Math.max(w + delta, 60), 400));
+  }
+
+  const isPresetSelected = (oz: number) => selectedGoal === oz;
+  const isRecommendedSelected = selectedGoal === recommended;
+  const isCustomSelected =
+    selectedGoal !== null &&
+    selectedGoal !== recommended &&
+    selectedGoal !== 64 &&
+    selectedGoal !== 128;
+
   function openCustomGoal() {
-    const currentCustom =
-      selectedGoal !== null &&
-      selectedGoal !== 64 &&
-      selectedGoal !== 128 &&
-      selectedGoal !== suggested;
-    setCustomGoalDraft(String(currentCustom ? selectedGoal : 96));
+    setCustomGoalDraft(isCustomSelected ? String(selectedGoal) : "");
     setShowCustomGoal(true);
   }
 
@@ -471,7 +508,12 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
   }
 
   return (
-    <View style={screenS.container}>
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={[screenS.container, { paddingBottom: 40 }]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
       <Text style={screenS.titleSmall}>SET YOUR GOAL</Text>
       <Text style={screenS.subtitleSmall}>How much do you want to drink each day?</Text>
 
@@ -479,35 +521,96 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
         <GoalOption
           label="Half Gallon"
           sublabel="64 oz · Minimum recommended"
-          selected={selectedGoal === 64}
+          selected={isPresetSelected(64)}
           onPress={() => onSelect(64)}
         />
         <GoalOption
           label="One Gallon"
           sublabel="128 oz · High performance"
-          selected={selectedGoal === 128}
+          selected={isPresetSelected(128)}
           onPress={() => onSelect(128)}
         />
         <GoalOption
-          label="Suggested"
-          sublabel={`${suggested} oz · Based on avg adult`}
-          selected={selectedGoal === suggested}
-          onPress={() => onSelect(suggested)}
-        />
-        <GoalOption
           label="Custom"
-          sublabel={selectedGoal !== 64 && selectedGoal !== 128 && selectedGoal !== suggested && selectedGoal !== null
-            ? `${selectedGoal} oz`
-            : "I'll set it myself in the app"}
-          selected={
-            selectedGoal !== null &&
-            selectedGoal !== 64 &&
-            selectedGoal !== 128 &&
-            selectedGoal !== suggested
-          }
+          sublabel={isCustomSelected ? `${selectedGoal} oz` : "Set your own number"}
+          selected={isCustomSelected}
           onPress={openCustomGoal}
         />
       </View>
+
+      <Text style={s.orPickPreset}>or get a personal recommendation</Text>
+
+      {/* Personalize form */}
+      <View style={s.personalizeBox}>
+        {/* Weight stepper */}
+        <View style={s.personRow}>
+          <Text style={s.personLabel}>Weight</Text>
+          <View style={s.stepperWrap}>
+            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(-5)} activeOpacity={0.7}>
+              <Text style={s.stepperBtnText}>−</Text>
+            </TouchableOpacity>
+            <Text style={s.stepperValue}>{weightLbs} lb</Text>
+            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(5)} activeOpacity={0.7}>
+              <Text style={s.stepperBtnText}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Activity chips */}
+        <View style={s.personRow}>
+          <Text style={s.personLabel}>Activity</Text>
+          <View style={s.chipsRow}>
+            {(["low", "moderate", "high"] as ActivityLevel[]).map((lvl) => (
+              <TouchableOpacity
+                key={lvl}
+                style={[s.chip, activity === lvl && s.chipSel]}
+                onPress={() => setActivity(lvl)}
+                activeOpacity={0.75}
+              >
+                <Text style={[s.chipText, activity === lvl && s.chipTextSel]}>
+                  {lvl === "low" ? "Low" : lvl === "moderate" ? "Moderate" : "High"}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Sex chips (optional) */}
+        <View style={s.personRow}>
+          <Text style={s.personLabel}>Sex <Text style={s.personLabelHint}>(optional)</Text></Text>
+          <View style={s.chipsRow}>
+            {([
+              ["female", "Female"],
+              ["male", "Male"],
+              [null, "Skip"],
+            ] as [SexInput, string][]).map(([val, label]) => (
+              <TouchableOpacity
+                key={label}
+                style={[s.chip, sex === val && s.chipSel]}
+                onPress={() => setSex(val)}
+                activeOpacity={0.75}
+              >
+                <Text style={[s.chipText, sex === val && s.chipTextSel]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      </View>
+
+      {/* Recommended preset (tap to select) */}
+      <TouchableOpacity
+        style={[s.recommendBox, isRecommendedSelected && s.recommendBoxSel]}
+        onPress={() => onSelect(recommended)}
+        activeOpacity={0.85}
+      >
+        <Text style={s.recommendTag}>✨ RECOMMENDED FOR YOU</Text>
+        <Text style={s.recommendValue}>{recommended} oz</Text>
+        <Text style={s.recommendSub}>
+          {weightLbs} lb · {activity === "low" ? "Low" : activity === "moderate" ? "Moderate" : "High"} activity
+          {sex ? ` · ${sex === "male" ? "Male" : "Female"}` : ""}
+        </Text>
+        {isRecommendedSelected && <View style={s.recommendCheckDot} />}
+      </TouchableOpacity>
 
       <Text style={s.goalSafetyNote}>
         Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
@@ -535,7 +638,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
               selectTextOnFocus
               maxLength={3}
               style={s.customGoalInput}
-              placeholder="96"
+              placeholder={String(recommended)}
               placeholderTextColor="rgba(255,255,255,0.25)"
             />
             <View style={s.customGoalActions}>
@@ -549,7 +652,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -612,6 +715,129 @@ const s = StyleSheet.create({
     fontWeight: "600",
   },
   goalList: { width: "100%", marginBottom: 24 },
+  personalizeBox: {
+    width: "100%",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,215,0,0.25)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+    padding: 14,
+    marginBottom: 16,
+  },
+  personRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  personLabel: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  personLabelHint: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  stepperWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  stepperBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,215,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,215,0,0.08)",
+  },
+  stepperBtnText: {
+    color: "#FFD700",
+    fontSize: 20,
+    fontWeight: "800",
+    lineHeight: 22,
+  },
+  stepperValue: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "800",
+    minWidth: 70,
+    textAlign: "center",
+  },
+  chipsRow: { flexDirection: "row", gap: 6 },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  chipSel: {
+    borderColor: "#FFD700",
+    backgroundColor: "rgba(255,215,0,0.18)",
+  },
+  chipText: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  chipTextSel: { color: "#FFD700" },
+  recommendBox: {
+    width: "100%",
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,215,0,0.5)",
+    backgroundColor: "rgba(255,215,0,0.08)",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  recommendBoxSel: {
+    borderWidth: 2,
+    borderColor: "#FFD700",
+    backgroundColor: "rgba(255,215,0,0.18)",
+  },
+  recommendTag: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#FFD700",
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  recommendValue: {
+    fontSize: 28,
+    fontWeight: "900",
+    color: "#ffffff",
+    marginBottom: 2,
+  },
+  recommendSub: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.6)",
+  },
+  recommendCheckDot: {
+    position: "absolute",
+    top: 10,
+    right: 12,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#FFD700",
+  },
+  orPickPreset: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 2,
+    textAlign: "center",
+    marginBottom: 10,
+    marginTop: 2,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,10,0.78)",
