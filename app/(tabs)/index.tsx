@@ -34,6 +34,7 @@ import Reanimated, {
   runOnJS,
   Easing as REasing,
 } from "react-native-reanimated";
+import DraggableFlatList, { RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
 import {
   ActivityIndicator,
   Alert,
@@ -320,8 +321,10 @@ function GoalHistory({ goalHistory, history }: GoalHistoryProps) {
 
   const { width: screenWidth } = useWindowDimensions();
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const CELL = Math.max(38, Math.floor((screenWidth - 32) / 7));
   const GAP = 4;
+  // Wrapper has marginHorizontal: 24 (48 total). Each cell adds GAP of margin.
+  // Cap so 7 cells + 7 gaps always fit on one row.
+  const CELL = Math.max(34, Math.floor((screenWidth - 48) / 7) - GAP);
 
   return (
     <View style={calStyles.wrapper}>
@@ -345,7 +348,9 @@ function GoalHistory({ goalHistory, history }: GoalHistoryProps) {
 
       {/* Day of week labels */}
       <View style={calStyles.dowRow}>
-        {DOW.map((d) => <Text key={d} style={[calStyles.dowLabel, { width: CELL }]}>{d}</Text>)}
+        {DOW.map((d) => (
+          <Text key={d} style={[calStyles.dowLabel, { width: CELL, marginHorizontal: GAP / 2 }]}>{d}</Text>
+        ))}
       </View>
 
       {/* Calendar grid */}
@@ -717,10 +722,10 @@ const chartStyles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
   chevron: { color: "#ffffff", fontSize: 12 },
-  legend: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 6 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { fontSize: 10, color: "rgba(255,255,255,0.7)" },
+  legend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendLabel: { fontSize: 13, color: "rgba(255,255,255,0.85)" },
 });
 
 // --- Weather Banner ---
@@ -1040,15 +1045,20 @@ const AD_SLOT_Y = AD_CONN_Y + AD_CONN_H;         // 276
 const AD_BASE1_Y = AD_SLOT_Y + AD_SLOT_H;        // 468
 const AD_SVG_H = AD_BASE1_Y + 24;                // 492
 const AD_REEL_W = 88;
-const AD_REEL_H = 88;
+const AD_REEL_H = 136;
 const AD_SLOT_HDR_H = 22;
 const AD_REEL1_X = AD_SLOT_X + 22;              // 32
 const AD_REEL2_X = AD_REEL1_X + AD_REEL_W + 10; // 130
 const AD_REEL3_X = AD_REEL2_X + AD_REEL_W + 10; // 228
 const AD_REEL_Y = AD_SLOT_Y + AD_SLOT_HDR_H +
-  Math.floor((AD_SLOT_H - AD_SLOT_HDR_H - AD_REEL_H) / 2); // 339
+  Math.floor((AD_SLOT_H - AD_SLOT_HDR_H - AD_REEL_H) / 2); // 315
+const AD_PAYLINE_CY = AD_SLOT_Y + AD_SLOT_H * 0.5; // 372 — aligns with purple side diamonds
+const AD_PAYLINE_ABOVE = 18; // extra clearance above emoji tops
+const AD_PAYLINE_BELOW = 16;
+const AD_REEL_PAYLINE_CY = AD_PAYLINE_CY - AD_REEL_Y; // 57 — payline center within each reel
 const VAULT_STRIP_N = 50;
 const VAULT_ITEM_H = 80;
+const VAULT_REEL_PAD_TOP = AD_REEL_PAYLINE_CY - VAULT_ITEM_H / 2; // 17
 const AD_CONN_PATH     = `M ${AD_TANK_X},${AD_TANK_Y + AD_TANK_H} L ${AD_TANK_X + AD_TANK_W},${AD_TANK_Y + AD_TANK_H} L ${AD_SLOT_X + AD_SLOT_W},${AD_SLOT_Y} L ${AD_SLOT_X},${AD_SLOT_Y} Z`;
 const AD_TANK_ARCH     = `M ${AD_TANK_X},${AD_TANK_Y} Q ${AD_TANK_X + AD_TANK_W / 2},${AD_TANK_Y - AD_ARCH_H} ${AD_TANK_X + AD_TANK_W},${AD_TANK_Y}`;
 const AD_SLOT_ARCH     = `M ${AD_SLOT_X},${AD_SLOT_Y} Q ${AD_SVG_W / 2},${AD_SLOT_Y - 22} ${AD_SLOT_X + AD_SLOT_W},${AD_SLOT_Y}`;
@@ -1195,8 +1205,8 @@ const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: nu
       {REEL_XS.map((rx, i) => (
         <G key={i}>
           <Rect x={rx} y={AD_REEL_Y} width={AD_REEL_W} height={AD_REEL_H} fill="#020010" stroke="#6600aa" strokeWidth={1.5} rx={4} />
-          <Line x1={rx} y1={AD_REEL_Y + AD_REEL_H / 2 - 15} x2={rx + AD_REEL_W} y2={AD_REEL_Y + AD_REEL_H / 2 - 15} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
-          <Line x1={rx} y1={AD_REEL_Y + AD_REEL_H / 2 + 15} x2={rx + AD_REEL_W} y2={AD_REEL_Y + AD_REEL_H / 2 + 15} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
+          <Line x1={rx} y1={AD_PAYLINE_CY - AD_PAYLINE_ABOVE} x2={rx + AD_REEL_W} y2={AD_PAYLINE_CY - AD_PAYLINE_ABOVE} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
+          <Line x1={rx} y1={AD_PAYLINE_CY + AD_PAYLINE_BELOW} x2={rx + AD_REEL_W} y2={AD_PAYLINE_CY + AD_PAYLINE_BELOW} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
           <SvgText x={rx + AD_REEL_W / 2} y={AD_REEL_Y + AD_REEL_H + 11} fontSize={7} fill="rgba(255,215,0,0.6)" textAnchor="middle" fontWeight="700">{(["BEV", "BET", "HYD"] as string[])[i]}</SvgText>
         </G>
       ))}
@@ -1521,14 +1531,14 @@ function ArtDecoVault({
             position: "absolute", left: rx, top: AD_REEL_Y,
             width: AD_REEL_W, height: AD_REEL_H, overflow: "hidden",
           }}>
-            <Animated.View style={{ transform: [{ translateY: reelAnims[i] }], width: "100%" }}>
+            <Animated.View style={{ transform: [{ translateY: reelAnims[i] }], width: "100%", paddingTop: VAULT_REEL_PAD_TOP }}>
               {reelStrips[i].map((item, idx) => (
                 <View key={idx} style={{ height: VAULT_ITEM_H, alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ fontSize: 22, color: "#ffffff", fontWeight: "800", textAlign: "center" }}>
+                  <Text style={{ fontSize: 18, lineHeight: 20, color: "#ffffff", fontWeight: "800", textAlign: "center" }}>
                     {item.main}
                   </Text>
                   <Text style={{
-                    fontSize: 9, textAlign: "center", marginTop: 1,
+                    fontSize: 8, lineHeight: 10, textAlign: "center",
                     color: jackpotMode && item.sub === "WIN!" ? GOLD : "rgba(255,255,255,0.7)",
                   }}>
                     {item.sub}
@@ -1536,12 +1546,15 @@ function ArtDecoVault({
                 </View>
               ))}
             </Animated.View>
-            <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 18,
+            <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 12,
               backgroundColor: "rgba(2,0,16,0.88)" }} pointerEvents="none" />
-            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 18,
+            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 12,
               backgroundColor: "rgba(2,0,16,0.88)" }} pointerEvents="none" />
             <Animated.View style={{
-              position: "absolute", top: AD_REEL_H / 2 - 17, left: 0, right: 0, height: 34,
+              position: "absolute",
+              top: AD_REEL_PAYLINE_CY - AD_PAYLINE_ABOVE - 1,
+              left: 0, right: 0,
+              height: AD_PAYLINE_ABOVE + AD_PAYLINE_BELOW + 2,
               backgroundColor: "rgba(255,215,0,0.72)",
               borderTopWidth: 2, borderBottomWidth: 2, borderColor: GOLD,
               opacity: wfAnims[i],
@@ -1639,10 +1652,11 @@ function ReelConfetti({ visible, originY }: { visible: boolean; originY: number 
 interface ChooseBevsModalProps {
   visible: boolean;
   current: BevCategory[];
+  usage: Record<BevCategory, number>;
   onSave: (selection: BevCategory[]) => void;
   onCancel: () => void;
 }
-function ChooseBevsModal({ visible, current, onSave, onCancel }: ChooseBevsModalProps) {
+function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBevsModalProps) {
   const [selected, setSelected] = useState<BevCategory[]>(current);
   const [hint, setHint] = useState("");
 
@@ -1664,27 +1678,69 @@ function ChooseBevsModal({ visible, current, onSave, onCancel }: ChooseBevsModal
     }
   }
 
-  // Sorted: selected first, then unselected — memoized to avoid re-sorting on every keystroke
-  const { sortedBevs, firstUnselIdx } = useMemo(() => {
+  // Selected list keeps user-defined order; unselected derived from CATEGORIES.
+  const selectedBevs = useMemo(
+    () => selected.map((k) => getBev(k)),
+    [selected],
+  );
+  const unselectedBevs = useMemo(() => {
     const selSet = new Set(selected);
-    return {
-      sortedBevs: [
-        ...CATEGORIES.filter((b) => selSet.has(b.key)),
-        ...CATEGORIES.filter((b) => !selSet.has(b.key)),
-      ],
-      firstUnselIdx: selected.length,
-    };
+    return CATEGORIES.filter((b) => !selSet.has(b.key));
   }, [selected]);
+
+  function sortByMostUsed() {
+    // Stable sort: keep current order when usage is equal (0–0 included).
+    const ranked = [...selected].sort((a, b) => (usage[b] ?? 0) - (usage[a] ?? 0));
+    setSelected(ranked);
+    setHint("");
+  }
+
+  const renderSelectedItem = ({ item, drag, isActive }: RenderItemParams<BevDef>) => {
+    function startDrag() {
+      try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+      drag();
+    }
+    return (
+      <ScaleDecorator>
+        <View style={[cbStyles.row, cbStyles.rowSel, isActive && cbStyles.rowActive]}>
+          {/* Dedicated drag area — touch starts drag immediately */}
+          <TouchableOpacity
+            onPressIn={startDrag}
+            disabled={isActive}
+            style={cbStyles.dragArea}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 4 }}
+            activeOpacity={1}
+          >
+            <Text style={cbStyles.dragHandle}>≡</Text>
+          </TouchableOpacity>
+          {/* Rest of row — tap to remove from selection */}
+          <TouchableOpacity
+            onPress={() => toggle(item.key)}
+            style={cbStyles.rowTapZone}
+            activeOpacity={0.75}
+          >
+            <Text style={cbStyles.rowEmoji}>{item.emoji}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[cbStyles.rowName, { color: GOLD }]}>{item.label}</Text>
+              <Text style={cbStyles.rowEff}>{Math.round(item.eff * 100)}% hydration</Text>
+            </View>
+            <Text style={cbStyles.check}>✓</Text>
+          </TouchableOpacity>
+        </View>
+      </ScaleDecorator>
+    );
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+      {visible ? (
       <View style={cbStyles.overlay}>
         <View style={cbStyles.sheet}>
           {/* Header */}
           <View style={cbStyles.header}>
             <View style={{ flex: 1 }}>
               <Text style={cbStyles.title}>Choose Your Beverages</Text>
-              <Text style={cbStyles.subtitle}>Select as many or as few as you like</Text>
+              <Text style={cbStyles.subtitle}>Long-press a tile to drag and reorder</Text>
               <Text style={cbStyles.counter}>
                 <Text style={{ color: GOLD }}>{selected.length}</Text>
                 <Text style={{ color: "rgba(255,255,255,0.5)" }}> of 20 selected</Text>
@@ -1695,25 +1751,31 @@ function ChooseBevsModal({ visible, current, onSave, onCancel }: ChooseBevsModal
             </TouchableOpacity>
           </View>
 
-          {/* Select All / Clear All / Reset row */}
+          {/* Action row: Select All / Clear All / Defaults / Most-used */}
           <View style={cbStyles.actionRow}>
             <TouchableOpacity
               style={cbStyles.actionBtn}
               onPress={() => { setSelected(CATEGORIES.map((b) => b.key)); setHint(""); }}
             >
-              <Text style={cbStyles.actionTxt}>Select All</Text>
+              <Text style={cbStyles.actionTxt}>All</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={cbStyles.actionBtn}
               onPress={() => { setSelected([CATEGORIES[0].key]); setHint(""); }}
             >
-              <Text style={cbStyles.actionTxt}>Clear All</Text>
+              <Text style={cbStyles.actionTxt}>Clear</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={cbStyles.actionBtn}
               onPress={() => { setSelected([...DEFAULT_VISIBLE_BEVS]); setHint(""); }}
             >
               <Text style={cbStyles.actionTxt}>Defaults</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={cbStyles.actionBtn}
+              onPress={sortByMostUsed}
+            >
+              <Text style={cbStyles.actionTxt}>Most-used</Text>
             </TouchableOpacity>
           </View>
 
@@ -1722,32 +1784,39 @@ function ChooseBevsModal({ visible, current, onSave, onCancel }: ChooseBevsModal
             <Text style={cbStyles.hint}>{hint}</Text>
           )}
 
-          {/* Beverage list — selected first, then divider, then unselected */}
-          <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-            {sortedBevs.map((bev, idx) => {
-              const isSel = selected.includes(bev.key);
-              return (
-                <React.Fragment key={bev.key}>
-                  {idx === firstUnselIdx && firstUnselIdx > 0 && firstUnselIdx < CATEGORIES.length && (
+          {/* Draggable selected list + plain unselected list as footer */}
+          <View style={{ flex: 1 }}>
+            <DraggableFlatList
+              data={selectedBevs}
+              keyExtractor={(item) => item.key}
+              onDragEnd={({ data }) => setSelected(data.map((b) => b.key))}
+              renderItem={renderSelectedItem}
+              activationDistance={6}
+              contentContainerStyle={{ paddingBottom: 12 }}
+              ListFooterComponent={
+                unselectedBevs.length > 0 ? (
+                  <>
                     <View style={cbStyles.divider} />
-                  )}
-                  <TouchableOpacity
-                    style={[cbStyles.row, isSel && cbStyles.rowSel]}
-                    onPress={() => toggle(bev.key)}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[cbStyles.rowName, isSel && { color: GOLD }]}>{bev.label}</Text>
-                      <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
-                    </View>
-                    {isSel && <Text style={cbStyles.check}>✓</Text>}
-                  </TouchableOpacity>
-                </React.Fragment>
-              );
-            })}
-            <View style={{ height: 12 }} />
-          </ScrollView>
+                    {unselectedBevs.map((bev) => (
+                      <TouchableOpacity
+                        key={bev.key}
+                        style={cbStyles.row}
+                        onPress={() => toggle(bev.key)}
+                        activeOpacity={0.75}
+                      >
+                        <View style={cbStyles.dragHandlePlaceholder} />
+                        <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={cbStyles.rowName}>{bev.label}</Text>
+                          <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </>
+                ) : null
+              }
+            />
+          </View>
 
           {/* Save button */}
           <View style={cbStyles.btnRow}>
@@ -1760,6 +1829,7 @@ function ChooseBevsModal({ visible, current, onSave, onCancel }: ChooseBevsModal
           </View>
         </View>
       </View>
+      ) : null}
     </Modal>
   );
 }
@@ -1779,6 +1849,11 @@ const cbStyles = StyleSheet.create({
   divider: { height: 1, backgroundColor: "rgba(255,215,0,0.25)", marginVertical: 8 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: "transparent", gap: 12 },
   rowSel: { backgroundColor: "rgba(255,215,0,0.08)", borderColor: "rgba(255,215,0,0.35)" },
+  rowActive: { backgroundColor: "rgba(255,215,0,0.28)", borderColor: GOLD, borderWidth: 2, shadowColor: GOLD, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  dragArea: { width: 36, alignSelf: "stretch", alignItems: "center", justifyContent: "center", marginLeft: -4 },
+  dragHandle: { color: GOLD_DIM, fontSize: 22, fontWeight: "900", letterSpacing: -2, lineHeight: 22 },
+  dragHandlePlaceholder: { width: 36 },
+  rowTapZone: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   rowEmoji: { fontSize: 22, width: 30, textAlign: "center" },
   rowName: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
   rowEff: { color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 1 },
@@ -1791,10 +1866,10 @@ const cbStyles = StyleSheet.create({
 // --- Beverage Selector ---
 // Returns sizing config based on total visible count (bevs + Custom button)
 function getBevSizing(total: number): { emojiSize: number; labelSize: number; padV: number } {
-  if (total <= 3)  return { emojiSize: 28, labelSize: 12, padV: 12 };
-  if (total <= 6)  return { emojiSize: 22, labelSize: 10, padV: 10 };
-  if (total <= 10) return { emojiSize: 18, labelSize: 9,  padV: 8  };
-  return           { emojiSize: 14, labelSize: 8,  padV: 6  };
+  if (total <= 3)  return { emojiSize: 30, labelSize: 14, padV: 12 };
+  if (total <= 6)  return { emojiSize: 24, labelSize: 12, padV: 10 };
+  if (total <= 10) return { emojiSize: 20, labelSize: 11, padV: 8  };
+  return           { emojiSize: 16, labelSize: 10, padV: 6  };
 }
 
 function BeverageSelector({
@@ -1873,7 +1948,7 @@ function BeverageSelector({
 const bvStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 12, marginTop: 10 },
   labelRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
-  sectionLabel: { flex: 1, color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
+  sectionLabel: { flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8 },
   editBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,215,0,0.12)", borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", justifyContent: "center" },
   editTxt: { fontSize: 13 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
@@ -1904,7 +1979,7 @@ const qbStyles = StyleSheet.create({
   customBtn: { borderColor: GOLD, backgroundColor: "rgba(255,215,0,0.12)" },
   dis: { opacity: 0.45 },
   ozTxt: { fontSize: 15, fontWeight: "800", color: "#ffffff" },
-  mlTxt: { fontSize: 10, color: "rgba(200,200,200,0.65)", marginTop: 2 },
+  mlTxt: { fontSize: 11, color: "rgba(230,230,230,0.85)", marginTop: 2 },
 });
 
 // --- Quick Add Customization Modal ---
@@ -2097,10 +2172,10 @@ function ResultBox({ message }: { message: string | null }) {
   );
 }
 const rbStyles = StyleSheet.create({
-  wrapper: { marginHorizontal: 12, marginTop: 10, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)", minHeight: 52, justifyContent: "center" },
-  idle: { color: "rgba(255,255,255,0.45)", fontSize: 12, textAlign: "center", fontStyle: "italic" },
-  result: { color: GOLD, fontSize: 14, fontWeight: "700", textAlign: "center" },
-  sub: { color: "rgba(255,255,255,0.6)", fontSize: 11, textAlign: "center", marginTop: 4 },
+  wrapper: { marginHorizontal: 12, marginTop: 10, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)", minHeight: 58, justifyContent: "center" },
+  idle: { color: "rgba(255,255,255,0.7)", fontSize: 14, textAlign: "center", fontStyle: "italic" },
+  result: { color: GOLD, fontSize: 16, fontWeight: "700", textAlign: "center" },
+  sub: { color: "rgba(255,255,255,0.8)", fontSize: 13, textAlign: "center", marginTop: 4 },
 });
 
 // --- Stats Bar ---
@@ -2151,9 +2226,9 @@ const stbStyles = StyleSheet.create({
   sec: { flex: 1, alignItems: "center", paddingVertical: 10, paddingHorizontal: 2 },
   div: { width: 1, backgroundColor: "rgba(255,215,0,0.3)", marginVertical: 8 },
   lblRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 3 },
-  lbl: { fontSize: 10, fontWeight: "800", color: GOLD, letterSpacing: 0.5, textAlign: "center" },
-  val: { fontSize: 10, fontWeight: "700", color: "#ffffff", textAlign: "center" },
-  heart: { fontSize: 11, fontWeight: "900" },
+  lbl: { fontSize: 12, fontWeight: "800", color: GOLD, letterSpacing: 0.5, textAlign: "center" },
+  val: { fontSize: 13, fontWeight: "700", color: "#ffffff", textAlign: "center" },
+  heart: { fontSize: 13, fontWeight: "900" },
 });
 
 // --- Drink Log ---
@@ -2212,20 +2287,20 @@ function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
 }
 const dlStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 12, marginTop: 10, borderRadius: 12, padding: 12, borderWidth: 1 },
-  title: { fontSize: 10, fontWeight: "800", letterSpacing: 1, marginBottom: 8 },
-  empty: { fontSize: 12, fontStyle: "italic", textAlign: "center" },
-  row: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 5 },
+  title: { fontSize: 12, fontWeight: "800", letterSpacing: 1, marginBottom: 8 },
+  empty: { fontSize: 14, fontStyle: "italic", textAlign: "center" },
+  row: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 },
   dot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
-  name: { flex: 1, fontSize: 11 },
-  raw: { fontSize: 10, width: 36, textAlign: "right" },
-  effTxt: { fontSize: 10, width: 26, textAlign: "center" },
-  hyd: { fontSize: 10, width: 46, textAlign: "right" },
-  share: { fontSize: 11, fontWeight: "700", width: 28, textAlign: "right" },
+  name: { flex: 1, fontSize: 13 },
+  raw: { fontSize: 12, width: 44, textAlign: "right" },
+  effTxt: { fontSize: 12, width: 32, textAlign: "center" },
+  hyd: { fontSize: 12, width: 54, textAlign: "right" },
+  share: { fontSize: 13, fontWeight: "700", width: 34, textAlign: "right" },
   entriesDivider: { height: 1, marginVertical: 8 },
-  entriesLabel: { fontSize: 9, fontWeight: "800", letterSpacing: 1, marginBottom: 6 },
-  entryRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 4 },
-  entryText: { flex: 1, fontSize: 11 },
-  entryTime: { fontSize: 10, textAlign: "right" },
+  entriesLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 6 },
+  entryRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 5 },
+  entryText: { flex: 1, fontSize: 13 },
+  entryTime: { fontSize: 12, textAlign: "right" },
 });
 
 const undoStyles = StyleSheet.create({
@@ -2235,7 +2310,7 @@ const undoStyles = StyleSheet.create({
     borderWidth: 1.5, borderColor: GOLD_DIM, alignItems: "center",
   },
   btnDisabled: { borderColor: "rgba(255,255,255,0.15)", opacity: 0.45 },
-  btnText: { color: GOLD, fontSize: 13, fontWeight: "700" },
+  btnText: { color: GOLD, fontSize: 15, fontWeight: "700" },
   btnTextDisabled: { color: "rgba(255,255,255,0.35)" },
 });
 
@@ -3715,9 +3790,8 @@ export default function WaterTracker() {
         }
       } catch {}
 
-      // Last cloud sync time
-      const savedSyncTime = get('cloud_last_sync');
-      if (savedSyncTime) setLastSyncTime(savedSyncTime);
+      // Last cloud sync time — reserved for future settings UI
+      // const savedSyncTime = get('cloud_last_sync');
 
       // Merge stored breakdown with new 20-key structure (backward compat)
       if (savedBreakdown) {
@@ -4252,6 +4326,10 @@ export default function WaterTracker() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [streak]);
 
+  if (showOnboarding === null) {
+    return <View style={{ flex: 1, backgroundColor: "#0a0520" }} />;
+  }
+
   if (showOnboarding) {
     return <Onboarding onComplete={handleOnboardingComplete} />;
   }
@@ -4299,7 +4377,7 @@ export default function WaterTracker() {
 
         {/* Quick Bet Buttons */}
         <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}>
-          <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
+          <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
           <TouchableOpacity
             onPress={() => { playButtonTapSound(); setShowCustomModal(true); }}
             activeOpacity={0.7}
@@ -4686,6 +4764,7 @@ export default function WaterTracker() {
       <ChooseBevsModal
         visible={showChooseBevs}
         current={selectedBeverages}
+        usage={categoryBreakdown}
         onSave={async (bevs) => {
           setSelectedBeverages(bevs);
           setShowChooseBevs(false);
