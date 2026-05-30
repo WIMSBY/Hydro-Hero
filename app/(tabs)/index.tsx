@@ -3433,7 +3433,11 @@ export default function WaterTracker() {
 
   // ── CSV Export ────────────────────────────────────────────────────────────
   async function handleExportCSV() {
-    if (!isPro) { openPaywall('csv_export'); return; }
+    if (!isPro) {
+      setShowSettingsModal(false);
+      openPaywall('csv_export');
+      return;
+    }
 
     setExportLoading(true);
     try {
@@ -3537,11 +3541,15 @@ export default function WaterTracker() {
 
       const csvContent = rows.join("\n");
       const today = new Date();
-      const fileName = `LiquidLuck_Export_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}.csv`;
+      const fileName = `HydroHero_Export_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}.csv`;
       const file = new FSFile(FSPaths.document, fileName);
+      try { file.create(); } catch {}
       file.write(csvContent);
 
-      // Show summary before sharing
+      // Close Settings modal first — iOS cannot reliably stack a transparent
+      // modal over a pageSheet modal, which causes the Export Summary to be
+      // hidden or trap touches.
+      setShowSettingsModal(false);
       setExportSummary({
         days: sorted.length,
         totalConsumed: Math.round(totalConsumed),
@@ -3550,8 +3558,9 @@ export default function WaterTracker() {
         filePath: file.uri,
       });
       setShowExportSummary(true);
-    } catch {
-      Alert.alert("Export Failed", "Something went wrong while generating your export. Please try again.");
+    } catch (e) {
+      Sentry.captureException(e);
+      Alert.alert("Export Failed", `Something went wrong: ${(e as Error)?.message ?? String(e)}`);
     } finally {
       setExportLoading(false);
     }

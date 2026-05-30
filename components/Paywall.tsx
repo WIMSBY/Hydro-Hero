@@ -132,8 +132,8 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       const Purchases = getRevenueCatPurchases();
       if (!Purchases) {
         Alert.alert(
-          'Coming Soon!',
-          'Purchases are not available in this build yet.',
+          'Real Device Required',
+          "In-app purchases only work in a TestFlight or App Store build on a real device — they can't run in the iOS simulator or local dev builds.",
           [{ text: 'OK' }],
         );
         return;
@@ -186,7 +186,11 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
     try {
       const Purchases = getRevenueCatPurchases();
       if (!Purchases) {
-        Alert.alert('Restore Unavailable', 'Purchases are not available in this build yet.', [{ text: 'OK' }]);
+        Alert.alert(
+          'Real Device Required',
+          "Restoring purchases only works in a TestFlight or App Store build on a real device — not in the iOS simulator or local dev builds.",
+          [{ text: 'OK' }],
+        );
         return;
       }
       const info = await Purchases.restorePurchases();
