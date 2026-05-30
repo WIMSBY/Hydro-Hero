@@ -356,12 +356,13 @@ function EmojiPickerModal({
 
 // ─── Cheer On Modal ───────────────────────────────────────────────────────────
 function CheerOnModal({
-  visible, username, onClose,
-}: { visible: boolean; username: string; onClose: () => void }) {
+  visible, username, myUsername, onClose,
+}: { visible: boolean; username: string; myUsername: string; onClose: () => void }) {
   const [custom, setCustom] = useState('');
 
   const send = async (msg: string) => {
-    const text = `${msg} — sent from Hydro Hero 💧`;
+    const signature = myUsername ? ` — from ${myUsername} via Hydro Hero 💧` : ' — sent from Hydro Hero 💧';
+    const text = `${msg}${signature}`;
     try { await Share.share({ message: text }); } catch {}
   };
 
@@ -653,11 +654,13 @@ function PreviewModal({
 // ─── Squad Member Card ────────────────────────────────────────────────────────
 function SquadMemberCard({
   member,
+  myUsername,
   onCheer,
   onUpdate,
   onRemove,
 }: {
   member: SquadMember;
+  myUsername: string;
   onCheer: () => void;
   onUpdate: () => void;
   onRemove: () => void;
@@ -720,7 +723,7 @@ function SquadMemberCard({
           <Text style={[s.cardBtnTxt, { color: GOLD }]}>📣 Cheer On</Text>
         </TouchableOpacity>
         <TouchableOpacity style={s.cardBtn} onPress={() =>
-          Share.share({ message: `Hey ${member.username}! Could you send me your Hydro Hero progress code so I can see how you're doing? Tap to open your Share screen: hydrohero://share` })
+          Share.share({ message: `Hey ${member.username}!${myUsername ? ` ${myUsername} here —` : ''} could you send me your Hydro Hero progress code so I can see how you're doing? Tap to open your Share screen: hydrohero://share` })
         }>
           <Text style={s.cardBtnTxt}>💬 Request</Text>
         </TouchableOpacity>
@@ -1049,7 +1052,7 @@ export default function PartnersScreen() {
           <TouchableOpacity
             style={[s.actionBtn, { marginTop: 8 }]}
             onPress={() => Share.share({
-              message: `Hey! I'm using Hydro Hero to track my hydration and I want you on my squad. Download it here: https://apps.apple.com/app/id6764692053`,
+              message: `Hey!${username ? ` ${username} here —` : ''} I'm using Hydro Hero to track my hydration and I want you on my squad. Download it here: https://apps.apple.com/app/id6764692053`,
             })}
           >
             <Text style={s.actionBtnTxt}>✉️ Invite a Friend</Text>
@@ -1075,6 +1078,7 @@ export default function PartnersScreen() {
               <SquadMemberCard
                 key={m.username}
                 member={m}
+                myUsername={username}
                 onCheer={() => setCheerFor(m.username)}
                 onUpdate={() => { setIsUpdateFor(m.username); setShowAdd(true); }}
                 onRemove={() => removeMember(m.username)}
@@ -1124,6 +1128,7 @@ export default function PartnersScreen() {
         <CheerOnModal
           visible
           username={cheerFor}
+          myUsername={username}
           onClose={() => setCheerFor(null)}
         />
       )}

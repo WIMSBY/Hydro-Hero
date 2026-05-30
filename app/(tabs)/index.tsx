@@ -2985,6 +2985,35 @@ export default function WaterTracker() {
     } catch {}
   }
 
+  async function handleHealthToggle(enabled: boolean) {
+    if (healthPermissionGranted) {
+      toggleHealthSync(enabled);
+      return;
+    }
+    // Permission not currently marked as granted. Try initHealthKit fresh:
+    //   - First time tapping toggle: iOS shows the native HealthKit sheet.
+    //   - User re-enabled in iOS Settings: this picks it up silently.
+    //   - User natively denied earlier: this is a silent no-op.
+    const granted = await initHealthKit();
+    try {
+      await AsyncStorage.setItem("health_permission_asked", "1");
+      await AsyncStorage.setItem("health_permission_granted", String(granted));
+    } catch {}
+    setHealthPermissionGranted(granted);
+    if (granted) {
+      toggleHealthSync(true);
+      return;
+    }
+    Alert.alert(
+      "Health Access Disabled",
+      "To enable Apple Health sync, open iPhone Settings → Privacy & Security → Health → Hydro Hero and turn on Water access.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Open Settings", onPress: () => Linking.openURL("app-settings:").catch(() => {}) },
+      ]
+    );
+  }
+
   // Keep refs in sync so async callbacks (notification toggles) read latest values
   // without stale closure issues.
   useEffect(() => { totalHydrationRef.current = totalHydration; }, [totalHydration]);
@@ -5080,13 +5109,7 @@ export default function WaterTracker() {
                       </View>
                       <Switch
                         value={healthSyncEnabled && healthPermissionGranted}
-                        onValueChange={(val) => {
-                          if (!healthPermissionGranted) {
-                            requestHealthPermissionIfNeeded();
-                          } else {
-                            toggleHealthSync(val);
-                          }
-                        }}
+                        onValueChange={handleHealthToggle}
                         trackColor={{ false: "#cccccc", true: "#34C759" }}
                         thumbColor="#ffffff"
                         ios_backgroundColor="#e0e0e0"
