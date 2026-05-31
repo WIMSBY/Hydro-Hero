@@ -1064,8 +1064,10 @@ export default function PartnersScreen() {
           <View style={[s.card, { alignItems: 'center', paddingVertical: 32 }]}>
             <Text style={{ fontSize: 48, marginBottom: 12 }}>👥</Text>
             <Text style={{ color: GOLD, fontSize: 16, fontWeight: '800', marginBottom: 6 }}>Your squad is empty!</Text>
-            <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 18 }}>
-              Share your progress code with friends and family to hydrate together
+            <Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 13, textAlign: 'center', lineHeight: 20, marginBottom: 18, maxWidth: 300 }}>
+              {isPro
+                ? 'Add friends and family to hydrate together — cheer each other on and compare streaks.'
+                : 'Add a hydration buddy. Free includes 1 squad member — upgrade to Pro for unlimited.'}
             </Text>
             <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={generateCode}>
               <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>📤 Share My Progress</Text>

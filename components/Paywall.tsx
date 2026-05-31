@@ -171,11 +171,11 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       }
     } catch (e: any) {
       if (e?.userCancelled) return; // user cancelled — no error needed
-      Alert.alert(
-        'Purchase Failed',
-        'Something went wrong — please try again or restore your purchases.',
-        [{ text: 'OK' }],
-      );
+      const code = e?.code ?? e?.userInfo?.readableErrorCode ?? 'unknown';
+      const msg = e?.message ?? e?.userInfo?.NSLocalizedDescription ?? 'Unknown error';
+      const underlying = e?.underlyingErrorMessage;
+      const detail = underlying ? `${msg}\n\n${underlying}\n\n(${code})` : `${msg}\n\n(${code})`;
+      Alert.alert('Purchase Failed', detail, [{ text: 'OK' }]);
     } finally {
       setPurchasing(false);
     }

@@ -302,8 +302,9 @@ export default function StatsScreen() {
         </View>
       ) : !hasAnyData ? (
         <View style={s.center}>
-          <Text style={s.emptyIcon}>💧</Text>
-          <Text style={s.emptyText}>No stats yet — start logging{'\n'}to see your progress!</Text>
+          <Text style={s.emptyIcon}>📊</Text>
+          <Text style={s.emptyHeadline}>Your hydration story starts here</Text>
+          <Text style={s.emptyText}>Log your first drink to unlock weekly trends, your 30-day streak calendar, and achievement badges.</Text>
           <TouchableOpacity style={s.emptyBtn} onPress={() => router.navigate('/')} activeOpacity={0.8}>
             <Text style={s.emptyBtnTxt}>Start Logging</Text>
           </TouchableOpacity>
@@ -758,7 +759,8 @@ const s = StyleSheet.create({
 
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyIcon: { fontSize: 64, marginBottom: 16 },
-  emptyText: { color: 'rgba(255,255,255,0.6)', fontSize: 16, textAlign: 'center', lineHeight: 24, marginBottom: 24 },
+  emptyHeadline: { color: '#FFFFFF', fontSize: 22, fontWeight: '800', textAlign: 'center', marginBottom: 10 },
+  emptyText: { color: 'rgba(255,255,255,0.6)', fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 24, maxWidth: 320 },
   emptyBtn: { backgroundColor: GOLD, borderRadius: 14, paddingHorizontal: 28, paddingVertical: 14 },
   emptyBtnTxt: { color: '#0a0520', fontSize: 16, fontWeight: '800' },
 
