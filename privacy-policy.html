@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Privacy Policy — Hydration Station</title>
+  <title>Privacy Policy — Hydro Hero</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -33,12 +33,14 @@
 <body>
 
 <h1>Privacy Policy</h1>
-<p class="subtitle">Hydration Station &nbsp;·&nbsp; Last updated May 21, 2026</p>
+<p class="subtitle">Hydro Hero &nbsp;·&nbsp; Last updated May 30, 2026</p>
 
 <p>
   This Privacy Policy describes how Dylan Matuschka ("<strong>we</strong>", "<strong>us</strong>", or
-  "<strong>our</strong>") collects, uses, and shares information when you use the <strong>Hydration Station</strong>
-  mobile application (the "<strong>App</strong>"). By using the App you agree to the practices described here.
+  "<strong>our</strong>") collects, uses, and shares information when you use the <strong>Hydro Hero</strong>
+  mobile application (the "<strong>App</strong>"). Hydro Hero is designed to be local-first: there is no
+  Hydro Hero account, no Hydro Hero server, and most of your data never leaves your device.
+  By using the App you agree to the practices described here.
   Questions? Email us at <a href="mailto:WIMSBY1@icloud.com">WIMSBY1@icloud.com</a>.
 </p>
 
@@ -46,36 +48,47 @@
 
 <h2>1. Information We Collect</h2>
 
-<p><strong>Account information.</strong> When you create an account we collect your email address and display
-name. This data is stored securely via Supabase and is used solely to provide the service.</p>
-
-<p><strong>Hydration logs.</strong> Your daily water-intake entries, beverage types, notes, and goals are stored
-on-device and, if you are signed in, synced to our secure cloud database so you can access your data across
-devices.</p>
+<p><strong>Hydration logs.</strong> Your daily water-intake entries, beverage types, goals, streaks, and
+badges are stored entirely on your device using iOS local storage. There is no Hydro Hero server
+that holds a copy of your data, and no cloud sync. If you delete the app, all of this data is gone.</p>
 
 <p><strong>Apple Health data.</strong> If you grant permission, the App reads and writes water-consumption
-records to Apple HealthKit. This data stays on your device and is never transmitted to our servers. We use
-it only to show you integrated health insights within the App and to keep your HealthKit record up to date.</p>
+records to Apple HealthKit. This data stays on your device and is never transmitted to our servers
+(we have no servers). We use it only to keep your HealthKit record up to date with what you log in
+the App.</p>
 
-<p><strong>Push notification token.</strong> If you enable reminders, we store your device's push-notification
-token to deliver hydration reminders. You can disable notifications at any time in iOS Settings.</p>
+<p><strong>Squad feature.</strong> If you use the Squad feature, you generate a short "progress code"
+containing your chosen username and summary stats (hydration percent for the day, streak, etc.).
+You share this code manually (via Messages, email, AirDrop, QR code, etc.) with people you choose.
+Hydro Hero does not transmit Squad data to any server; codes pass directly through whatever channel
+you choose.</p>
 
-<p><strong>Purchase information.</strong> Subscriptions and one-time purchases are handled by Apple's App Store
-and RevenueCat. We receive anonymised entitlement status (e.g., whether your subscription is active) but
-never your payment card details.</p>
+<p><strong>Notifications.</strong> If you enable hydration reminders, notifications are scheduled
+locally on your device by iOS. We do not collect or transmit a push notification token — there
+is no server that pushes notifications, every reminder is scheduled and delivered locally.</p>
 
-<p><strong>Usage data.</strong> We do <em>not</em> use any third-party analytics SDK. Basic crash and error
-information may be captured to help us fix bugs; this data does not include personally identifiable
+<p><strong>Purchase information.</strong> Subscriptions and one-time purchases are processed by
+Apple's App Store and managed through RevenueCat. RevenueCat receives an anonymous device identifier
+(not linked to your identity) and your subscription/purchase status. We never see or receive your
+payment card details.</p>
+
+<p><strong>Crash and error reports.</strong> If the App crashes or hits an unexpected error,
+diagnostic information (stack trace, device model, iOS version) is sent to Sentry to help us
+identify and fix bugs. These reports do not include your hydration data or personally identifiable
 information.</p>
+
+<p><strong>Location.</strong> If you grant permission, the App may briefly access your approximate
+location to check local temperature and suggest extra hydration on hot days. Your location is
+never stored or shared with any third party.</p>
 
 <hr class="divider" />
 
 <h2>2. How We Use Your Information</h2>
 <ul>
   <li>To provide, operate, and improve the App and its features.</li>
-  <li>To sync your hydration data across your devices when you are signed in.</li>
-  <li>To send you push notifications you have opted into (hydration reminders, daily summaries).</li>
-  <li>To verify your subscription status and unlock Pro features.</li>
+  <li>To deliver locally-scheduled notifications you have opted into (hydration reminders).</li>
+  <li>To verify your subscription status (via RevenueCat) and unlock Pro features.</li>
+  <li>To diagnose crashes and fix bugs (via Sentry).</li>
   <li>To respond to your support requests.</li>
   <li>To comply with applicable laws and regulations.</li>
 </ul>
@@ -91,18 +104,18 @@ information.</p>
   </thead>
   <tbody>
     <tr>
-      <td><a href="https://supabase.com/privacy" target="_blank">Supabase</a></td>
-      <td>Authentication &amp; cloud database</td>
-      <td>Email, display name, hydration logs</td>
-    </tr>
-    <tr>
       <td><a href="https://www.revenuecat.com/privacy" target="_blank">RevenueCat</a></td>
       <td>In-app purchase management</td>
-      <td>Anonymous user ID, subscription status</td>
+      <td>Anonymous device ID, subscription status</td>
+    </tr>
+    <tr>
+      <td><a href="https://sentry.io/privacy/" target="_blank">Sentry</a></td>
+      <td>Crash and error reporting</td>
+      <td>Stack traces, device model, iOS version (no PII, no hydration data)</td>
     </tr>
     <tr>
       <td>Apple Inc.</td>
-      <td>App distribution, payments, HealthKit, push notifications</td>
+      <td>App distribution, payments, HealthKit, notifications</td>
       <td>Governed by <a href="https://www.apple.com/legal/privacy/" target="_blank">Apple's Privacy Policy</a></td>
     </tr>
   </tbody>
@@ -114,37 +127,42 @@ information.</p>
 
 <h2>4. Apple Health (HealthKit)</h2>
 <p>
-  Hydration Station accesses Apple HealthKit to read and write water-intake data. Health data is processed
-  entirely on your device and is never shared with advertisers, data brokers, or any third party not listed
-  in this policy. We will not use HealthKit data for advertising or for any purpose not disclosed here.
+  Hydro Hero accesses Apple HealthKit to read and write water-intake data. Health data is processed
+  entirely on your device and is never shared with advertisers, data brokers, or any third party not
+  listed in this policy. We will not use HealthKit data for advertising or for any purpose not
+  disclosed here.
 </p>
 
 <hr class="divider" />
 
-<h2>5. Data Retention</h2>
+<h2>5. Data Retention and Deletion</h2>
 <p>
-  Your account data and hydration logs are retained for as long as your account is active. You can delete
-  your account and all associated data at any time by contacting us at
-  <a href="mailto:WIMSBY1@icloud.com">WIMSBY1@icloud.com</a>. We will action deletion requests within 30 days.
-  Local HealthKit records are managed through the Apple Health app on your device.
+  Because Hydro Hero stores all your data locally on your device, retention is entirely under your
+  control. To delete your data, simply uninstall the App — everything goes with it. HealthKit records
+  remain in Apple Health unless you also delete them via the Apple Health app.
+</p>
+<p>
+  RevenueCat retains your purchase/subscription status for as long as required for accounting and
+  to honor your entitlement. Sentry retains crash reports for 90 days by default.
 </p>
 
 <hr class="divider" />
 
 <h2>6. Data Security</h2>
 <p>
-  We use industry-standard security measures including TLS encryption for data in transit and encrypted
-  storage at rest via Supabase. No method of transmission over the Internet is 100% secure, but we take
-  commercially reasonable steps to protect your information.
+  Your hydration data is stored locally on your device using iOS's built-in storage protections.
+  The limited data we transmit to RevenueCat and Sentry is sent over TLS. No method of transmission
+  over the Internet is 100% secure, but we take commercially reasonable steps to protect your
+  information.
 </p>
 
 <hr class="divider" />
 
 <h2>7. Children's Privacy</h2>
 <p>
-  The App is not directed to children under 13. We do not knowingly collect personal information from
-  children under 13. If you believe we have inadvertently collected such information, please contact us and
-  we will delete it promptly.
+  The App is not directed to children under 13. We do not knowingly collect personal information
+  from children under 13. If you believe we have inadvertently collected such information, please
+  contact us and we will address it.
 </p>
 
 <hr class="divider" />
@@ -156,10 +174,11 @@ information.</p>
   <li>Request correction of inaccurate data.</li>
   <li>Request deletion of your data.</li>
   <li>Object to or restrict certain processing.</li>
-  <li>Data portability (receive your data in a machine-readable format).</li>
+  <li>Data portability — you can export your hydration history as a CSV from the Pro Settings menu inside the App.</li>
 </ul>
 <p>
-  To exercise any of these rights, email us at <a href="mailto:WIMSBY1@icloud.com">WIMSBY1@icloud.com</a>.
+  Because Hydro Hero is local-first, most of these rights you can exercise yourself by managing
+  data inside the App. For anything else, email us at <a href="mailto:WIMSBY1@icloud.com">WIMSBY1@icloud.com</a>.
   We will respond within 30 days.
 </p>
 
@@ -167,18 +186,18 @@ information.</p>
 
 <h2>9. California Residents (CCPA)</h2>
 <p>
-  We do not sell personal information. California residents have the right to know what personal information
-  is collected, request deletion, and opt out of sale (not applicable here). To submit a request, email
-  <a href="mailto:WIMSBY1@icloud.com">WIMSBY1@icloud.com</a>.
+  We do not sell personal information. California residents have the right to know what personal
+  information is collected, request deletion, and opt out of sale (not applicable here). To submit
+  a request, email <a href="mailto:WIMSBY1@icloud.com">WIMSBY1@icloud.com</a>.
 </p>
 
 <hr class="divider" />
 
 <h2>10. Changes to This Policy</h2>
 <p>
-  We may update this Privacy Policy from time to time. We will notify you of material changes by updating
-  the "Last updated" date at the top of this page. Continued use of the App after changes constitutes
-  acceptance of the updated policy.
+  We may update this Privacy Policy from time to time. We will notify you of material changes by
+  updating the "Last updated" date at the top of this page. Continued use of the App after changes
+  constitutes acceptance of the updated policy.
 </p>
 
 <hr class="divider" />
