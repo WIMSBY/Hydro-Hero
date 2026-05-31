@@ -42,7 +42,9 @@ export interface WatchLogCommand {
   category: string;   // BevCategory key, e.g. 'water'
 }
 
-type WatchMessageHandler = (cmd: WatchLogCommand) => void;
+/** Handler may return a short confirmation string that is sent back to the
+ *  Watch as the reply to its logDrink message (shown on the Watch face). */
+type WatchMessageHandler = (cmd: WatchLogCommand) => string | void | Promise<string | void>;
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
@@ -68,14 +70,25 @@ export async function initWatch(): Promise<void> {
 
     const events = watchModule.watchEvents;
     if (events && typeof events.addListener === 'function') {
-      _subscription = events.addListener('message', (message: unknown) => {
-        try {
-          const msg = message as WatchLogCommand;
-          if (msg?.action === 'logDrink' && _handler) {
-            _handler(msg);
-          }
-        } catch {}
-      });
+      // The Watch sends logDrink via sendMessage(replyHandler), so RNWC passes a
+      // `reply` callback as the 2nd arg. We run the handler, then reply with a
+      // confirmation string the Watch shows on its face.
+      _subscription = events.addListener(
+        'message',
+        (message: unknown, reply?: (response: Record<string, unknown>) => void) => {
+          (async () => {
+            const msg = message as WatchLogCommand;
+            let confirmation = `+${msg?.amount ?? ''} oz logged!`;
+            try {
+              if (msg?.action === 'logDrink' && _handler) {
+                const result = await _handler(msg);
+                if (typeof result === 'string' && result.length > 0) confirmation = result;
+              }
+            } catch {}
+            try { reply?.({ confirmation }); } catch {}
+          })();
+        }
+      );
     }
     _initialized = true;
   } catch {}

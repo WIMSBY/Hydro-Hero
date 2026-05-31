@@ -2968,12 +2968,31 @@ export default function WaterTracker() {
     initSounds();
     try {
       initWatch().catch(() => {});
-      setWatchMessageHandler((cmd) => {
-        addWater(cmd.amount, cmd.category as BevCategory).catch(() => {});
+      setWatchMessageHandler(async (cmd) => {
+        const isJackpot = await addWater(cmd.amount, cmd.category as BevCategory).catch(() => false);
+        return isJackpot ? "🎰 JACKPOT! Goal hit!" : `+${cmd.amount} oz logged!`;
       });
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep the Apple Watch in sync with the phone. Runs on launch (once the stored
+  // hydration data loads into state) and after any change, so the Watch never
+  // shows a stale 0% before the first manual log.
+  useEffect(() => {
+    const s = (() => {
+      let n = 0; const d = new Date();
+      while ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) { n++; d.setDate(d.getDate() - 1); }
+      return n;
+    })();
+    sendHydrationUpdate({
+      hydrationOz: totalHydration,
+      goalOz: goal,
+      pct: goal > 0 ? totalHydration / goal : 0,
+      streak: s,
+      selectedBeverages,
+    }).catch(() => {});
+  }, [totalHydration, goal, goalHistory, selectedBeverages]);
 
   async function checkOnboarding() {
     try {
@@ -5494,8 +5513,11 @@ export default function WaterTracker() {
 
                 {/* About / Legal */}
                 <View style={{ marginTop: 32, marginBottom: 8, alignItems: "center" }}>
-                  <TouchableOpacity onPress={() => Linking.openURL("https://liquidluck.netlify.app/privacy-policy.html").catch(() => {})} activeOpacity={0.7}>
+                  <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/privacy-policy.html").catch(() => {})} activeOpacity={0.7}>
                     <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/support.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 6 }}>
+                    <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Support</Text>
                   </TouchableOpacity>
                   <Text style={{ color: "#bbbbbb", fontSize: 11, marginTop: 8 }}>Hydro Hero v1.0.0</Text>
                 </View>

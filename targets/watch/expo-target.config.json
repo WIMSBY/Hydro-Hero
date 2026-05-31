@@ -1,8 +1,8 @@
 {
-  "type": "watch-app",
-  "deploymentTarget": "8.0",
-  "bundleIdentifier": "com.wimsby.hydrationstation.watchapp",
+  "type": "watch",
   "name": "LiquidLuckWatch",
+  "bundleIdentifier": "com.wimsby.hydrationstation.watchapp",
+  "deploymentTarget": "8.0",
   "entitlements": {
     "com.apple.security.application-groups": ["group.com.wimsby.hydrationstation"]
   }
