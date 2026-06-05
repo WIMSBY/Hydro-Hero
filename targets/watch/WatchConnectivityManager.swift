@@ -12,7 +12,8 @@ struct HydrationState {
 
     var remainingOz: Double { max(goalOz - hydrationOz, 0) }
     var goalHit: Bool       { pct >= 1.0 }
-    var displayPct: Int     { min(Int(pct * 100), 999) }
+    // Round to nearest, not truncate, so 21.9% shows as 22% (matches phone).
+    var displayPct: Int     { min(Int((pct * 100).rounded()), 999) }
 }
 
 // ─── WatchConnectivityManager ─────────────────────────────────────────────────

@@ -263,14 +263,15 @@ struct ContentView: View {
                         .font(.system(size: 12, weight: .black))
                         .foregroundColor(gold)
                 } else {
-                    Text(String(format: "%.0f oz to go", state.remainingOz))
+                    Text("\(formatOz(state.remainingOz)) to go")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundColor(.white.opacity(0.7))
                 }
 
-                // Stats row
+                // Stats row. TODAY shows up to 1 decimal (drops trailing zero)
+                // so a 16.9 oz log reads "16.9 oz" instead of rounding to "17".
                 HStack(spacing: 12) {
-                    statCell(label: "TODAY", value: String(format: "%.0f oz", state.hydrationOz))
+                    statCell(label: "TODAY", value: formatOz(state.hydrationOz))
                     statCell(label: "GOAL",  value: String(format: "%.0f oz", state.goalOz))
                     if state.streak > 0 {
                         statCell(label: "STREAK", value: "\(state.streak)🔥")
@@ -298,6 +299,16 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .padding(.bottom, 12)
         }
+    }
+
+    // MARK: – Oz formatter (matches phone: up to 1 decimal, no trailing zero)
+
+    private func formatOz(_ oz: Double) -> String {
+        let rounded = (oz * 10).rounded() / 10
+        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
+            return String(format: "%.0f oz", rounded)
+        }
+        return String(format: "%.1f oz", rounded)
     }
 
     // MARK: – Stat cell
