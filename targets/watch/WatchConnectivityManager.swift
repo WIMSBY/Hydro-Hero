@@ -34,40 +34,52 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate, ObservableObj
 
     // MARK: – Send log command to iPhone
 
+    // transferUserInfo queues the log and delivers it when the iPhone app next
+    // wakes up — works even if the iPhone app is backgrounded or terminated.
+    // sendMessage was unreliable because it silently dropped when the iPhone
+    // app wasn't foregrounded (isReachable == false).
     func sendLogDrink(amount: Double, category: String) {
-        guard WCSession.default.isReachable else { return }
-        let message: [String: Any] = [
+        let info: [String: Any] = [
             "action":   "logDrink",
             "amount":   amount,
             "category": category,
         ]
-        WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
-            if let confirmation = reply["confirmation"] as? String {
-                DispatchQueue.main.async {
-                    self?.lastLogConfirmation = confirmation
-                }
-            }
-        }, errorHandler: { _ in })
+        WCSession.default.transferUserInfo(info)
     }
 
     // MARK: – WCSessionDelegate
 
     func session(_ session: WCSession,
                  activationDidCompleteWith state: WCSessionActivationState,
-                 error: Error?) {}
+                 error: Error?) {
+        // `didReceiveApplicationContext` only fires on NEW context. If the iPhone
+        // pushed before the watch app launched, we have to read the persisted
+        // context manually — otherwise we sit on Swift defaults (selectedBeverages
+        // = ["water"]) until the iPhone pushes again.
+        guard state == .activated else { return }
+        let ctx = session.receivedApplicationContext
+        if !ctx.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                self?.applyContext(ctx)
+            }
+        }
+    }
 
     // Receive updated hydration data pushed from the iPhone
     func session(_ session: WCSession,
                  didReceiveApplicationContext applicationContext: [String: Any]) {
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            var s = HydrationState()
-            s.hydrationOz        = applicationContext["hydrationOz"] as? Double ?? 0
-            s.goalOz             = applicationContext["goalOz"]      as? Double ?? 64
-            s.pct                = applicationContext["pct"]         as? Double ?? 0
-            s.streak             = applicationContext["streak"]      as? Int    ?? 0
-            s.selectedBeverages  = applicationContext["selectedBeverages"] as? [String] ?? ["water"]
-            self.state = s
+            self?.applyContext(applicationContext)
         }
+    }
+
+    private func applyContext(_ ctx: [String: Any]) {
+        var s = HydrationState()
+        s.hydrationOz        = ctx["hydrationOz"] as? Double ?? 0
+        s.goalOz             = ctx["goalOz"]      as? Double ?? 64
+        s.pct                = ctx["pct"]         as? Double ?? 0
+        s.streak             = ctx["streak"]      as? Int    ?? 0
+        s.selectedBeverages  = ctx["selectedBeverages"] as? [String] ?? ["water"]
+        self.state = s
     }
 }

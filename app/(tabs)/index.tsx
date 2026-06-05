@@ -2848,6 +2848,7 @@ export default function WaterTracker() {
   const [lifetimeBeerLogs, setLifetimeBeerLogs] = useState(0);
   const [firstDrinkTime, setFirstDrinkTime] = useState<string | null>(null);
   const [achievementTrigger, setAchievementTrigger] = useState(0);
+  const [achievementRevalidate, setAchievementRevalidate] = useState(0);
 
   // Weather
   const [weatherBannerOz, setWeatherBannerOz] = useState<8 | 16 | null>(null);
@@ -2968,13 +2969,25 @@ export default function WaterTracker() {
     initSounds();
     try {
       initWatch().catch(() => {});
-      setWatchMessageHandler(async (cmd) => {
-        const isJackpot = await addWater(cmd.amount, cmd.category as BevCategory).catch(() => false);
-        return isJackpot ? "🎰 JACKPOT! Goal hit!" : `+${cmd.amount} oz logged!`;
-      });
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-register the Watch log handler every render so it captures the current
+  // addWater closure (which reads live state). Without this, the handler set
+  // on mount sees `intake`/`totalHydration`/etc. as their mount-time values
+  // and overwrites the current day's totals when the Watch logs.
+  useEffect(() => {
+    setWatchMessageHandler(async (cmd) => {
+      const cat = cmd.category as BevCategory;
+      const isJackpot = await addWater(cmd.amount, cat).catch(() => false);
+      // addWater updates `totalHydration` but not the animated tank value
+      // (`displayedHydration`) — the slot machine drives that on phone logs.
+      // Watch-originated logs have no slot machine, so update it directly.
+      setDisplayedHydration((prev) => prev + calcHydratedOz(cmd.amount, cat));
+      return isJackpot ? "🎰 JACKPOT! Goal hit!" : `+${cmd.amount} oz logged!`;
+    });
+  });
 
   // Keep the Apple Watch in sync with the phone. Runs on launch (once the stored
   // hydration data loads into state) and after any change, so the Watch never
@@ -3879,6 +3892,9 @@ export default function WaterTracker() {
       AsyncStorage.setItem("water_last_hydrated", JSON.stringify(hydratedOz)),
       AsyncStorage.setItem("water_last_category", JSON.stringify(category)),
       AsyncStorage.setItem("water_log_entries", JSON.stringify(newEntries)),
+      isJackpot
+        ? AsyncStorage.setItem("water_last_was_jackpot", "1")
+        : AsyncStorage.removeItem("water_last_was_jackpot"),
     ];
     if (isJackpot) {
       const celebKey = `goal_celebrated_${getTodayKey()}`;
@@ -4091,14 +4107,17 @@ export default function WaterTracker() {
           style: "destructive",
           onPress: async () => {
             haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
+            const undoneHydratedOz = lastEntryHydratedOz ?? 0;
+            const undoneCategory = lastEntryCategory;
+            const wasJackpot = (await AsyncStorage.getItem("water_last_was_jackpot")) === "1";
             const newIntake = Math.max(0, intake - lastEntry);
-            const newHydration = Math.max(0, Math.round((totalHydration - (lastEntryHydratedOz ?? 0)) * 10) / 10);
+            const newHydration = Math.max(0, Math.round((totalHydration - undoneHydratedOz) * 10) / 10);
             setIntake(newIntake);
             setTotalHydration(newHydration);
             setDisplayedHydration(newHydration);
             let newBreakdown = categoryBreakdown;
-            if (lastEntryCategory !== null) {
-              newBreakdown = { ...categoryBreakdown, [lastEntryCategory]: Math.max(0, categoryBreakdown[lastEntryCategory] - lastEntry) };
+            if (undoneCategory !== null) {
+              newBreakdown = { ...categoryBreakdown, [undoneCategory]: Math.max(0, categoryBreakdown[undoneCategory] - lastEntry) };
               setCategoryBreakdown(newBreakdown);
               setLastEntryCategory(null);
             }
@@ -4113,14 +4132,51 @@ export default function WaterTracker() {
               deleteWaterSample(lastHealthSampleTime).catch(() => {});
               setLastHealthSampleTime(null);
             }
-            await Promise.all([
+
+            // Roll back lifetime stats so badges keyed off them can revalidate.
+            const newLifeHyd = Math.max(0, Math.round((lifetimeHydrationOz - undoneHydratedOz) * 10) / 10);
+            const newLifeCoffee = undoneCategory === "coffee" ? Math.max(0, lifetimeCoffeeLogs - 1) : lifetimeCoffeeLogs;
+            const newLifeBeer = undoneCategory === "beer" ? Math.max(0, lifetimeBeerLogs - 1) : lifetimeBeerLogs;
+            const newLifeJack = wasJackpot ? Math.max(0, lifetimeJackpots - 1) : lifetimeJackpots;
+            setLifetimeHydrationOz(newLifeHyd);
+            setLifetimeCoffeeLogs(newLifeCoffee);
+            setLifetimeBeerLogs(newLifeBeer);
+            if (wasJackpot) {
+              setLifetimeJackpots(newLifeJack);
+              setJackpotFiredToday(false);
+            }
+
+            const todayKey = getTodayKey();
+            const baseRemovals = [
               AsyncStorage.setItem("water_category_breakdown", JSON.stringify(newBreakdown)),
               saveIntake(newIntake, newBreakdown, newHydration),
               AsyncStorage.removeItem("water_last_entry"),
               AsyncStorage.removeItem("water_last_hydrated"),
               AsyncStorage.removeItem("water_last_category"),
               AsyncStorage.removeItem("water_last_health_sample"),
-            ]);
+              AsyncStorage.removeItem("water_last_was_jackpot"),
+              AsyncStorage.setItem("lifetime_hydration_oz", JSON.stringify(newLifeHyd)),
+              AsyncStorage.setItem("lifetime_coffee_logs", JSON.stringify(newLifeCoffee)),
+              AsyncStorage.setItem("lifetime_beer_logs", JSON.stringify(newLifeBeer)),
+            ];
+            if (wasJackpot) {
+              baseRemovals.push(
+                AsyncStorage.removeItem(`goal_celebrated_${todayKey}`),
+                AsyncStorage.setItem("lifetime_jackpots", JSON.stringify(newLifeJack)),
+              );
+            }
+            // Clear stale streak-milestone "shown" flags for milestones above the new streak,
+            // computed from the freshly saved goal_history so re-hitting the milestone re-shows the card.
+            const newGoalHist = { ...goalHistoryRef.current, [todayKey]: goal > 0 ? Math.min(newHydration / goal, 1) : 0 };
+            let newStreak = 0;
+            { const d = new Date(); while ((newGoalHist[getDateKey(d)] ?? 0) >= 1.0) { newStreak++; d.setDate(d.getDate() - 1); } }
+            for (const m of [3, 7, 14, 30]) {
+              if (newStreak < m) baseRemovals.push(AsyncStorage.removeItem(`streak_milestone_${m}_shown`));
+            }
+
+            await Promise.all(baseRemovals);
+            // Tell Achievements to drop any badge whose check() no longer holds.
+            setAchievementRevalidate((n) => n + 1);
           },
         },
       ],
@@ -4477,6 +4533,7 @@ export default function WaterTracker() {
         {/* Achievements */}
         <Achievements
           trigger={achievementTrigger}
+          revalidateTrigger={achievementRevalidate}
           streak={streak}
           goalHistory={goalHistory}
           totalHydration={totalHydration}
@@ -4578,45 +4635,10 @@ export default function WaterTracker() {
                   <Text style={styles.modalTitle}>💧 Add Custom Amount</Text>
                   <View style={styles.modalDivider} />
 
-                  {/* Unit toggle */}
-                  <View style={styles.modalTabs}>
-                    {(["oz", "ml"] as const).map((u) => (
-                      <TouchableOpacity
-                        key={u}
-                        style={[styles.modalTab, customUnit === u ? { backgroundColor: stage.color } : styles.modalTabInactive]}
-                        onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
-                      >
-                        <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  {/* Input */}
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
-                    placeholderTextColor="#AAAAAA"
-                    keyboardType="decimal-pad"
-                    inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
-                    value={customAmount}
-                    onChangeText={setCustomAmount}
-                    autoFocus
-                  />
-
-                  {/* Live conversion */}
-                  {(() => {
-                    const n = parseFloat(customAmount);
-                    if (isNaN(n) || n <= 0) return null;
-                    const label = customUnit === "oz"
-                      ? `= ${ozToMl(n)} ml`
-                      : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
-                    return <Text style={styles.modalMl}>{label}</Text>;
-                  })()}
-
                   {/* Drink selector */}
-                  <Text style={[styles.modalFieldLabel, { marginTop: 16 }]}>Select Drink</Text>
+                  <Text style={styles.modalFieldLabel}>Select Drink</Text>
                   <ScrollView
-                    style={{ maxHeight: 240 }}
+                    style={{ maxHeight: 200 }}
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator
                   >
@@ -4644,6 +4666,40 @@ export default function WaterTracker() {
                       })}
                     </View>
                   </ScrollView>
+
+                  {/* Unit toggle */}
+                  <View style={[styles.modalTabs, { marginTop: 16 }]}>
+                    {(["oz", "ml"] as const).map((u) => (
+                      <TouchableOpacity
+                        key={u}
+                        style={[styles.modalTab, customUnit === u ? { backgroundColor: stage.color } : styles.modalTabInactive]}
+                        onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
+                      >
+                        <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Input */}
+                  <TextInput
+                    style={styles.modalInput}
+                    placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
+                    placeholderTextColor="#AAAAAA"
+                    keyboardType="decimal-pad"
+                    inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
+                    value={customAmount}
+                    onChangeText={setCustomAmount}
+                  />
+
+                  {/* Live conversion */}
+                  {(() => {
+                    const n = parseFloat(customAmount);
+                    if (isNaN(n) || n <= 0) return null;
+                    const label = customUnit === "oz"
+                      ? `= ${ozToMl(n)} ml`
+                      : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
+                    return <Text style={styles.modalMl}>{label}</Text>;
+                  })()}
 
                   {/* Buttons */}
                   <View style={styles.modalBtnRow}>

@@ -48,9 +48,9 @@ type WatchMessageHandler = (cmd: WatchLogCommand) => string | void | Promise<str
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
-let _handler:      WatchMessageHandler | null      = null;
-let _subscription: { remove: () => void } | null   = null;
-let _initialized   = false;
+let _handler:       WatchMessageHandler | null         = null;
+let _subscriptions: { remove: () => void }[]           = [];
+let _initialized    = false;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -70,24 +70,41 @@ export async function initWatch(): Promise<void> {
 
     const events = watchModule.watchEvents;
     if (events && typeof events.addListener === 'function') {
-      // The Watch sends logDrink via sendMessage(replyHandler), so RNWC passes a
-      // `reply` callback as the 2nd arg. We run the handler, then reply with a
-      // confirmation string the Watch shows on its face.
-      _subscription = events.addListener(
-        'message',
-        (message: unknown, reply?: (response: Record<string, unknown>) => void) => {
+      // Legacy: sendMessage path. Kept for safety, but the Watch now uses
+      // transferUserInfo (see 'user-info' listener below) because sendMessage
+      // is silently dropped when the iPhone app isn't foregrounded.
+      _subscriptions.push(
+        events.addListener(
+          'message',
+          (message: unknown, reply?: (response: Record<string, unknown>) => void) => {
+            (async () => {
+              const msg = message as WatchLogCommand;
+              let confirmation = `+${msg?.amount ?? ''} oz logged!`;
+              try {
+                if (msg?.action === 'logDrink' && _handler) {
+                  const result = await _handler(msg);
+                  if (typeof result === 'string' && result.length > 0) confirmation = result;
+                }
+              } catch {}
+              try { reply?.({ confirmation }); } catch {}
+            })();
+          }
+        )
+      );
+
+      // Watch → Phone log drinks now arrive via transferUserInfo, which queues
+      // them and delivers when the iPhone app next wakes up (even from cold).
+      _subscriptions.push(
+        events.addListener('user-info', (userInfo: unknown) => {
           (async () => {
-            const msg = message as WatchLogCommand;
-            let confirmation = `+${msg?.amount ?? ''} oz logged!`;
             try {
+              const msg = userInfo as WatchLogCommand;
               if (msg?.action === 'logDrink' && _handler) {
-                const result = await _handler(msg);
-                if (typeof result === 'string' && result.length > 0) confirmation = result;
+                await _handler(msg);
               }
             } catch {}
-            try { reply?.({ confirmation }); } catch {}
           })();
-        }
+        })
       );
     }
     _initialized = true;
@@ -122,10 +139,10 @@ export function setWatchMessageHandler(handler: WatchMessageHandler): void {
 
 /** Remove event listeners and reset state. Safe to call any time. */
 export function teardownWatch(): void {
-  try { _subscription?.remove(); } catch {}
-  _subscription = null;
-  _initialized  = false;
-  _handler      = null;
+  for (const s of _subscriptions) { try { s.remove(); } catch {} }
+  _subscriptions = [];
+  _initialized   = false;
+  _handler       = null;
 }
 
 /** Returns the current Watch availability status. */

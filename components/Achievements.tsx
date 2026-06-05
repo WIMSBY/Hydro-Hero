@@ -61,6 +61,7 @@ interface UnlockedBadge {
 
 export interface AchievementsProps {
   trigger: number;
+  revalidateTrigger?: number;
   streak: number;
   goalHistory: Record<string, number>;
   totalHydration: number;
@@ -610,6 +611,7 @@ const bdgStyles = StyleSheet.create({
 // ─── Main Achievements component ──────────────────────────────────────────────
 function Achievements({
   trigger,
+  revalidateTrigger,
   streak,
   goalHistory,
   totalHydration,
@@ -720,6 +722,30 @@ function Achievements({
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trigger, loaded]);
+
+  // Revalidation pass: drop any unlocked badge whose check() no longer holds.
+  // Fires only on undo paths that need to undo an unlock (e.g. jackpot undo).
+  useEffect(() => {
+    if (!loaded || !revalidateTrigger) return;
+    try {
+      const checkData: BadgeCheckData = {
+        streak, goalHistory, totalHydration, intake, goal,
+        categoryBreakdown, lifetimeHydrationOz, lifetimeJackpots,
+        lifetimeCoffeeLogs, lifetimeBeerLogs, firstDrinkTime,
+        nowHour: new Date().getHours(),
+      };
+      const stillValid = unlockedRef.current.filter((u) => {
+        const def = ALL_BADGES.find((b) => b.id === u.id);
+        if (!def) return true;
+        try { return def.check(checkData); } catch { return true; }
+      });
+      if (stillValid.length === unlockedRef.current.length) return;
+      unlockedRef.current = stillValid;
+      setUnlockedBadges(stillValid);
+      AsyncStorage.setItem("unlocked_badges", JSON.stringify(stillValid)).catch(() => {});
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revalidateTrigger, loaded]);
 
   function handleBadgePress(badge: BadgeDef) {
     setSelectedBadge(badge);
