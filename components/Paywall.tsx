@@ -166,8 +166,16 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
 
       const result = await Purchases.purchasePackage(pkg);
       const active = result?.customerInfo?.entitlements?.active ?? {};
-      if (active['pro'] !== undefined) {
-        onPurchaseSuccess();
+      // Single-tier app: any active entitlement = PRO. Previously this checked
+      // active['pro'] specifically, which silently failed if the RC entitlement
+      // identifier ever drifted (case mismatch, rename, etc.) — purchase went
+      // through at Apple but the app never unlocked.
+      if (Object.keys(active).length > 0) {
+        Alert.alert(
+          "🎰 Welcome to Hydro Hero PRO!",
+          "All PRO features are now unlocked. Time to spin!",
+          [{ text: "Let's Go!", onPress: onPurchaseSuccess }],
+        );
       }
     } catch (e: any) {
       if (e?.userCancelled) return; // user cancelled — no error needed
@@ -195,7 +203,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       }
       const info = await Purchases.restorePurchases();
       const active = info?.entitlements?.active ?? {};
-      if (active['pro'] !== undefined) {
+      if (Object.keys(active).length > 0) {
         Alert.alert('Welcome back!', "Pro access restored — let's keep spinning! 🎰", [
           { text: 'Let\'s Go!', onPress: onPurchaseSuccess },
         ]);

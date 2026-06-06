@@ -76,7 +76,9 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
       if (!Purchases) return;
       const info = await Purchases.getCustomerInfo();
       const active = info?.entitlements?.active ?? {};
-      setIsPro(active['pro'] !== undefined);
+      // Single-tier app: any active RevenueCat entitlement means PRO. Avoids
+      // silently failing if the entitlement ID in RC ever differs from 'pro'.
+      setIsPro(Object.keys(active).length > 0);
     } catch {
       // SDK unavailable or network error — stay with current isPro value
     }
@@ -95,7 +97,7 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
         if (!Purchases) return;
         const info = await Purchases.getCustomerInfo();
         const active = info?.entitlements?.active ?? {};
-        setIsPro(active['pro'] !== undefined);
+        setIsPro(Object.keys(active).length > 0);
       } catch {
         setIsPro(false);
       } finally {

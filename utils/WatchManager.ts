@@ -94,13 +94,19 @@ export async function initWatch(): Promise<void> {
 
       // Watch → Phone log drinks now arrive via transferUserInfo, which queues
       // them and delivers when the iPhone app next wakes up (even from cold).
+      // The 'user-info' callback receives an ARRAY of queued payloads, not a
+      // single one — iterate so we don't drop logs (and so msg.action isn't
+      // undefined on the array wrapper, which silently swallowed every log).
       _subscriptions.push(
-        events.addListener('user-info', (userInfo: unknown) => {
+        events.addListener('user-info', (userInfos: unknown) => {
           (async () => {
             try {
-              const msg = userInfo as WatchLogCommand;
-              if (msg?.action === 'logDrink' && _handler) {
-                await _handler(msg);
+              const list = Array.isArray(userInfos) ? userInfos : [userInfos];
+              for (const info of list) {
+                const msg = info as WatchLogCommand;
+                if (msg?.action === 'logDrink' && _handler) {
+                  await _handler(msg);
+                }
               }
             } catch {}
           })();
