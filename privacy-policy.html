@@ -33,7 +33,7 @@
 <body>
 
 <h1>Privacy Policy</h1>
-<p class="subtitle">Hydro Hero &nbsp;·&nbsp; Last updated May 30, 2026</p>
+<p class="subtitle">Hydro Hero &nbsp;·&nbsp; Last updated June 14, 2026</p>
 
 <p>
   This Privacy Policy describes how Dylan Matuschka ("<strong>we</strong>", "<strong>us</strong>", or
@@ -77,9 +77,13 @@ diagnostic information (stack trace, device model, iOS version) is sent to Sentr
 identify and fix bugs. These reports do not include your hydration data or personally identifiable
 information.</p>
 
-<p><strong>Location.</strong> If you grant permission, the App may briefly access your approximate
-location to check local temperature and suggest extra hydration on hot days. Your location is
-never stored or shared with any third party.</p>
+<p><strong>Location &amp; weather.</strong> If you grant permission, the App briefly accesses your
+approximate location (low accuracy) and sends those approximate coordinates to
+<a href="https://open-meteo.com/en/terms" target="_blank">Open-Meteo</a>, a third-party weather
+service, to look up the current local temperature so it can suggest extra hydration on hot days.
+Your coordinates are used only for this temperature lookup. We do not store your location on your
+device or on any server, and it is not used to identify you. If you deny location permission, this
+feature is simply skipped.</p>
 
 <hr class="divider" />
 
@@ -112,6 +116,11 @@ never stored or shared with any third party.</p>
       <td><a href="https://sentry.io/privacy/" target="_blank">Sentry</a></td>
       <td>Crash and error reporting</td>
       <td>Stack traces, device model, iOS version (no PII, no hydration data)</td>
+    </tr>
+    <tr>
+      <td><a href="https://open-meteo.com/en/terms" target="_blank">Open-Meteo</a></td>
+      <td>Local temperature lookup (only if you enable location)</td>
+      <td>Approximate latitude/longitude</td>
     </tr>
     <tr>
       <td>Apple Inc.</td>
