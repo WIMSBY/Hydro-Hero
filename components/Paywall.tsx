@@ -37,7 +37,6 @@ const CARD_BORDER_GOLD = 'rgba(255,215,0,0.45)';
 // — App Review can flag misleading subscription marketing.
 const REEL_FEATURES = [
   '20 Drink Categories',
-  'Smart Notifications',
   'Full Analytics',
   'Squad Mode',
   'Sound Effects',
@@ -53,7 +52,6 @@ const PRO_BENEFITS = [
   'All 20 beverage categories',
   'Full Stats & monthly calendar',
   'Unlimited Squad members',
-  'Smart notification system',
   'Sound effects & haptic feedback',
 ];
 

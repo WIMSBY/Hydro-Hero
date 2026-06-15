@@ -929,7 +929,7 @@ export default function PartnersScreen() {
     if (!previewPayload) return;
     // Free tier: max 1 squad member. Adding a new (non-update) member when already at limit → paywall.
     if (!isPro && !isUpdateFor && members.length >= 1) {
-      openPaywall('squad_second_member');
+      openPaywall();
       return;
     }
     const member: SquadMember = {

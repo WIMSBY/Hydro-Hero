@@ -3473,7 +3473,7 @@ export default function WaterTracker() {
   async function handleExportCSV() {
     if (!isPro) {
       setShowSettingsModal(false);
-      openPaywall('csv_export');
+      openPaywall();
       return;
     }
 
@@ -4406,7 +4406,7 @@ export default function WaterTracker() {
           onCustom={() => setShowCustomModal(true)}
           visibleBevs={selectedBeverages}
           onEditBevs={() => {
-            if (!isPro) { openPaywall('customize_beverages'); return; }
+            if (!isPro) { openPaywall(); return; }
             setShowChooseBevs(true);
           }}
         />
@@ -4423,7 +4423,7 @@ export default function WaterTracker() {
             <Text style={{ fontSize: 22, lineHeight: 24, color: GOLD, fontWeight: "700" }}>＋</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => { if (!isPro) { openPaywall('customize_quick_add'); return; } setShowQuickAddModal(true); }}
+            onPress={() => { if (!isPro) { openPaywall(); return; } setShowQuickAddModal(true); }}
             activeOpacity={0.7}
             style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" }}
           >
@@ -5239,9 +5239,8 @@ export default function WaterTracker() {
                         </View>
                         <Switch
                           value={row.val && (i === 0 || notifMasterEnabled)}
-                          disabled={(i > 0 && !notifMasterEnabled) || !isPro}
+                          disabled={i > 0 && !notifMasterEnabled}
                           onValueChange={async (v) => {
-                            if (!isPro) { openPaywall('notifications_setting'); return; }
                             row.set(v);
                             try { await AsyncStorage.setItem(row.key, String(v)); } catch {}
                             // Use refs (not closed-over state) so we always read the
@@ -5268,7 +5267,6 @@ export default function WaterTracker() {
                           thumbColor="#ffffff"
                           ios_backgroundColor="#e0e0e0"
                         />
-                        {!isPro && <Text style={{ fontSize: 12, marginLeft: 4 }}>🔒</Text>}
                       </View>
                     </View>
                   ))}
@@ -5290,7 +5288,7 @@ export default function WaterTracker() {
                       value={soundEnabled}
                       disabled={!isPro}
                       onValueChange={async (val) => {
-                        if (!isPro) { openPaywall('sound_setting'); return; }
+                        if (!isPro) { openPaywall(); return; }
                         setSoundEnabledState(val);
                         setSoundEnabled(val);
                         try { await AsyncStorage.setItem("sound_enabled", String(val)); } catch {}
@@ -5323,7 +5321,7 @@ export default function WaterTracker() {
                             opacity: locked ? 0.65 : 1,
                           }}
                           onPress={async () => {
-                            if (locked) { openPaywall('sound_pack'); return; }
+                            if (locked) { openPaywall(); return; }
                             setSelectedSoundPack(pack.id);
                             try {
                               await AsyncStorage.setItem("selected_sound_pack", pack.id);
@@ -5392,7 +5390,7 @@ export default function WaterTracker() {
                       value={hapticsEnabled}
                       disabled={!isPro}
                       onValueChange={async (val) => {
-                        if (!isPro) { openPaywall('haptics_setting'); return; }
+                        if (!isPro) { openPaywall(); return; }
                         setHapticsEnabled(val);
                         try { await AsyncStorage.setItem("haptics_enabled", String(val)); } catch {}
                       }}
