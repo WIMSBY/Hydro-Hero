@@ -13,6 +13,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Linking,
   Modal,
   ScrollView,
   StatusBar,
@@ -327,11 +328,28 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
             )}
           </TouchableOpacity>
 
-          {/* Terms */}
+          {/* Terms — Apple requires functional (tappable) links to both the
+              Privacy Policy and the EULA inside the purchase flow. Standard
+              Apple EULA URL; Privacy Policy hosted on our GitHub Pages. */}
           <Text style={s.terms}>
-            By purchasing you agree to our Terms of Service and Privacy Policy.{'\n'}
             Monthly subscription auto-renews at {monthlyPrice}/mo unless cancelled 24 hours before renewal.
           </Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 24, marginTop: 10 }}>
+            <TouchableOpacity
+              onPress={() => Linking.openURL('https://wimsby.github.io/Hydro-Hero/privacy-policy.html').catch(() => {})}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={[s.terms, { textDecorationLine: 'underline' }]}>Privacy Policy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/').catch(() => {})}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Text style={[s.terms, { textDecorationLine: 'underline' }]}>Terms of Use (EULA)</Text>
+            </TouchableOpacity>
+          </View>
 
           <View style={{ height: 32 }} />
         </ScrollView>
