@@ -4305,9 +4305,9 @@ export default function WaterTracker() {
     if (streak > prev) {
       const STREAK_NOTIFS: Record<number, [string, string]> = {
         3:  ["3 Day Streak! 🔥",   "You're on fire — 3 days of hitting your goal!"],
-        7:  ["One Week Streak! 🏆", "A full week of jackpots — you're a hydration legend!"],
+        7:  ["One Week Streak! 🏆", "A full week of hitting your goal — you're a hydration legend!"],
         14: ["Two Week Streak! 👑", "14 days straight — unstoppable!"],
-        30: ["30 Day Streak! 🌊",  "A whole month of jackpots — you're a Hydro Hero legend!"],
+        30: ["30 Day Streak! 🌊",  "A whole month of hitting your goal — you're a Hydro Hero legend!"],
       };
       if (STREAK_NOTIFS[streak]) {
         playStreakSound();

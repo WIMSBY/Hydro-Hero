@@ -426,7 +426,7 @@ function Screen1({ onNext }: { onNext: () => void }) {
       <AnimatedDrop />
 
       <Text style={screenS.title}>HYDRO HERO</Text>
-      <Text style={screenS.subtitle}>Your Art Deco Hydration Tracker</Text>
+      <Text style={screenS.subtitle}>Your daily hydration habit, made simple</Text>
 
       <Text style={screenS.body}>
         Pour, fill the vault, and hit your goal — one sip at a time.
@@ -678,7 +678,7 @@ function Screen3({ onStart }: { onStart: () => void }) {
       </Text>
 
       <TouchableOpacity style={screenS.primaryBtn} onPress={onStart} activeOpacity={0.8}>
-        <Text style={screenS.primaryBtnText}>START PLAYING</Text>
+        <Text style={screenS.primaryBtnText}>START TRACKING</Text>
       </TouchableOpacity>
     </View>
   );
