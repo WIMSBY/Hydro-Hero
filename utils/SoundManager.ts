@@ -1,5 +1,5 @@
 /**
- * SoundManager — synthesized placeholder sounds for Liquid Luck.
+ * SoundManager — synthesized placeholder sounds for Hydro Hero.
  *
  * All sounds are generated programmatically as WAV data URIs.
  * Every play function is try/catch-guarded — never crashes the app.

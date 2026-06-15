@@ -11,7 +11,7 @@
  * │                                                                             │
  * │ Suggested file locations per pack:                                          │
  * │   assets/sounds/classic/  → water_drop.mp3, pour.mp3, bubble.mp3, etc.     │
- * │   assets/sounds/casino/   → spin.mp3, coin.mp3, jackpot.mp3, etc.          │
+ * │   assets/sounds/flowing/  → fountain.mp3, splash.mp3, gush.mp3, etc.       │
  * │   assets/sounds/nature/   → wave.mp3, rain.mp3, stream.mp3, etc.           │
  * │   assets/sounds/scifi/    → laser.mp3, powerup.mp3, beep.mp3, etc.         │
  * └───────────────────────────────────────────────────────────────────────────┘
@@ -34,9 +34,9 @@ export interface NoteSpec {
 export type SoundRole =
   | 'buttonTap'   // every UI button press
   | 'waterLog'    // drink successfully logged
-  | 'spin'        // reel spin loop tick
-  | 'reelStop'    // single reel stopping (played 3× with index offset)
-  | 'jackpot'     // jackpot / goal hit fanfare
+  | 'spin'        // dispenser dial loop tick
+  | 'reelStop'    // single dial stopping (played 3× with index offset)
+  | 'jackpot'     // goal hit fanfare
   | 'badgeUnlock' // achievement unlocked
   | 'morning';    // morning reset / new day chime
 
@@ -111,75 +111,76 @@ const classicPack: SoundPack = {
   ],
 };
 
-// ─── Pack 2 — Casino (PRO) ────────────────────────────────────────────────────
+// ─── Pack 2 — Flowing Water (PRO) ─────────────────────────────────────────────
 //
-// Higher-pitched, sharper electronic tones evoking casino machinery.
-// Real files to swap in: slot spin click, coin drop ping, jackpot fanfare,
-// chip click, reel stop thud, winner bell.
+// Rushing-water tones — fountain bursts, splash bubbles, gushing flow.
+// Distinct from Nature (which leans birds/wind/rain) by focusing on
+// continuous moving water: fountains, faucets, rapids.
+// Real files to swap in: fountain spray, splash, bubble burst, gush,
+// faucet drip, water bell.
 //
-const casinoPack: SoundPack = {
-  id: 'casino',
-  name: 'Casino',
-  emoji: '🎰',
-  description: 'Feel like a high roller every time you hydrate',
-  tagline: 'Slot machine sounds & jackpot vibes',
+const flowingPack: SoundPack = {
+  id: 'flowing',
+  name: 'Flowing Water',
+  emoji: '💦',
+  description: 'Fountains, splashes, and rushing flow',
+  tagline: 'Hydrate to the sound of moving water',
   isPro: true,
   tones: {
-    // Sharp casino chip click
-    // Real file: assets/sounds/casino/chip_click.mp3
-    buttonTap: [{ freq: 1800, durationMs: 14, amplitude: 70 }],
+    // Soft bubble pop
+    // Real file: assets/sounds/flowing/bubble_pop.mp3
+    buttonTap: [{ freq: 900, freqEnd: 1200, durationMs: 18, amplitude: 60 }],
 
-    // Coin-drop ping
-    // Real file: assets/sounds/casino/coin_drop.mp3
+    // Splash — quick rising plunk into water
+    // Real file: assets/sounds/flowing/splash.mp3
     waterLog: [
-      { freq: 1400, freqEnd: 900, durationMs: 100, amplitude: 90 },
-      { freq: 900,  freqEnd: 600, durationMs: 160, amplitude: 75, silenceMs: 20 },
+      { freq: 380, freqEnd: 720, durationMs: 130, amplitude: 85 },
+      { freq: 720, freqEnd: 420, durationMs: 200, amplitude: 70, silenceMs: 15 },
     ],
 
-    // Fast ratchet tick for spinning reels
-    // Real file: assets/sounds/casino/reel_tick.mp3
-    spin: [{ freq: 680, durationMs: 28, amplitude: 75 }],
+    // Continuous burble for spinning dials
+    // Real file: assets/sounds/flowing/burble_tick.mp3
+    spin: [{ freq: 440, freqEnd: 520, durationMs: 32, amplitude: 65 }],
 
-    // Mechanical reel clunk
-    // Real file: assets/sounds/casino/reel_stop.mp3
+    // Faucet thunk — fast water-pressure stop
+    // Real file: assets/sounds/flowing/faucet_stop.mp3
     reelStop: [
-      { freq: 320, freqEnd: 200, durationMs: 80, amplitude: 95 },
-      { freq: 200, durationMs: 60, amplitude: 80 },
+      { freq: 280, freqEnd: 180, durationMs: 90, amplitude: 88 },
+      { freq: 180, durationMs: 50, amplitude: 70 },
     ],
 
-    // Big casino jackpot fanfare — ascending arpeggios with held chord
-    // Real file: assets/sounds/casino/jackpot_fanfare.mp3
+    // Fountain spray crescendo — rising whoosh into shimmer
+    // Real file: assets/sounds/flowing/fountain_spray.mp3
     jackpot: [
-      { freq: 659,  durationMs: 100, amplitude: 90, silenceMs: 20 },
-      { freq: 784,  durationMs: 100, amplitude: 92, silenceMs: 20 },
-      { freq: 988,  durationMs: 100, amplitude: 94, silenceMs: 20 },
-      { freq: 1319, durationMs: 100, amplitude: 96, silenceMs: 20 },
-      { freq: 1047, durationMs: 80,  amplitude: 95, silenceMs: 15 },
-      { freq: 1319, durationMs: 80,  amplitude: 97, silenceMs: 15 },
-      { freq: 1568, durationMs: 600, amplitude: 100 },
+      { freq: 440, freqEnd: 660,  durationMs: 140, amplitude: 85, silenceMs: 20 },
+      { freq: 660, freqEnd: 880,  durationMs: 140, amplitude: 90, silenceMs: 20 },
+      { freq: 880, freqEnd: 1175, durationMs: 140, amplitude: 92, silenceMs: 20 },
+      { freq: 1175, durationMs: 100, amplitude: 94, silenceMs: 15 },
+      { freq: 1568, durationMs: 100, amplitude: 95, silenceMs: 15 },
+      { freq: 1760, durationMs: 700, amplitude: 98 },
     ],
 
-    // Winner bell chime
-    // Real file: assets/sounds/casino/winner_bell.mp3
+    // Water-glass chime — clear ringing tone
+    // Real file: assets/sounds/flowing/glass_chime.mp3
     badgeUnlock: [
-      { freq: 1047, durationMs: 130, amplitude: 90, silenceMs: 30 },
-      { freq: 1319, durationMs: 130, amplitude: 92, silenceMs: 30 },
-      { freq: 1568, durationMs: 130, amplitude: 94, silenceMs: 30 },
-      { freq: 2093, durationMs: 500, amplitude: 98 },
+      { freq: 880,  durationMs: 140, amplitude: 85, silenceMs: 35 },
+      { freq: 1175, durationMs: 140, amplitude: 88, silenceMs: 35 },
+      { freq: 1568, durationMs: 140, amplitude: 91, silenceMs: 35 },
+      { freq: 1976, durationMs: 480, amplitude: 95 },
     ],
 
-    // Short rising bell — "casino opens" feeling
-    // Real file: assets/sounds/casino/morning_bell.mp3
+    // Morning fountain-on — soft swelling burble
+    // Real file: assets/sounds/flowing/fountain_on.mp3
     morning: [
-      { freq: 784,  durationMs: 80, amplitude: 78, silenceMs: 40 },
-      { freq: 1047, durationMs: 200, amplitude: 82 },
+      { freq: 520,  durationMs: 90, amplitude: 72, silenceMs: 45 },
+      { freq: 780,  durationMs: 220, amplitude: 78 },
     ],
   },
   preview: [
-    { freq: 659,  durationMs: 90,  amplitude: 88, silenceMs: 20 },
-    { freq: 784,  durationMs: 90,  amplitude: 90, silenceMs: 20 },
-    { freq: 1047, durationMs: 90,  amplitude: 93, silenceMs: 20 },
-    { freq: 1319, durationMs: 500, amplitude: 96 },
+    { freq: 440, freqEnd: 660,  durationMs: 110, amplitude: 85, silenceMs: 20 },
+    { freq: 660, freqEnd: 880,  durationMs: 110, amplitude: 88, silenceMs: 20 },
+    { freq: 880, freqEnd: 1175, durationMs: 110, amplitude: 92, silenceMs: 20 },
+    { freq: 1568, durationMs: 500, amplitude: 96 },
   ],
 };
 
@@ -322,7 +323,7 @@ const scifiPack: SoundPack = {
 
 export const ALL_SOUND_PACKS: SoundPack[] = [
   classicPack,
-  casinoPack,
+  flowingPack,
   naturePack,
   scifiPack,
 ];
@@ -330,5 +331,7 @@ export const ALL_SOUND_PACKS: SoundPack[] = [
 export const DEFAULT_PACK_ID = 'classic';
 
 export function getPackById(id: string): SoundPack {
-  return ALL_SOUND_PACKS.find((p) => p.id === id) ?? classicPack;
+  // Legacy id from earlier builds; testers who selected it keep their PRO pack.
+  const resolved = id === 'casino' ? 'flowing' : id;
+  return ALL_SOUND_PACKS.find((p) => p.id === resolved) ?? classicPack;
 }

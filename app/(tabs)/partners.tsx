@@ -54,16 +54,16 @@ const BEV_KEYS = [
 ];
 
 const CHEERS = [
-  "You're crushing it! Keep spinning those reels!",
-  "Don't forget to hydrate — the jackpot is waiting!",
+  "You're crushing it! Keep sipping!",
+  "Don't forget to hydrate — your goal is waiting!",
   "Your streak is on fire — don't break it now! 🔥",
-  "Just a few more oz to the jackpot — you've got this!",
+  "Just a few more oz to your goal — you've got this!",
   "Hydration hero! You're an inspiration! 💧",
 ];
 
 const AVATAR_EMOJIS = [
-  '💧','🌊','🏆','🎰','⭐','🔥','💪','🦁','🐯','🐻',
-  '🦊','🐺','🦅','🌟','✨','🎯','🏅','🎲','🃏','🎪',
+  '💧','🌊','🏆','🥤','⭐','🔥','💪','🦁','🐯','🐻',
+  '🦊','🐺','🦅','🌟','✨','🎯','🏅','🍶','🧋','🎪',
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ async function fireJackpotNotif(username: string) {
     await AsyncStorage.setItem(flag, '1');
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: `${username} hit their jackpot! 🎰`,
+        title: `${username} hit their goal! 🎯`,
         body: 'Your squad member crushed their hydration goal today — celebrate together!',
       },
       trigger: {
@@ -694,7 +694,7 @@ function SquadMemberCard({
         <View style={{ alignItems: 'center', gap: 2 }}>
           <MiniDropFill pct={member.hydrationPct} />
           <Text style={{ color: hitGoal ? GOLD : 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700' }}>
-            {hitGoal ? '🎰' : `${Math.round(member.hydrationPct * 100)}%`}
+            {hitGoal ? '🎯' : `${Math.round(member.hydrationPct * 100)}%`}
           </Text>
         </View>
       </View>
@@ -753,7 +753,7 @@ function SquadStats({
       <Text style={s.sectionTitle}>SQUAD STATS</Text>
       {allHit && (
         <Text style={{ color: GOLD, fontSize: 14, fontWeight: '800', textAlign: 'center', marginBottom: 10 }}>
-          🎰 The whole squad hit the jackpot today!
+          🎯 The whole squad hit their goal today!
         </Text>
       )}
       <View style={{ flexDirection: 'row', gap: 8 }}>

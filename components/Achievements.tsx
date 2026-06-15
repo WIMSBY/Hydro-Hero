@@ -108,26 +108,26 @@ const ALL_BADGES: BadgeDef[] = [
     check: (d) => d.streak >= 30,
     progress: (d) => ({ current: Math.min(d.streak, 30), total: 30 }),
   },
-  // Jackpot
+  // Daily goals
   {
-    id: "first_jackpot", name: "First Jackpot", emoji: "🎰",
+    id: "first_jackpot", name: "First Goal", emoji: "🎯",
     description: "Hit your daily goal for the first time", color: "#F57F17",
     check: (d) => d.lifetimeJackpots >= 1,
   },
   {
-    id: "lucky_7", name: "Lucky 7", emoji: "7️⃣",
+    id: "lucky_7", name: "Week of Hydration", emoji: "💧",
     description: "Hit your daily goal 7 times total", color: "#1B5E20",
     check: (d) => d.lifetimeJackpots >= 7,
     progress: (d) => ({ current: Math.min(d.lifetimeJackpots, 7), total: 7 }),
   },
   {
-    id: "high_roller", name: "High Roller", emoji: "💰",
+    id: "high_roller", name: "Hydration Pro", emoji: "💪",
     description: "Hit your daily goal 25 times total", color: "#E65100",
     check: (d) => d.lifetimeJackpots >= 25,
     progress: (d) => ({ current: Math.min(d.lifetimeJackpots, 25), total: 25 }),
   },
   {
-    id: "jackpot_legend", name: "Jackpot Legend", emoji: "🏆",
+    id: "jackpot_legend", name: "Century Club", emoji: "🏆",
     description: "Hit your daily goal 100 times total", color: "#B71C1C",
     check: (d) => d.lifetimeJackpots >= 100,
     progress: (d) => ({ current: Math.min(d.lifetimeJackpots, 100), total: 100 }),

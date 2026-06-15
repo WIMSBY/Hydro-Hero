@@ -2,7 +2,7 @@
   "type": "widget",
   "deploymentTarget": "16.0",
   "bundleIdentifier": "com.wimsby.hydrationstation.widget",
-  "name": "LiquidLuckWidget",
+  "name": "HydroHeroWidget",
   "entitlements": {
     "com.apple.security.application-groups": ["group.com.wimsby.hydrationstation"]
   }

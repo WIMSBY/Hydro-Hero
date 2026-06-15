@@ -426,10 +426,10 @@ function Screen1({ onNext }: { onNext: () => void }) {
       <AnimatedDrop />
 
       <Text style={screenS.title}>HYDRO HERO</Text>
-      <Text style={screenS.subtitle}>Your Casino-Style Hydration Tracker</Text>
+      <Text style={screenS.subtitle}>Your Art Deco Hydration Tracker</Text>
 
       <Text style={screenS.body}>
-        Spin the reels, fill the vault, and hit the jackpot — one sip at a time.
+        Pour, fill the vault, and hit your goal — one sip at a time.
         Track every drink, build streaks, and get smart reminders to stay hydrated.
       </Text>
 
@@ -664,9 +664,9 @@ function Screen3({ onStart }: { onStart: () => void }) {
       <Text style={screenS.subtitleSmall}>Four simple steps to stay hydrated</Text>
 
       <View style={s.stepList}>
-        <HowStep number="1" text="Log a drink — tap a quick-add button or spin the slot machine reels" />
+        <HowStep number="1" text="Log a drink — tap a quick-add button and fill the tank" />
         <HowStep number="2" text="Watch the vault fill up as you hit your daily hydration goal" />
-        <HowStep number="3" text="Hit your goal and trigger the jackpot celebration" />
+        <HowStep number="3" text="Hit your goal and trigger the celebration overlay" />
         <HowStep number="4" text="Build daily streaks and check your history in the calendar" />
       </View>
 

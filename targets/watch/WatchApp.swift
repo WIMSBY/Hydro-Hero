@@ -259,7 +259,7 @@ struct ContentView: View {
 
                 // Status
                 if state.goalHit {
-                    Text("🎰 JACKPOT!")
+                    Text("🎯 GOAL!")
                         .font(.system(size: 12, weight: .black))
                         .foregroundColor(gold)
                 } else {

@@ -2,7 +2,7 @@
  * Dev-only demo data seeder for App Store screenshots / preview video.
  *
  * Writes a curated, realistic "power user" snapshot directly into AsyncStorage
- * so every screen (home slot machine, weekly/monthly stats, achievements) looks
+ * so every screen (home dispenser, weekly/monthly stats, achievements) looks
  * full and polished for capture. NONE of this ships to production — the UI that
  * triggers it is gated behind `__DEV__`.
  *
@@ -46,7 +46,7 @@ function pctFor(i: number): number {
 /** Per-day beverage breakdown (consumed oz per category). Partial objects are
  *  fine — the app merges them against its full 20-key default on load. */
 function breakdownFor(i: number, consumed: number): Record<string, number> {
-  if (i === 0) return { water: 56, coffee: 16 }; // mirrors the hero "Coffee" bet shot
+  if (i === 0) return { water: 56, coffee: 16 }; // mirrors the hero "Coffee" log shot
   const water = Math.round(consumed * 0.6);
   const rem = Math.max(consumed - water, 0);
   const cat = ["coffee", "juice", "sports", "tea", "soda", "lemonade", "protein"][i % 7];
@@ -63,8 +63,9 @@ interface HistoryEntry {
 /** "full"   = today's goal already hit (full gauge + live current streak).
  *  "mid"    = today ~50% in progress (half-full gauge; home shows the friendly
  *             "Start your streak today!" message).
- *  "primed" = today ~88%, just under goal and NOT yet celebrated — tap any bet
- *             to trigger the real jackpot: reels → fireworks → fun fact card.
+ *  "primed" = today ~88%, just under goal and NOT yet celebrated — tap any
+ *             amount to trigger the real goal celebration: dispenser → fireworks
+ *             → fun fact card.
  *  All history/badges are identical across modes. */
 export type SeedMode = "full" | "mid" | "primed";
 
@@ -81,7 +82,7 @@ interface TodayState {
 function todayStateFor(mode: SeedMode, today: Date): TodayState {
   if (mode === "primed") {
     // ~88% of a 64oz goal → "8 oz to go". One tap pushes it over for the
-    // jackpot fireworks + fun fact (and the streak ticks up to 14 live).
+    // goal-reached fireworks + fun fact (and the streak ticks up to 14 live).
     return {
       consumed: 56, // water 48 + coffee 8
       hydration: 56,
@@ -97,7 +98,7 @@ function todayStateFor(mode: SeedMode, today: Date): TodayState {
     };
   }
   if (mode === "mid") {
-    // ~50% of a 64oz goal → half-full slot-machine gauge
+    // ~50% of a 64oz goal → half-full dispenser gauge
     return {
       consumed: 32, // water 22 + coffee 10
       hydration: 31.8,
@@ -150,7 +151,7 @@ export async function seedDemoData(mode: SeedMode = "full"): Promise<void> {
     dayKeyWrites.push([key, JSON.stringify(consumed)]);
   }
 
-  // ── Today's live state (home slot machine), varies by mode ─────────────────
+  // ── Today's live state (home dispenser), varies by mode ───────────────────
   goalHistory[todayKey] = Math.min(t.hydration / GOAL, 1);
   history[0] = { date: todayKey, oz: t.consumed, goal: GOAL, breakdown: t.breakdown };
   dayKeyWrites[0] = [todayKey, JSON.stringify(t.consumed)];
@@ -199,8 +200,8 @@ export async function seedDemoData(mode: SeedMode = "full"): Promise<void> {
   ];
 
   // Only "full" is already at goal on load, so mark it celebrated to keep the
-  // jackpot overlay from auto-firing. "primed" must stay un-celebrated so the
-  // next logged drink triggers the real fireworks + fun fact.
+  // celebration overlay from auto-firing. "primed" must stay un-celebrated so
+  // the next logged drink triggers the real fireworks + fun fact.
   if (mode === "full") {
     writes.push([`goal_celebrated_${todayKey}`, "1"]);
   } else {

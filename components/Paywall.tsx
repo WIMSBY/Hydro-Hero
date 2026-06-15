@@ -1,8 +1,8 @@
 /**
  * components/Paywall.tsx
  *
- * Full-screen paywall modal in Hydro Hero Art Deco casino theme.
- * - Animated slot reel cycles through Pro feature names
+ * Full-screen paywall modal in Hydro Hero Art Deco theme.
+ * - Animated feature ticker cycles through Pro feature names
  * - Two purchase cards: Monthly + Lifetime, prices read live from RevenueCat
  * - Falls back to baseline labels if RC offerings aren't reachable
  */
@@ -107,7 +107,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
     return () => { cancelled = true; };
   }, [visible]);
 
-  // Spin reel animation
+  // Feature ticker animation
   useEffect(() => {
     if (!visible) return;
     reelTimer.current = setInterval(() => {
@@ -158,7 +158,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       if (!pkg) {
         Alert.alert(
           'Coming Soon!',
-          'Purchases are not available in this build yet — stay tuned! 🎰',
+          'Purchases are not available in this build yet — stay tuned! 💧',
           [{ text: 'OK' }],
         );
         return;
@@ -172,8 +172,8 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       // through at Apple but the app never unlocked.
       if (Object.keys(active).length > 0) {
         Alert.alert(
-          "🎰 Welcome to Hydro Hero PRO!",
-          "All PRO features are now unlocked. Time to spin!",
+          "✨ Welcome to Hydro Hero PRO!",
+          "All PRO features are now unlocked. Time to hydrate!",
           [{ text: "Let's Go!", onPress: onPurchaseSuccess }],
         );
       }
@@ -204,7 +204,7 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       const info = await Purchases.restorePurchases();
       const active = info?.entitlements?.active ?? {};
       if (Object.keys(active).length > 0) {
-        Alert.alert('Welcome back!', "Pro access restored — let's keep spinning! 🎰", [
+        Alert.alert('Welcome back!', "Pro access restored — let's keep hydrating! 💧", [
           { text: 'Let\'s Go!', onPress: onPurchaseSuccess },
         ]);
       } else {
@@ -234,17 +234,17 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
           {/* Header */}
           <Text style={s.crown}>👑</Text>
           <Text style={s.title}>HYDRO HERO PRO</Text>
-          <Text style={s.subtitle}>Unlock the full casino experience</Text>
+          <Text style={s.subtitle}>Unlock the full hydration experience</Text>
 
-          {/* Animated reel */}
+          {/* Animated feature ticker */}
           <View style={s.reelFrame}>
             <View style={s.reelInner}>
-              <Text style={s.reelLabel}>NOW SPINNING</Text>
+              <Text style={s.reelLabel}>PRO PERK</Text>
               <Animated.Text
                 style={[s.reelText, { opacity: reelFade, transform: [{ translateY: reelSlide }] }]}
                 numberOfLines={1}
               >
-                🎰 {REEL_FEATURES[reelIdx]}
+                💧 {REEL_FEATURES[reelIdx]}
               </Animated.Text>
             </View>
           </View>

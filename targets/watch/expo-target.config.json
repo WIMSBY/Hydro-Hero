@@ -1,6 +1,6 @@
 {
   "type": "watch",
-  "name": "LiquidLuckWatch",
+  "name": "HydroHeroWatch",
   "displayName": "Hydro Hero",
   "bundleIdentifier": "com.wimsby.hydrationstation.watchapp",
   "deploymentTarget": "8.0",

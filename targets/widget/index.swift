@@ -139,7 +139,7 @@ struct SmallView: View {
 
                 // Status line
                 if entry.goalHit {
-                    Text("🎰 JACKPOT!")
+                    Text("🎯 GOAL!")
                         .font(.system(size: 9, weight: .black))
                         .foregroundColor(gold)
                 } else {
@@ -234,7 +234,7 @@ struct MediumView: View {
 
                     if entry.goalHit {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text("JACKPOT! 🎰")
+                            Text("GOAL! 🎯")
                                 .font(.system(size: 13, weight: .black))
                                 .foregroundColor(gold)
                         }
