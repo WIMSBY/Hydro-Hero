@@ -538,16 +538,20 @@ function ScanCodeModal({
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 }}>
             <Text style={{ fontSize: 56, marginBottom: 16 }}>📷</Text>
             <Text style={{ color: '#fff', fontSize: 18, fontWeight: '700', marginBottom: 10, textAlign: 'center' }}>
-              Camera Access Needed
+              Camera Access
             </Text>
             <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 24, textAlign: 'center', lineHeight: 20 }}>
-              Hydro Hero needs camera access to scan a squad member's QR code.
+              {permission.canAskAgain
+                ? "Hydro Hero uses the camera to scan a squad member's QR code so you can add them to your squad."
+                : "Camera access was previously turned off. To scan a QR code, enable Camera in Settings."}
             </Text>
             <TouchableOpacity
               style={[s.actionBtn, { backgroundColor: GOLD, width: '100%' }]}
-              onPress={requestPermission}
+              onPress={permission.canAskAgain ? requestPermission : () => Linking.openSettings()}
             >
-              <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>Grant Camera Access</Text>
+              <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>
+                {permission.canAskAgain ? 'Continue' : 'Open Settings'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={s.cancelBtn} onPress={onClose}>
               <Text style={s.cancelBtnTxt}>Cancel</Text>
