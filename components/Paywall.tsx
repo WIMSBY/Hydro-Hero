@@ -30,30 +30,31 @@ const BG = '#0a0520';
 const CARD_BG = 'rgba(255,255,255,0.06)';
 const CARD_BORDER_GOLD = 'rgba(255,215,0,0.45)';
 
+// Each item must reflect an actually PRO-gated feature. Items removed
+// during the 2026-06-14 audit (all unlocked or available to free users):
+// Goal Calculator, All 20 Badges, Apple Health Sync, Home Screen Widget,
+// Dark & Light Mode, Hydration Facts. Don't re-add without a real gate
+// — App Review can flag misleading subscription marketing.
 const REEL_FEATURES = [
   '20 Drink Categories',
   'Smart Notifications',
   'Full Analytics',
-  'All 20 Badges',
-  'Apple Health Sync',
   'Squad Mode',
-  'Home Screen Widget',
   'Sound Effects',
-  'Dark & Light Mode',
   'Custom Quick Add',
-  'Hydration Facts',
-  'Goal Calculator',
 ];
 
+// Each bullet must reflect an actually PRO-gated feature. The audit on
+// 2026-06-14 removed three claims that weren't gated in code: badges
+// (Achievements has no isPro check), Apple Health sync (free), and
+// Dark/Light Mode + custom widgets (theme toggle is free, widget reads
+// shared data with no PRO check). Don't re-add without a real gate.
 const PRO_BENEFITS = [
   'All 20 beverage categories',
   'Full Stats & monthly calendar',
-  'All badges & streak milestones',
-  'Apple Health sync',
   'Unlimited Squad members',
   'Smart notification system',
   'Sound effects & haptic feedback',
-  'Dark / light mode + custom widgets',
 ];
 
 interface PaywallProps {

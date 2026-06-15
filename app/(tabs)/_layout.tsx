@@ -66,7 +66,11 @@ export default function TabLayout() {
           tabPress: (e) => {
             if (!isPro) {
               e.preventDefault();
-              openPaywall('stats_tab');
+              // No triggerId → bypass ProContext's per-session dedup. A tab
+              // press is an explicit user action and should always re-surface
+              // the paywall; dedup is only desired for passive triggers like
+              // settings-toggle auto-prompts.
+              openPaywall();
             }
           },
         }}
