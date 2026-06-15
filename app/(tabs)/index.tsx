@@ -1,10 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BevCategory, BevDef, BEVERAGES } from "../../constants/beverages";
+import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hydration/LastDrinkReveal";
+import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
 import Achievements from "../../components/Achievements";
 import Onboarding from "../../components/Onboarding";
 import {
   initSounds, teardownSounds, reloadSounds, setSoundEnabled,
-  playButtonTapSound, playSpinSound, stopSpinSound, playReelStopSound,
+  playButtonTapSound,
   playWaterLogSound, playWaterFillSound, playJackpotSound,
   playBadgeUnlockSound, playStreakSound, playMorningResetSound,
   setActivePack, previewPack, stopPreview, ALL_SOUND_PACKS, DEFAULT_PACK_ID,
@@ -99,8 +101,9 @@ const DEFAULT_VISIBLE_BEVS: BevCategory[] = ["water", "coffee", "soda", "juice",
 
 // Build lookup maps for O(1) access
 const BEV_MAP = new Map<string, BevDef>(CATEGORIES.map((c) => [c.key, c]));
+const WATER_BEV = BEV_MAP.get("water")!;
 function getBev(key: string): BevDef {
-  return BEV_MAP.get(key) ?? { key: "water" as BevCategory, label: key, emoji: "🥤", color: "#888888", eff: 1.0 };
+  return BEV_MAP.get(key) ?? WATER_BEV;
 }
 
 const EMPTY_BREAKDOWN: Record<BevCategory, number> = {
@@ -810,7 +813,7 @@ const presetStyles = StyleSheet.create({
 });
 
 // ==========================================
-//  HYDRO HERO CASINO COMPONENTS
+//  HYDRO HERO HOME COMPONENTS
 // ==========================================
 const GOLD = "#FFD700";
 const GOLD_DIM = "#c8a000";
@@ -903,7 +906,7 @@ function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number })
       </View>
       <Animated.View style={[mqStyles.badge, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={won ? mqStyles.wonText : mqStyles.remainText}>
-          {won ? "🎰 JACKPOT WON! 🎰" : `💧 ${remaining} oz to go`}
+          {won ? "🎯 GOAL REACHED! 🎯" : `💧 ${remaining} oz to go`}
         </Text>
       </Animated.View>
       <View style={mqStyles.lightsRow}>
@@ -1026,7 +1029,7 @@ function ParticleOverlay({ particles, visible }: { particles: Particle[]; visibl
   );
 }
 
-// ── Art Deco Gold Vault — unified tank + slot machine ──────────────────────
+// ── Art Deco Gold Vault — unified tank + dispenser ─────────────────────────
 const AD_SVG_W = 348;
 const AD_SLOT_W = 328;
 const AD_TANK_W = 240;
@@ -1045,40 +1048,14 @@ const AD_CONN_Y = AD_TANK_Y + AD_TANK_H;         // 246
 const AD_SLOT_Y = AD_CONN_Y + AD_CONN_H;         // 276
 const AD_BASE1_Y = AD_SLOT_Y + AD_SLOT_H;        // 468
 const AD_SVG_H = AD_BASE1_Y + 24;                // 492
-const AD_REEL_W = 88;
-const AD_REEL_H = 136;
 const AD_SLOT_HDR_H = 22;
-const AD_REEL1_X = AD_SLOT_X + 22;              // 32
-const AD_REEL2_X = AD_REEL1_X + AD_REEL_W + 10; // 130
-const AD_REEL3_X = AD_REEL2_X + AD_REEL_W + 10; // 228
-const AD_REEL_Y = AD_SLOT_Y + AD_SLOT_HDR_H +
-  Math.floor((AD_SLOT_H - AD_SLOT_HDR_H - AD_REEL_H) / 2); // 315
-const AD_PAYLINE_CY = AD_SLOT_Y + AD_SLOT_H * 0.5; // 372 — aligns with purple side diamonds
-const AD_PAYLINE_ABOVE = 18; // extra clearance above emoji tops
-const AD_PAYLINE_BELOW = 16;
-const AD_REEL_PAYLINE_CY = AD_PAYLINE_CY - AD_REEL_Y; // 57 — payline center within each reel
-const VAULT_STRIP_N = 50;
-const VAULT_ITEM_H = 80;
-const VAULT_REEL_PAD_TOP = AD_REEL_PAYLINE_CY - VAULT_ITEM_H / 2; // 17
 const AD_CONN_PATH     = `M ${AD_TANK_X},${AD_TANK_Y + AD_TANK_H} L ${AD_TANK_X + AD_TANK_W},${AD_TANK_Y + AD_TANK_H} L ${AD_SLOT_X + AD_SLOT_W},${AD_SLOT_Y} L ${AD_SLOT_X},${AD_SLOT_Y} Z`;
 const AD_TANK_ARCH     = `M ${AD_TANK_X},${AD_TANK_Y} Q ${AD_TANK_X + AD_TANK_W / 2},${AD_TANK_Y - AD_ARCH_H} ${AD_TANK_X + AD_TANK_W},${AD_TANK_Y}`;
 const AD_SLOT_ARCH     = `M ${AD_SLOT_X},${AD_SLOT_Y} Q ${AD_SVG_W / 2},${AD_SLOT_Y - 22} ${AD_SLOT_X + AD_SLOT_W},${AD_SLOT_Y}`;
 
-function buildVaultStrip(
-  pool: { main: string; sub: string }[],
-  target: { main: string; sub: string }
-): { main: string; sub: string }[] {
-  const s: { main: string; sub: string }[] = [];
-  for (let i = 0; i < VAULT_STRIP_N - 1; i++) s.push(pool[Math.floor(Math.random() * pool.length)]);
-  s.push(target);
-  return s;
-}
-
 function adDiamondPath(cx: number, cy: number, r: number): string {
   return `M ${cx},${cy - r} L ${cx + r},${cy} L ${cx},${cy + r} L ${cx - r},${cy} Z`;
 }
-
-const REEL_XS = [AD_REEL1_X, AD_REEL2_X, AD_REEL3_X];
 
 // All static decoration — never re-renders with phase/water animation
 const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: number }) {
@@ -1174,7 +1151,7 @@ const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: nu
       <Line x1={AD_TANK_X}             y1={AD_TANK_Y + AD_TANK_H} x2={AD_SLOT_X}             y2={AD_SLOT_Y} stroke="rgba(255,215,0,0.35)" strokeWidth={1} />
       <Line x1={AD_TANK_X + AD_TANK_W} y1={AD_TANK_Y + AD_TANK_H} x2={AD_SLOT_X + AD_SLOT_W} y2={AD_SLOT_Y} stroke="rgba(255,215,0,0.35)" strokeWidth={1} />
 
-      {/* ═══ SLOT ═══ */}
+      {/* ═══ LAST DRINK PANEL ═══ */}
       <Rect x={AD_SLOT_X} y={AD_SLOT_Y} width={AD_SLOT_W} height={AD_SLOT_H} fill="url(#adGoldH)" rx={8} />
       <Path d={AD_SLOT_ARCH} fill="none" stroke="url(#adGoldH)" strokeWidth={3} />
       <Circle cx={AD_SVG_W / 2}      cy={AD_SLOT_Y - 12} r={5}   fill="#aa44ff" stroke="#6600cc" strokeWidth={1} />
@@ -1183,13 +1160,7 @@ const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: nu
       <SvgText x={AD_SLOT_X - 4}            y={AD_SLOT_Y - 1} fontSize={14} fill={GOLD} textAnchor="middle">★</SvgText>
       <SvgText x={AD_SLOT_X + AD_SLOT_W + 4} y={AD_SLOT_Y - 1} fontSize={14} fill={GOLD} textAnchor="middle">★</SvgText>
       <Rect x={AD_SLOT_X + 8} y={AD_SLOT_Y + 6} width={AD_SLOT_W - 16} height={AD_SLOT_HDR_H} fill="url(#slotHdr)" rx={4} />
-      {[
-        { label: "BEVERAGE", x: AD_REEL1_X + AD_REEL_W / 2 },
-        { label: "YOUR BET", x: AD_REEL2_X + AD_REEL_W / 2 },
-        { label: "HYDRATED", x: AD_REEL3_X + AD_REEL_W / 2 },
-      ].map((col, i) => (
-        <SvgText key={i} x={col.x} y={AD_SLOT_Y + 6 + AD_SLOT_HDR_H / 2 + 4} fontSize={7.5} fontWeight="800" fill="#3d2200" textAnchor="middle" letterSpacing={0.5}>{col.label}</SvgText>
-      ))}
+      <SvgText x={AD_SVG_W / 2} y={AD_SLOT_Y + 6 + AD_SLOT_HDR_H / 2 + 4} fontSize={9} fontWeight="800" fill="#3d2200" textAnchor="middle" letterSpacing={3}>LAST DRINK</SvgText>
       <Rect x={AD_SLOT_X} y={AD_SLOT_Y} width={7} height={AD_SLOT_H} fill="url(#adGoldH)" />
       {[0.35, 0.65].map((m, i) => (
         <Circle key={i} cx={AD_SLOT_X + 3.5} cy={AD_SLOT_Y + AD_SLOT_H * m} r={4} fill="url(#studGrad)" stroke="#5a3c00" strokeWidth={0.5} />
@@ -1198,21 +1169,22 @@ const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: nu
       {[0.35, 0.65].map((m, i) => (
         <Circle key={i} cx={AD_SLOT_X + AD_SLOT_W - 3.5} cy={AD_SLOT_Y + AD_SLOT_H * m} r={4} fill="url(#studGrad)" stroke="#5a3c00" strokeWidth={0.5} />
       ))}
-      {[0, 0.5, 1].map((m, i) => (
+      {[0, 1].map((m, i) => (
         <Rect key={i} x={AD_SLOT_X} y={AD_SLOT_Y + AD_SLOT_H * m - 2.5} width={AD_SLOT_W} height={5} fill="url(#adGoldH)" opacity={0.85} />
       ))}
       <Path d={adDiamondPath(AD_SLOT_X - 1, AD_SLOT_Y + AD_SLOT_H * 0.5, 9)} fill="url(#diamondPurp)" stroke="#6600cc" strokeWidth={0.5} />
       <Path d={adDiamondPath(AD_SLOT_X + AD_SLOT_W + 1, AD_SLOT_Y + AD_SLOT_H * 0.5, 9)} fill="url(#diamondPurp)" stroke="#6600cc" strokeWidth={0.5} />
-      {REEL_XS.map((rx, i) => (
-        <G key={i}>
-          <Rect x={rx} y={AD_REEL_Y} width={AD_REEL_W} height={AD_REEL_H} fill="#020010" stroke="#6600aa" strokeWidth={1.5} rx={4} />
-          <Line x1={rx} y1={AD_PAYLINE_CY - AD_PAYLINE_ABOVE} x2={rx + AD_REEL_W} y2={AD_PAYLINE_CY - AD_PAYLINE_ABOVE} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
-          <Line x1={rx} y1={AD_PAYLINE_CY + AD_PAYLINE_BELOW} x2={rx + AD_REEL_W} y2={AD_PAYLINE_CY + AD_PAYLINE_BELOW} stroke="rgba(255,215,0,0.55)" strokeWidth={1} />
-          <SvgText x={rx + AD_REEL_W / 2} y={AD_REEL_Y + AD_REEL_H + 11} fontSize={7} fill="rgba(255,215,0,0.6)" textAnchor="middle" fontWeight="700">{(["BEV", "BET", "HYD"] as string[])[i]}</SvgText>
-        </G>
-      ))}
-      <Line x1={AD_REEL2_X - 5} y1={AD_REEL_Y} x2={AD_REEL2_X - 5} y2={AD_REEL_Y + AD_REEL_H} stroke="rgba(255,215,0,0.4)" strokeWidth={1} />
-      <Line x1={AD_REEL3_X - 5} y1={AD_REEL_Y} x2={AD_REEL3_X - 5} y2={AD_REEL_Y + AD_REEL_H} stroke="rgba(255,215,0,0.4)" strokeWidth={1} />
+      {/* Dark inset window — gives the overlaid info text high contrast against the gold cabinet */}
+      <Rect
+        x={AD_SLOT_X + 16}
+        y={AD_SLOT_Y + AD_SLOT_HDR_H + 14}
+        width={AD_SLOT_W - 32}
+        height={AD_SLOT_H - AD_SLOT_HDR_H - 28}
+        fill="#020010"
+        stroke="#5a3c00"
+        strokeWidth={1.5}
+        rx={6}
+      />
       <Rect x={AD_SLOT_X} y={AD_SLOT_Y} width={AD_SLOT_W} height={AD_SLOT_H} fill="none" stroke="#5a3c00" strokeWidth={2} rx={8} />
 
       {/* ═══ BASE ═══ */}
@@ -1344,16 +1316,17 @@ function AnimatedWaterSVG({
 
 function ArtDecoVault({
   pct, oz, goal: vGoal,
-  category, lastReelOz, spinning, jackpotMode,
-  onSpoutRef,
+  loggedCategory, lastReelOz, logNonce,
+  onSpoutRef, onTankFill, onLaunchDroplet,
 }: {
   pct: number; oz: number; goal: number;
-  category: BevCategory; lastReelOz: number;
-  spinning: boolean; jackpotMode?: boolean;
+  loggedCategory: BevCategory; lastReelOz: number; logNonce: number;
   onSpoutRef?: (x: number, y: number) => void;
+  onTankFill?: () => void;
+  onLaunchDroplet?: (start: {x:number;y:number}, end: {x:number;y:number}, onLand: () => void) => void;
 }) {
-  const catInfo = CATEGORIES.find((c) => c.key === category)!;
-  const hydOz = lastReelOz > 0 ? calcHydratedOz(lastReelOz, category) : 0;
+  const hydOz = lastReelOz > 0 ? calcHydratedOz(lastReelOz, loggedCategory) : 0;
+  const beverage: BevDef = getBev(loggedCategory);
   const focused = useIsFocused();
 
   // ── RAF-driven animation refs (no setState in the hot path) ──
@@ -1402,8 +1375,13 @@ function ArtDecoVault({
     return () => cancelAnimationFrame(rafId);
   }, [focused]);
 
-  // ── fill animation — listener only updates a ref (no setState) ──
+  // ── fill animation: deferred when a drink is logged ──
+  // On a normal pct change (mount, midnight reset, watch sync) we animate
+  // immediately. On a drink log, we skip the auto-fire and let
+  // LastDrinkReveal's onReachTank trigger the rise so the waves climb at
+  // the exact moment the handoff droplet lands in the tank.
   const fillAnim = useRef(new Animated.Value(pct)).current;
+  const skipNextFill = useRef(false);
 
   useEffect(() => {
     const id = fillAnim.addListener(({ value }) => { fillPctRef.current = value; });
@@ -1411,93 +1389,45 @@ function ArtDecoVault({
   }, [fillAnim]);
 
   useEffect(() => {
+    if (skipNextFill.current) { skipNextFill.current = false; return; }
     Animated.timing(fillAnim, {
       toValue: pct, duration: 1200, useNativeDriver: false,
       easing: Easing.out(Easing.cubic),
     }).start();
   }, [pct, fillAnim]);
 
-  // ── reel state ──
-  const bevPool = useMemo(() => CATEGORIES.map(c => ({ main: c.emoji, sub: c.label })), []);
-  const ozPool  = useMemo(() => [4,6,8,10,12,14,16,20,24,28,32,48,64].map(o => ({ main: `${o}`, sub: "oz" })), []);
-  const hydPool = useMemo(() => Array.from({ length: 32 }, (_, i) => ({ main: `+${i+1}`, sub: "hyd oz" })), []);
-
-  const y1 = useRef(new Animated.Value(0)).current;
-  const y2 = useRef(new Animated.Value(0)).current;
-  const y3 = useRef(new Animated.Value(0)).current;
-  const wf1 = useRef(new Animated.Value(0)).current;
-  const wf2 = useRef(new Animated.Value(0)).current;
-  const wf3 = useRef(new Animated.Value(0)).current;
-
-  const [strips, setStrips] = useState<{
-    s1: { main: string; sub: string }[];
-    s2: { main: string; sub: string }[];
-    s3: { main: string; sub: string }[];
-  }>({
-    s1: [{ main: catInfo.emoji, sub: catInfo.label }],
-    s2: [{ main: "—", sub: "oz" }],
-    s3: [{ main: "—", sub: "hyd oz" }],
-  });
-
-  const flashReel = useCallback((anim: Animated.Value) => {
-    anim.setValue(0);
-    Animated.sequence([
-      Animated.timing(anim, { toValue: 1, duration: 65, useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 0, duration: 65, useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 1, duration: 65, useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 0, duration: 65, useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 1, duration: 65, useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 0, duration: 65, useNativeDriver: true }),
-    ]).start();
-  }, []);
+  // ── Last-drink reveal: play() runs splash → ring → onHandoffStart ──
+  // The actual ring→tank droplet animation is a top-level overlay (sibling of
+  // the scroll content) so it can animate across coordinate systems.
+  const revealRef = useRef<LastDrinkRevealHandle>(null);
+  const vaultWaterAnchorRef = useRef<View>(null);
 
   useEffect(() => {
-    if (spinning && lastReelOz > 0) {
-      const endY = -((VAULT_STRIP_N - 1) * VAULT_ITEM_H);
-      if (jackpotMode) {
-        const s1 = buildVaultStrip(bevPool, { main: "💧", sub: "WINNER" });
-        const s2 = buildVaultStrip(ozPool,  { main: `${lastReelOz}`, sub: "oz" });
-        const s3 = buildVaultStrip(hydPool, { main: "🏆", sub: "WIN!" });
-        y1.setValue(0); y2.setValue(0); y3.setValue(0);
-        wf1.setValue(0); wf2.setValue(0); wf3.setValue(0);
-        setStrips({ s1, s2, s3 });
-        Animated.sequence([
-          Animated.timing(y1, { toValue: endY - 12, duration: 2480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(y1, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-        ]).start(() => flashReel(wf1));
-        Animated.sequence([
-          Animated.timing(y2, { toValue: endY - 12, duration: 3680, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(y2, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-        ]).start(() => flashReel(wf2));
-        Animated.sequence([
-          Animated.timing(y3, { toValue: endY - 12, duration: 4880, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-          Animated.timing(y3, { toValue: endY, duration: 120, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-        ]).start(() => flashReel(wf3));
-      } else {
-        const s1 = buildVaultStrip(bevPool, { main: catInfo.emoji, sub: catInfo.label });
-        const s2 = buildVaultStrip(ozPool,  { main: `${lastReelOz}`, sub: "oz" });
-        const s3 = buildVaultStrip(hydPool, { main: `+${hydOz}`, sub: "hyd oz" });
-        y1.setValue(0); y2.setValue(0); y3.setValue(0);
-        setStrips({ s1, s2, s3 });
-        Animated.timing(y1, { toValue: endY, duration: 1800, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-        Animated.timing(y2, { toValue: endY, duration: 2025, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-        Animated.timing(y3, { toValue: endY, duration: 2250, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
-      }
-    } else if (!spinning) {
-      y1.setValue(0); y2.setValue(0); y3.setValue(0);
-      wf1.setValue(0); wf2.setValue(0); wf3.setValue(0);
-      setStrips({
-        s1: [{ main: catInfo.emoji, sub: catInfo.label }],
-        s2: [{ main: lastReelOz > 0 ? `${lastReelOz}` : "—", sub: "oz" }],
-        s3: [{ main: lastReelOz > 0 ? `+${hydOz}` : "—", sub: "hyd oz" }],
-      });
-    }
-  }, [spinning, jackpotMode, category, lastReelOz, catInfo.emoji, catInfo.label, hydOz,
-      bevPool, ozPool, hydPool, y1, y2, y3, wf1, wf2, wf3, flashReel]);
+    if (logNonce === 0) return;  // initial mount, no log yet
+    skipNextFill.current = true;  // wait for the overlay drop to land before tank rises
+    revealRef.current?.play();
+  }, [logNonce]);
 
-  const reelAnims = [y1, y2, y3];
-  const wfAnims   = [wf1, wf2, wf3];
-  const reelStrips = [strips.s1, strips.s2, strips.s3];
+  // Drop landed in the tank: rise the water and let the parent celebrate.
+  const onReachTank = useCallback(() => {
+    Animated.timing(fillAnim, {
+      toValue: pct, duration: 450, useNativeDriver: false,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+    onTankFill?.();
+  }, [pct, fillAnim, onTankFill]);
+
+  // Ring filled — measure both anchors and ask Home to launch the overlay.
+  const handleHandoffStart = useCallback(async () => {
+    if (!onLaunchDroplet) return;
+    const ringPos = await revealRef.current?.measureRing();
+    if (!ringPos) return;
+    const anchor = vaultWaterAnchorRef.current;
+    if (!anchor) return;
+    anchor.measureInWindow((x, y, w, h) => {
+      onLaunchDroplet(ringPos, { x: x + w / 2, y: y + h / 2 }, onReachTank);
+    });
+  }, [onLaunchDroplet, onReachTank]);
 
   return (
     <View style={{ alignItems: "center", marginTop: 8, marginBottom: 4 }}
@@ -1510,6 +1440,21 @@ function ArtDecoVault({
       }}
     >
       <View style={{ width: AD_SVG_W, height: AD_SVG_H }}>
+
+        {/* invisible anchor at the tank waterline — measured in window coords
+            by the overlay droplet so it knows where to land */}
+        <View
+          ref={vaultWaterAnchorRef}
+          collapsable={false}
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: AD_GLASS_X + AD_GLASS_W / 2 - 2,
+            top: AD_GLASS_Y + AD_GLASS_H * 0.2,
+            width: 4,
+            height: 4,
+          }}
+        />
 
         {/* ── Static decoration — never re-renders with phase ── */}
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
@@ -1526,42 +1471,33 @@ function ArtDecoVault({
           forceUpdateRef={forceUpdateWaterRef}
         />
 
-        {/* ── Animated reel strips ── */}
-        {REEL_XS.map((rx, i) => (
-          <View key={i} style={{
-            position: "absolute", left: rx, top: AD_REEL_Y,
-            width: AD_REEL_W, height: AD_REEL_H, overflow: "hidden",
-          }}>
-            <Animated.View style={{ transform: [{ translateY: reelAnims[i] }], width: "100%", paddingTop: VAULT_REEL_PAD_TOP }}>
-              {reelStrips[i].map((item, idx) => (
-                <View key={idx} style={{ height: VAULT_ITEM_H, alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ fontSize: 18, lineHeight: 20, color: "#ffffff", fontWeight: "800", textAlign: "center" }}>
-                    {item.main}
-                  </Text>
-                  <Text style={{
-                    fontSize: 8, lineHeight: 10, textAlign: "center",
-                    color: jackpotMode && item.sub === "WIN!" ? GOLD : "rgba(255,255,255,0.7)",
-                  }}>
-                    {item.sub}
-                  </Text>
-                </View>
-              ))}
-            </Animated.View>
-            <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 12,
-              backgroundColor: "rgba(2,0,16,0.88)" }} pointerEvents="none" />
-            <View style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 12,
-              backgroundColor: "rgba(2,0,16,0.88)" }} pointerEvents="none" />
-            <Animated.View style={{
-              position: "absolute",
-              top: AD_REEL_PAYLINE_CY - AD_PAYLINE_ABOVE - 1,
-              left: 0, right: 0,
-              height: AD_PAYLINE_ABOVE + AD_PAYLINE_BELOW + 2,
-              backgroundColor: "rgba(255,215,0,0.72)",
-              borderTopWidth: 2, borderBottomWidth: 2, borderColor: GOLD,
-              opacity: wfAnims[i],
-            }} pointerEvents="none" />
-          </View>
-        ))}
+        {/* ── Last drink panel (LastDrinkReveal) ── */}
+        {/* The vault's static SVG already renders the "LAST DRINK" gold header. */}
+        <View style={{
+          position: "absolute",
+          left: AD_SLOT_X + 16,
+          top: AD_SLOT_Y + AD_SLOT_HDR_H + 14,
+          width: AD_SLOT_W - 32,
+          height: AD_SLOT_H - AD_SLOT_HDR_H - 28,
+          justifyContent: "center",
+        }}>
+          {lastReelOz > 0 ? (
+            <LastDrinkReveal
+              ref={revealRef}
+              beverage={beverage}
+              ozLogged={lastReelOz}
+              hydratedOz={hydOz}
+              onHandoffStart={handleHandoffStart}
+            />
+          ) : (
+            <View style={{ alignItems: "center" }}>
+              <Text style={{ fontSize: 32 }}>💧</Text>
+              <Text style={{ fontSize: 13, color: "rgba(255,255,255,0.85)", marginTop: 10, fontWeight: "600", textAlign: "center", lineHeight: 18 }}>
+                Tap a quick-add amount{"\n"}below to log your first drink
+              </Text>
+            </View>
+          )}
+        </View>
 
         {/* ── Tank text overlay ── */}
         <View pointerEvents="none" style={{
@@ -2156,11 +2092,11 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
 function ResultBox({ message }: { message: string | null }) {
   const rawOzMatch = message?.match(/\+([\d.]+) oz/);
   const rawOzNum = rawOzMatch ? parseFloat(rawOzMatch[1]) : 0;
-  const isJackpot = !!message?.includes("JACKPOT");
+  const isJackpot = !!message?.includes("GOAL");
   return (
     <View style={rbStyles.wrapper}>
       <Text style={message ? rbStyles.result : rbStyles.idle}>
-        {message ?? "Select your drink, place your bet and log it!"}
+        {message ?? "Select your drink and tap an amount to log it!"}
       </Text>
       {message && (
         <Text style={rbStyles.sub}>
@@ -2244,7 +2180,7 @@ function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
     <View style={[dlStyles.wrapper, { backgroundColor: colors.cardBg, borderColor: colors.cardBorder }]}>
       <Text style={[dlStyles.title, { color: colors.gold }]}>DRINK LOG</Text>
       {catEntries.length === 0
-        ? <Text style={[dlStyles.empty, { color: colors.textMuted }]}>No drinks logged yet — place your first bet!</Text>
+        ? <Text style={[dlStyles.empty, { color: colors.textMuted }]}>No drinks logged yet — tap an amount to log your first drink!</Text>
         : catEntries.map((cat) => {
             const raw = breakdown[cat.key];
             const hyd = calcHydratedOz(raw, cat.key);
@@ -2327,7 +2263,7 @@ function formatEntryTime(ts: number): string {
   return `${h % 12 || 12}:${m} ${h >= 12 ? "PM" : "AM"}`;
 }
 
-// --- Jackpot Celebration ---
+// --- Goal Celebration ---
 const FW_COLORS = [
   ["#FFD700", "#FFA500", "#FFE566"],
   ["#00aaff", "#44ccff", "#0066cc"],
@@ -2392,9 +2328,9 @@ const Particle = React.forwardRef<ParticleHandle>((_, ref) => {
 
   return <Reanimated.View pointerEvents="none" style={[jpStyles.particleBase, animStyle]} />;
 });
-Particle.displayName = 'JackpotParticle';
+Particle.displayName = 'CelebrationParticle';
 
-function JackpotCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boolean; goal: number; onDismiss: () => void }) {
+function GoalCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boolean; goal: number; onDismiss: () => void }) {
   const goalTime = useRef("");
   const screenW = Dimensions.get("window").width;
   const screenH = Dimensions.get("window").height;
@@ -2524,8 +2460,8 @@ function JackpotCelebration({ visible, goal: jpGoal, onDismiss }: { visible: boo
         <Reanimated.Text style={[jpStyles.jackpotText, pulseStyle]}>
           🎆 HYDRO HERO!
         </Reanimated.Text>
-        <Text style={jpStyles.emojiRow}>🎆🎇✨🏆🍀🎆</Text>
-        <Text style={jpStyles.mainText}>You hit the Jackpot! Congratulations on hitting your daily goal!</Text>
+        <Text style={jpStyles.emojiRow}>🎆🎇✨🏆💧🎆</Text>
+        <Text style={jpStyles.mainText}>Goal reached! Congratulations on hitting your daily goal!</Text>
         <Text style={jpStyles.subText}>{Math.round(jpGoal)} oz / {ozToMl(jpGoal)} ml</Text>
         <Text style={jpStyles.timeText}>Reached at {goalTime.current}</Text>
         <TouchableOpacity style={jpStyles.claimBtn} onPress={dismiss} activeOpacity={0.85}>
@@ -2855,7 +2791,7 @@ export default function WaterTracker() {
   const [weatherBannerDismissed, setWeatherBannerDismissed] = useState(false);
   const [weatherTempF, setWeatherTempF] = useState<number | null>(null);
 
-  // Casino / Hydro Hero
+  // Dispenser / Hydro Hero
   const [selectedCategory, setSelectedCategory] = useState<BevCategory>("water");
   const [spinning, setSpinning] = useState(false);
   const [jackpotSpinning, setJackpotSpinning] = useState(false);
@@ -2865,12 +2801,26 @@ export default function WaterTracker() {
   const mainScrollRef = useRef<any>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
   const [lastReelOz, setLastReelOz] = useState(0);
+  // Beverage at the moment the user last logged a drink — freezes the LAST
+  // DRINK panel's icon/label so changing the selection doesn't update it
+  // until a new fill happens.
+  const [lastLoggedCategory, setLastLoggedCategory] = useState<BevCategory>("water");
+  // Increments on every fill so the LastDrinkReveal re-plays even when oz
+  // is identical to the previous log.
+  const [logNonce, setLogNonce] = useState(0);
   const [pendingBetOz, setPendingBetOz] = useState<number | null>(null);
   const [displayedHydration, setDisplayedHydration] = useState(0);
 
   // Particle spray — origin updates after GlassTank layout
   const [spoutOrigin, setSpoutOrigin] = useState({ x: Dimensions.get("window").width / 2, y: 200 });
   const { particles: sprayParticles, visible: sprayVisible, fire: fireSpray } = useParticleSpray(spoutOrigin.x, spoutOrigin.y);
+  const dropletRef = useRef<HandoffDropletHandle>(null);
+  const launchDroplet = useCallback(
+    (start: {x:number;y:number}, end: {x:number;y:number}, onLand: () => void) => {
+      dropletRef.current?.play(start, end, onLand);
+    },
+    [],
+  );
 
   // Daily reset
   const [toastVisible, setToastVisible] = useState(false);
@@ -2982,10 +2932,10 @@ export default function WaterTracker() {
       const cat = cmd.category as BevCategory;
       const isJackpot = await addWater(cmd.amount, cat).catch(() => false);
       // addWater updates `totalHydration` but not the animated tank value
-      // (`displayedHydration`) — the slot machine drives that on phone logs.
-      // Watch-originated logs have no slot machine, so update it directly.
+      // (`displayedHydration`) — the dispenser drives that on phone logs.
+      // Watch-originated logs have no dispenser, so update it directly.
       setDisplayedHydration((prev) => prev + calcHydratedOz(cmd.amount, cat));
-      return isJackpot ? "🎰 JACKPOT! Goal hit!" : `+${cmd.amount} oz logged!`;
+      return isJackpot ? "🎯 GOAL! Daily target hit!" : `+${cmd.amount} oz logged!`;
     });
   });
 
@@ -3196,7 +3146,7 @@ export default function WaterTracker() {
     if (morningOn && !goalHit) {
       await schedDaily(7, 30,
         "Good morning! Time to hydrate 💧",
-        "Your Hydro Hero jackpot is waiting — start spinning!"
+        "Your daily goal is waiting — start sipping!"
       );
     }
 
@@ -3217,7 +3167,7 @@ export default function WaterTracker() {
         : 0;
       await schedDaily(14, 0,
         "You're falling behind 😅",
-        `Only ${hydOz} oz hydrated so far — the jackpot needs you!`
+        `Only ${hydOz} oz hydrated so far — your goal needs you!`
       );
     }
 
@@ -3225,7 +3175,7 @@ export default function WaterTracker() {
     if (progressOn && !goalHit) {
       await schedDaily(18, 0,
         "Evening check in 🌆",
-        `${remOz.toFixed(1)} oz to go before the jackpot — you've got this!`
+        `${remOz.toFixed(1)} oz to go before your goal — you've got this!`
       );
     }
 
@@ -3233,7 +3183,7 @@ export default function WaterTracker() {
     if (progressOn && !goalHit) {
       const streakTxt = curStreak > 0 ? ` Don't break your ${curStreak} day streak!` : "";
       await schedDaily(20, 30,
-        "Last chance for the jackpot tonight! 🎰",
+        "Last chance to hit your goal tonight! 💧",
         `Just ${remOz.toFixed(1)} oz away —${streakTxt}`
       );
     }
@@ -3450,10 +3400,11 @@ export default function WaterTracker() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Backup jackpot trigger — fires only for edge cases like first load when
-  // goal was already met. The extra !showCelebration / !spinning guards keep
-  // it from racing the handleBet spin sequence, which would otherwise mount
-  // the celebration overlay while the slot machine is mid-animation.
+  // Backup goal-celebration trigger — fires only for edge cases like first
+  // load when goal was already met. The extra !showCelebration / !spinning
+  // guards keep it from racing the handleBet pour sequence, which would
+  // otherwise mount the celebration overlay while the dispenser is
+  // mid-animation.
   useEffect(() => {
     if (
       totalHydration >= goal &&
@@ -3862,7 +3813,7 @@ export default function WaterTracker() {
   }
 
   // Returns true when this drink triggers the jackpot for the first time today.
-  // Caller is responsible for showing the celebration (via spin sequence).
+  // Caller is responsible for showing the celebration after the pour completes.
   async function addWater(oz: number, category: BevCategory): Promise<boolean> {
     const newIntake = intake + oz;
     const hydratedOz = calcHydratedOz(oz, category);
@@ -3960,23 +3911,23 @@ export default function WaterTracker() {
     if (!isJackpot && newHydPct >= 0.5) {
       fireImmediateNotifOnce(
         `notif_50pct_fired_${todayKey2}`,
-        "Halfway to the jackpot! 🎰",
-        "You've hit 50% of your goal — keep the reels spinning!",
+        "Halfway to your goal! 💧",
+        "You've hit 50% of your goal — keep sipping!",
         notifProgressEnabled,
       );
     }
     if (!isJackpot && newHydPct >= 0.8) {
       fireImmediateNotifOnce(
         `notif_80pct_fired_${todayKey2}`,
-        "So close to the jackpot! 💰",
-        `Only ${newRemOz.toFixed(1)} oz left — one more spin could do it!`,
+        "So close to your goal! 💪",
+        `Only ${newRemOz.toFixed(1)} oz left — one more drink could do it!`,
         notifProgressEnabled,
       );
     }
     if (isJackpot) {
       fireImmediateNotifOnce(
         `notif_goal_fired_${todayKey2}`,
-        "JACKPOT! You did it! 🎰🏆",
+        "GOAL! You did it! 🎯🏆",
         `Daily goal crushed! Your ${streakNow} day streak continues — see you tomorrow!`,
         notifProgressEnabled,
       );
@@ -3993,7 +3944,7 @@ export default function WaterTracker() {
       selectedBeverages,
     }).catch(() => {});
 
-    // Do NOT call setShowCelebration here — handleBet runs the spin sequence first
+    // Do NOT call setShowCelebration here — handleBet runs the pour + shake first
     return isJackpot;
   }
 
@@ -4001,89 +3952,59 @@ export default function WaterTracker() {
     if (spinning || jackpotSpinning) return;
     setResultMessage(null);
     setLastReelOz(oz);
+    setLastLoggedCategory(selectedCategory);
+    setLogNonce(n => n + 1);
     const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
     const hydrated = calcHydratedOz(oz, selectedCategory);
     const triggersJackpot = await addWater(oz, selectedCategory);
 
-    // Log Water haptic
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
 
-    // Start spin sound (loops until stopped)
-    playSpinSound();
+    // The tank's fillAnim takes ~1.2s to ease the water up to the new level.
+    // We pour into the tank immediately and gate further taps for that window.
+    setSpinning(true);
+    if (triggersJackpot) setJackpotSpinning(true);
+    setDisplayedHydration((prev) => prev + hydrated);
+    playWaterLogSound();
+    playWaterFillSound();
+    // fireSpray now triggers from the vault's onTankFill so it fires when the
+    // handoff droplet actually lands, not immediately on tap.
+    // Always scroll the tank into view on tap — the user may have scrolled
+    // down to reach the quick-add buttons.
+    mainScrollRef.current?.scrollTo({ y: Math.max(0, reelFrameY - 80), animated: true });
+
+    const bt = betTimersRef.current;
 
     if (triggersJackpot) {
-      // ── Jackpot spin sequence ──
-      mainScrollRef.current?.scrollTo({
-        y: Math.max(0, reelFrameY - 80),
-        animated: true,
-      });
-      setJackpotSpinning(true);
-      setSpinning(true);
       playJackpotSound();
 
-      const bt = betTimersRef.current;
-      // Jackpot reel stop timings: slower than normal so the machine stays readable.
-      bt.push(setTimeout(() => { stopSpinSound(); playReelStopSound(0); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2600));
-      bt.push(setTimeout(() => { playReelStopSound(1); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 3800));
-      bt.push(setTimeout(() => { playReelStopSound(2); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 5000));
-
-      // Tank fills and spray fires after reels stop
-      bt.push(setTimeout(() => {
-        setDisplayedHydration((prev) => prev + hydrated);
-        playWaterFillSound();
-        fireSpray();
-      }, 5200));
-
-      // Screen shake + jackpot haptic when the final reel lands.
+      // Celebratory shake + confetti when the fill completes.
       bt.push(setTimeout(() => {
         haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
         screenShakeAnim.setValue(0);
         Animated.sequence([
-          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: -6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: 6, duration: 37, useNativeDriver: true }),
-          Animated.timing(screenShakeAnim, { toValue: 0, duration: 37, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: -6, duration: 40, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 6,  duration: 40, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: -6, duration: 40, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 6,  duration: 40, useNativeDriver: true }),
+          Animated.timing(screenShakeAnim, { toValue: 0,  duration: 40, useNativeDriver: true }),
         ]).start();
         setReelConfettiVisible(true);
-      }, 5000));
+      }, 1100));
 
-      // Confetti lingers through the tank fill.
-      bt.push(setTimeout(() => setReelConfettiVisible(false), 6800));
+      bt.push(setTimeout(() => setReelConfettiVisible(false), 2400));
 
-      // Jackpot overlay fades in after the machine and tank finish.
       bt.push(setTimeout(() => {
         setSpinning(false);
         setJackpotSpinning(false);
-        setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → JACKPOT! 🏆`);
+        setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → GOAL! 🏆`);
         setShowCelebration(true);
-        playWaterLogSound();
-      }, 6200));
-
+      }, 1500));
     } else {
-      const bt = betTimersRef.current;
-      // ── Normal spin ──
-      mainScrollRef.current?.scrollTo({
-        y: Math.max(0, reelFrameY - 80),
-        animated: true,
-      });
-      // Normal reel stop timings: reel1=1800ms, reel2=2025ms, reel3=2250ms
-      setSpinning(true);
-      bt.push(setTimeout(() => { stopSpinSound(); playReelStopSound(0); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 1800));
-      bt.push(setTimeout(() => { playReelStopSound(1); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2025));
-      bt.push(setTimeout(() => { playReelStopSound(2); haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid)); }, 2250));
       bt.push(setTimeout(() => {
-        setDisplayedHydration((prev) => prev + hydrated);
         setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → ${hydrated} oz hydration`);
         setSpinning(false);
-        fireSpray();
-        playWaterLogSound();
-        playWaterFillSound();
-      }, 3100));
+      }, 900));
     }
   }
 
@@ -4335,6 +4256,7 @@ export default function WaterTracker() {
             setLastEntryHydratedOz(null);
             setLastEntryCategory(null);
             setDrinkLogEntries([]);
+            setFirstDrinkTime(null);
             await AsyncStorage.setItem(getTodayKey(), JSON.stringify(0));
             await AsyncStorage.setItem("water_total_hydration", JSON.stringify(0));
             await AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
@@ -4342,11 +4264,16 @@ export default function WaterTracker() {
             await AsyncStorage.removeItem("water_last_hydrated");
             await AsyncStorage.removeItem("water_last_category");
             await AsyncStorage.removeItem("water_log_entries");
+            await AsyncStorage.removeItem("first_drink_time");
             const todayKey = getTodayKey();
             const newGoalHistory = { ...goalHistory };
             delete newGoalHistory[todayKey];
             setGoalHistory(newGoalHistory);
             await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
+            // Drop any badge whose check() no longer passes (e.g. Rainbow
+            // Drinker, Early Bird, Night Owl, today's goal hit, Perfect Week).
+            // Lifetime badges (Beer Baron, etc.) are unaffected.
+            setAchievementRevalidate((n) => n + 1);
           },
         },
       ],
@@ -4426,20 +4353,21 @@ export default function WaterTracker() {
         style={{ transform: [{ translateX: screenShakeAnim }] }}
       >
 
-        {/* Casino Header */}
+        {/* Marquee Header */}
         <MarqueeHeader goal={goal} hydration={totalHydration} />
 
-        {/* Art Deco Vault — unified tank + slot machine */}
+        {/* Art Deco Vault — unified tank + dispenser */}
         <View onLayout={(e) => setReelFrameY(e.nativeEvent.layout.y)}>
           <ArtDecoVault
             pct={goal > 0 ? displayedHydration / goal : 0}
             oz={displayedHydration}
             goal={goal}
-            category={selectedCategory}
+            loggedCategory={lastLoggedCategory}
             lastReelOz={lastReelOz}
-            spinning={spinning}
-            jackpotMode={jackpotSpinning}
+            logNonce={logNonce}
             onSpoutRef={(x, y) => setSpoutOrigin({ x, y })}
+            onTankFill={fireSpray}
+            onLaunchDroplet={launchDroplet}
           />
         </View>
 
@@ -4726,7 +4654,7 @@ export default function WaterTracker() {
         )}
       </Modal>
 
-      {/* Place Your Bet Confirmation Modal */}
+      {/* Confirm Drink Modal */}
       <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => setPendingBetOz(null)}>
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.75)" }}>
           <View style={{
@@ -4741,7 +4669,7 @@ export default function WaterTracker() {
           }}>
             {/* Title */}
             <Text style={{ color: GOLD, fontSize: 11, fontWeight: "800", letterSpacing: 3, textAlign: "center", marginBottom: 20 }}>
-              CONFIRM YOUR BET
+              CONFIRM YOUR DRINK
             </Text>
 
             {/* Chosen drink */}
@@ -4766,7 +4694,7 @@ export default function WaterTracker() {
               );
             })()}
 
-            {/* PLACE YOUR BET */}
+            {/* FILL */}
             <TouchableOpacity
               style={{
                 backgroundColor: GOLD,
@@ -4782,7 +4710,7 @@ export default function WaterTracker() {
                 handleBet(oz);
               }}
             >
-              <Text style={{ color: "#0a0520", fontSize: 18, fontWeight: "900", letterSpacing: 2 }}>🎰 PLACE YOUR BET</Text>
+              <Text style={{ color: "#0a0520", fontSize: 18, fontWeight: "900", letterSpacing: 2 }}>💧 FILL</Text>
             </TouchableOpacity>
 
             {/* Cancel */}
@@ -5138,7 +5066,7 @@ export default function WaterTracker() {
       </Modal>
 
       <ReelConfetti visible={reelConfettiVisible} originY={reelFrameY} />
-      <JackpotCelebration
+      <GoalCelebration
         visible={showCelebration}
         goal={goal}
         onDismiss={() => {
@@ -5149,6 +5077,7 @@ export default function WaterTracker() {
       <FactJokeCard visible={showFactCard} onDismiss={() => setShowFactCard(false)} />
       <StreakMilestoneCard milestone={streakMilestone} onDismiss={() => setStreakMilestone(null)} />
       <ParticleOverlay particles={sprayParticles} visible={sprayVisible} />
+      <HandoffDroplet ref={dropletRef} />
 
       {/* Health Info Modal */}
       <Modal visible={showHealthModal} transparent animationType="fade" onRequestClose={() => setShowHealthModal(false)}>
@@ -5326,7 +5255,7 @@ export default function WaterTracker() {
                         Sound Effects{!isPro ? " 🔒" : ""}
                       </Text>
                       <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
-                        Slot machine spins, water logs, badge unlocks and more
+                        Water pours, log chimes, badge unlocks and more
                       </Text>
                     </View>
                     <Switch
@@ -5428,7 +5357,7 @@ export default function WaterTracker() {
                         Haptic Feedback{!isPro ? " 🔒" : ""}
                       </Text>
                       <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
-                        Vibration on taps, reel stops, jackpots and milestones
+                        Vibration on taps, drink logs, goals and milestones
                       </Text>
                     </View>
                     <Switch
@@ -5488,13 +5417,13 @@ export default function WaterTracker() {
                       onPress={() => seedDemoData("primed").catch(() => {})}
                       activeOpacity={0.85}
                     >
-                      <Text style={{ fontSize: 18 }}>🎰</Text>
+                      <Text style={{ fontSize: 18 }}>🎯</Text>
                       <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>
-                        Seed — Primed Jackpot
+                        Seed — Primed Goal
                       </Text>
                     </TouchableOpacity>
                     <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center", lineHeight: 16 }}>
-                      Sets today to ~88% (8 oz to go). Tap any bet to capture the live fireworks + fun fact. Best for the preview video.
+                      Sets today to ~88% (8 oz to go). Tap any amount to capture the live fireworks + fun fact. Best for the preview video.
                     </Text>
                     <TouchableOpacity
                       style={{

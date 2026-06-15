@@ -20,6 +20,7 @@
     "@react-navigation/native": "^7.1.8",
     "@sentry/react-native": "^8.13.0",
     "@shopify/react-native-skia": "2.2.12",
+    "@tabler/icons-react-native": "^3.44.0",
     "expo": "~54.0.33",
     "expo-av": "~16.0.8",
     "expo-camera": "~17.0.10",
