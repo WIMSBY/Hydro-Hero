@@ -13,8 +13,6 @@ import {
   IconGlassGin, type IconProps,
 } from '@tabler/icons-react-native';
 
-// TODO(licenses): add "Built with Tabler Icons (MIT)" to a future About/Settings screen.
-
 export type BevCategory =
   | 'water' | 'coffee' | 'tea' | 'icedtea' | 'soda' | 'flavored' | 'coconut'
   | 'juice' | 'lemonade' | 'fruit' | 'sports' | 'milk' | 'protein'

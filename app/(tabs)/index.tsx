@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BevCategory, BevDef, BEVERAGES } from "../../constants/beverages";
 import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hydration/LastDrinkReveal";
 import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
+import Constants from "expo-constants";
 import Achievements from "../../components/Achievements";
 import Onboarding from "../../components/Onboarding";
 import {
@@ -5496,15 +5497,35 @@ export default function WaterTracker() {
                   </Text>
                 </View>
 
-                {/* About / Legal */}
+                {/* About */}
                 <View style={{ marginTop: 32, marginBottom: 8, alignItems: "center" }}>
-                  <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/privacy-policy.html").catch(() => {})} activeOpacity={0.7}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>ABOUT</Text>
+
+                  <Text style={{ color: "#1a1a2e", fontSize: 14, fontWeight: "700" }}>Hydro Hero</Text>
+                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 2 }}>
+                    Version {Constants.expoConfig?.version ?? "1.0.0"} (Build {Constants.expoConfig?.ios?.buildNumber ?? ""})
+                  </Text>
+
+                  <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/privacy-policy.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 14 }}>
                     <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/support.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 6 }}>
                     <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Support</Text>
                   </TouchableOpacity>
-                  <Text style={{ color: "#bbbbbb", fontSize: 11, marginTop: 8 }}>Hydro Hero v1.0.0</Text>
+
+                  <View style={{ marginTop: 18, alignItems: "center" }}>
+                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 8 }}>CREDITS</Text>
+                    <Text style={{ color: "#888888", fontSize: 11, textAlign: "center", lineHeight: 16 }}>
+                      Beverage icons by{" "}
+                      <Text
+                        style={{ color: "#888888", textDecorationLine: "underline" }}
+                        onPress={() => Linking.openURL("https://tabler.io/icons").catch(() => {})}
+                      >
+                        Tabler Icons
+                      </Text>
+                      {" "}(MIT License)
+                    </Text>
+                  </View>
                 </View>
 
           </ScrollView>
