@@ -82,21 +82,22 @@ const classicPack: SoundPack = {
     // Mechanical thud — caller adds reelIndex * 50 Hz offset
     reelStop: [{ freq: 380, durationMs: 110, amplitude: 88 }],
 
-    // Ascending 5-note fanfare
+    // Goal-reached: rising water-splash whoosh into a bright held chime.
+    // Replaces the previous C-major arpeggio (C-E-G-C) which was textbook
+    // slot-machine fanfare. The frequency slide at the start reads as
+    // "satisfying splash" not "discrete win notes."
     jackpot: [
-      { freq: 523, durationMs: 130, amplitude: 88, silenceMs: 25 },
-      { freq: 659, durationMs: 130, amplitude: 90, silenceMs: 25 },
-      { freq: 784, durationMs: 130, amplitude: 92, silenceMs: 25 },
-      { freq: 1047, durationMs: 130, amplitude: 95, silenceMs: 25 },
-      { freq: 1047, durationMs: 600, amplitude: 98 },
+      { freq: 220, freqEnd: 880,  durationMs: 320, amplitude: 75, silenceMs: 25 },
+      { freq: 1047, durationMs: 120, amplitude: 92, silenceMs: 30 },
+      { freq: 1568, durationMs: 700, amplitude: 96 },
     ],
 
-    // Rising bell arpeggio
+    // Badge unlock: soft two-tone "tap-chime" notification.
+    // Replaces the previous A-C-E-G arpeggio. Pitched bright but minimal —
+    // clearly an unlock notification, not a celebratory fanfare.
     badgeUnlock: [
-      { freq: 880,  durationMs: 160, amplitude: 86, silenceMs: 35 },
-      { freq: 1047, durationMs: 160, amplitude: 88, silenceMs: 35 },
-      { freq: 1319, durationMs: 160, amplitude: 91, silenceMs: 35 },
-      { freq: 1568, durationMs: 440, amplitude: 94 },
+      { freq: 1175, durationMs: 90, amplitude: 80, silenceMs: 40 },
+      { freq: 1568, durationMs: 420, amplitude: 92 },
     ],
 
     // Gentle two-tone drop

@@ -1223,7 +1223,16 @@ function AnimatedWaterSVG({
 
   const phase = phaseRef.current;
   const fillPct = fillPctRef.current;
-  const waterH = Math.max(Math.min(Math.round(fillPct * AD_GLASS_H), AD_GLASS_H), fillPct > 0 ? 1 : 0);
+  // Visual mapping:
+  //   • Empty only when truly zero (start of day or right after Reset).
+  //   • Any positive intake gets at least ~18% of the visible glass so
+  //     the first drink registers (linear mapping at 12% is ~21 px,
+  //     basically invisible against the gold frame's rounded corners).
+  //   • Math.ceil so a true 100% fills the very top — Math.round would
+  //     leave a 1 px gap at fillPct=0.998 .
+  const MIN_VISIBLE_FRACTION = 0.18;
+  const targetFrac = fillPct <= 0 ? 0 : Math.max(fillPct, MIN_VISIBLE_FRACTION);
+  const waterH = Math.min(Math.ceil(targetFrac * AD_GLASS_H), AD_GLASS_H);
   const waterTop = AD_GLASS_Y + AD_GLASS_H - waterH;
   const waterBot = AD_GLASS_Y + AD_GLASS_H;
 
@@ -1377,12 +1386,13 @@ function ArtDecoVault({
   }, [focused]);
 
   // ── fill animation: deferred when a drink is logged ──
-  // On a normal pct change (mount, midnight reset, watch sync) we animate
-  // immediately. On a drink log, we skip the auto-fire and let
-  // LastDrinkReveal's onReachTank trigger the rise so the waves climb at
-  // the exact moment the handoff droplet lands in the tank.
+  // Normal pct changes (mount, midnight reset, Reset Today, watch sync)
+  // animate immediately. Drink-log pct changes are detected by the logNonce
+  // jumping ahead; we skip the auto-fire and let LastDrinkReveal's
+  // onReachTank trigger the rise so the waves climb at the exact moment
+  // the handoff droplet lands in the tank.
   const fillAnim = useRef(new Animated.Value(pct)).current;
-  const skipNextFill = useRef(false);
+  const lastSeenLogNonce = useRef(0);
 
   useEffect(() => {
     const id = fillAnim.addListener(({ value }) => { fillPctRef.current = value; });
@@ -1390,12 +1400,20 @@ function ArtDecoVault({
   }, [fillAnim]);
 
   useEffect(() => {
-    if (skipNextFill.current) { skipNextFill.current = false; return; }
+    // A bumped logNonce means this pct change comes from a fresh drink log —
+    // the handoff droplet's onReachTank will run the tank rise. We just
+    // mark the nonce as seen and bail. This is robust to effect ordering:
+    // even if useEffect[logNonce] fires first or last, this check is purely
+    // value-based, not state-based.
+    if (logNonce > lastSeenLogNonce.current) {
+      lastSeenLogNonce.current = logNonce;
+      return;
+    }
     Animated.timing(fillAnim, {
       toValue: pct, duration: 1200, useNativeDriver: false,
       easing: Easing.out(Easing.cubic),
     }).start();
-  }, [pct, fillAnim]);
+  }, [pct, fillAnim, logNonce]);
 
   // ── Last-drink reveal: play() runs splash → ring → onHandoffStart ──
   // The actual ring→tank droplet animation is a top-level overlay (sibling of
@@ -1405,7 +1423,6 @@ function ArtDecoVault({
 
   useEffect(() => {
     if (logNonce === 0) return;  // initial mount, no log yet
-    skipNextFill.current = true;  // wait for the overlay drop to land before tank rises
     revealRef.current?.play();
   }, [logNonce]);
 
@@ -3954,7 +3971,6 @@ export default function WaterTracker() {
     setResultMessage(null);
     setLastReelOz(oz);
     setLastLoggedCategory(selectedCategory);
-    setLogNonce(n => n + 1);
     const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
     const hydrated = calcHydratedOz(oz, selectedCategory);
     const triggersJackpot = await addWater(oz, selectedCategory);
@@ -3965,7 +3981,13 @@ export default function WaterTracker() {
     // We pour into the tank immediately and gate further taps for that window.
     setSpinning(true);
     if (triggersJackpot) setJackpotSpinning(true);
+    // CRITICAL: bump logNonce in the SAME render batch as setDisplayedHydration.
+    // The vault's useEffect[logNonce] fires revealRef.play(), which captures
+    // the current `onReachTank` closure (which captures `pct`). If logNonce
+    // bumps before pct updates, the play() chain animates fillAnim to the
+    // STALE pct — i.e. empty tank on first log, last-value on subsequent.
     setDisplayedHydration((prev) => prev + hydrated);
+    setLogNonce(n => n + 1);
     playWaterLogSound();
     playWaterFillSound();
     // fireSpray now triggers from the vault's onTankFill so it fires when the
@@ -4258,6 +4280,11 @@ export default function WaterTracker() {
             setLastEntryCategory(null);
             setDrinkLogEntries([]);
             setFirstDrinkTime(null);
+            // Clear the LAST DRINK reveal panel so it goes back to its empty
+            // state ("Tap a quick-add amount") and re-arm the goal celebration
+            // so the user can hit jackpot again the same day after resetting.
+            setLastReelOz(0);
+            setJackpotFiredToday(false);
             await AsyncStorage.setItem(getTodayKey(), JSON.stringify(0));
             await AsyncStorage.setItem("water_total_hydration", JSON.stringify(0));
             await AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
