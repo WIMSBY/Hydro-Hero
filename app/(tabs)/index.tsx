@@ -3469,11 +3469,19 @@ export default function WaterTracker() {
     }
   }
 
+  // Open the paywall from inside the Settings page-sheet modal. iOS can't
+  // present a Modal while another Modal is mid-dismiss — if we don't defer,
+  // the Paywall appears but its Subscribe button absorbs no touches. (Apple
+  // 2.1(b) rejection on Build 20.)
+  function openPaywallFromSettings() {
+    setShowSettingsModal(false);
+    setTimeout(openPaywall, 350);
+  }
+
   // ── CSV Export ────────────────────────────────────────────────────────────
   async function handleExportCSV() {
     if (!isPro) {
-      setShowSettingsModal(false);
-      openPaywall();
+      openPaywallFromSettings();
       return;
     }
 
@@ -5286,9 +5294,8 @@ export default function WaterTracker() {
                     </View>
                     <Switch
                       value={soundEnabled}
-                      disabled={!isPro}
                       onValueChange={async (val) => {
-                        if (!isPro) { openPaywall(); return; }
+                        if (!isPro) { openPaywallFromSettings(); return; }
                         setSoundEnabledState(val);
                         setSoundEnabled(val);
                         try { await AsyncStorage.setItem("sound_enabled", String(val)); } catch {}
@@ -5321,7 +5328,7 @@ export default function WaterTracker() {
                             opacity: locked ? 0.65 : 1,
                           }}
                           onPress={async () => {
-                            if (locked) { openPaywall(); return; }
+                            if (locked) { openPaywallFromSettings(); return; }
                             setSelectedSoundPack(pack.id);
                             try {
                               await AsyncStorage.setItem("selected_sound_pack", pack.id);
@@ -5388,9 +5395,8 @@ export default function WaterTracker() {
                     </View>
                     <Switch
                       value={hapticsEnabled}
-                      disabled={!isPro}
                       onValueChange={async (val) => {
-                        if (!isPro) { openPaywall(); return; }
+                        if (!isPro) { openPaywallFromSettings(); return; }
                         setHapticsEnabled(val);
                         try { await AsyncStorage.setItem("haptics_enabled", String(val)); } catch {}
                       }}
