@@ -26,6 +26,7 @@ import * as Haptics from "expo-haptics";
 import * as Sentry from "@sentry/react-native";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useProContext } from "../../contexts/ProContext";
+import { getRevenueCatPurchases } from "../../utils/revenueCat";
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useReducer, useRef, useState } from "react";
 import Reanimated, {
   useSharedValue,
@@ -3469,6 +3470,43 @@ export default function WaterTracker() {
     }
   }
 
+  // Debug: clears every path that grants Pro on this device so the paywall can
+  // be re-tested on TestFlight. Triggered by long-pressing the version label.
+  async function resetProForTesting() {
+    try {
+      await AsyncStorage.multiRemove([
+        'hasLifetimeAccess',
+        'promo_lifetime_unlocked',
+        'LIFETIME2026_used',
+      ]);
+    } catch {}
+    try {
+      const Purchases = getRevenueCatPurchases();
+      // logOut generates a fresh anonymous RC user ID, so any entitlement on
+      // the previous customer record stops applying to this device.
+      if (Purchases) await (Purchases as any).logOut?.();
+    } catch {}
+    await checkProStatus();
+  }
+
+  function confirmResetProForTesting() {
+    Alert.alert(
+      'Reset Pro?',
+      'Clears the lifetime promo flag and signs out of RevenueCat on this device. Use to re-test the paywall.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: async () => {
+            await resetProForTesting();
+            Alert.alert('Pro Reset', 'Pro access has been cleared. Force-quit and reopen the app if the paywall does not appear.', [{ text: 'OK' }]);
+          },
+        },
+      ],
+    );
+  }
+
   // Open the paywall from inside the Settings page-sheet modal. iOS can't
   // present a Modal while another Modal is mid-dismiss — if we don't defer,
   // the Paywall appears but its Subscribe button absorbs no touches. (Apple
@@ -5533,9 +5571,11 @@ export default function WaterTracker() {
                   <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>ABOUT</Text>
 
                   <Text style={{ color: "#1a1a2e", fontSize: 14, fontWeight: "700" }}>Hydro Hero</Text>
-                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 2 }}>
-                    Version {Constants.expoConfig?.version ?? "1.0.0"} (Build {Constants.expoConfig?.ios?.buildNumber ?? ""})
-                  </Text>
+                  <TouchableOpacity onLongPress={confirmResetProForTesting} delayLongPress={1200} activeOpacity={1}>
+                    <Text style={{ color: "#888888", fontSize: 11, marginTop: 2 }}>
+                      Version {Constants.expoConfig?.version ?? "1.0.0"} (Build {Constants.expoConfig?.ios?.buildNumber ?? ""})
+                    </Text>
+                  </TouchableOpacity>
 
                   <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/privacy-policy.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 14 }}>
                     <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
