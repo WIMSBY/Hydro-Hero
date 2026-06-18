@@ -48,7 +48,7 @@ const CARD_BORDER_GOLD = 'rgba(255,215,0,0.45)';
 const REEL_FEATURES = [
   '20 Drink Categories',
   'Full Analytics',
-  'Squad Mode',
+  'Unlimited Squad Members',
   'Sound Effects',
   'Custom Quick Add',
 ];
@@ -71,7 +71,7 @@ interface PaywallProps {
   onPurchaseSuccess: () => void;
 }
 
-const MONTHLY_PRICE_FALLBACK = '$1.99';
+const MONTHLY_PRICE_FALLBACK = '$0.99';
 const LIFETIME_PRICE_FALLBACK = '$9.99';
 
 export default function Paywall({ visible, onClose, onPurchaseSuccess }: PaywallProps) {
