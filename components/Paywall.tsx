@@ -22,7 +22,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import * as Sentry from '@sentry/react-native';
 import { getRevenueCatPurchases } from '../utils/revenueCat';
+
+// Session-level dedupe so a misconfigured RC dashboard doesn't spam Sentry
+// every time the paywall opens.
+const sentryReportedOfferingIssues = new Set<string>();
+function reportOfferingIssueOnce(key: string, fn: () => void) {
+  if (sentryReportedOfferingIssues.has(key)) return;
+  sentryReportedOfferingIssues.add(key);
+  try { fn(); } catch {}
+}
 
 const GOLD = '#FFD700';
 const GOLD_DIM = '#c8a000';
@@ -98,11 +108,49 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
         const lifetime = pkgs.find((p: any) =>
           p.packageType === 'LIFETIME' || p.identifier?.toLowerCase().includes('lifetime')
         );
+
+        // Sanity bells — surface RC dashboard drift loudly instead of falling
+        // back silently. Each distinct issue fires at most once per session.
+        if (!offerings?.current) {
+          reportOfferingIssueOnce('no-current-offering', () => {
+            Sentry.captureMessage('RevenueCat: offerings.current is null', 'warning');
+          });
+        } else if (pkgs.length === 0) {
+          reportOfferingIssueOnce('empty-packages', () => {
+            Sentry.captureMessage('RevenueCat: current offering has no available packages', 'warning');
+          });
+        } else if (!monthly || !lifetime) {
+          reportOfferingIssueOnce(`missing-${!monthly ? 'monthly' : ''}${!lifetime ? '-lifetime' : ''}`, () => {
+            Sentry.withScope((scope) => {
+              scope.setContext('rc_offering', {
+                offeringId: offerings.current?.identifier,
+                packageCount: pkgs.length,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                packages: pkgs.map((p: any) => ({
+                  identifier: p.identifier,
+                  packageType: p.packageType,
+                  productId: p.product?.productIdentifier,
+                })),
+                monthlyFound: !!monthly,
+                lifetimeFound: !!lifetime,
+              });
+              Sentry.captureMessage(
+                `RevenueCat: missing ${!monthly ? 'monthly' : ''}${!monthly && !lifetime ? ' & ' : ''}${!lifetime ? 'lifetime' : ''} package`,
+                'warning',
+              );
+            });
+          });
+        }
+
         if (!cancelled) {
           setMonthlyPkg(monthly ?? null);
           setLifetimePkg(lifetime ?? null);
         }
-      } catch {}
+      } catch (e) {
+        reportOfferingIssueOnce('offerings-fetch-threw', () => {
+          Sentry.captureException(e);
+        });
+      }
     })();
     return () => { cancelled = true; };
   }, [visible]);
@@ -141,19 +189,11 @@ export default function Paywall({ visible, onClose, onPurchaseSuccess }: Paywall
       const offerings = await Purchases.getOfferings();
       const pkgs = offerings?.current?.availablePackages ?? [];
 
-      let pkg = pkgs.find((p: any) =>
+      const pkg = pkgs.find((p: any) =>
         packageType === 'monthly'
           ? p.packageType === 'MONTHLY' || p.identifier?.toLowerCase().includes('monthly')
           : p.packageType === 'LIFETIME' || p.identifier?.toLowerCase().includes('lifetime')
       );
-
-      // Fallback: try product identifier match
-      if (!pkg) {
-        const targetId = packageType === 'monthly'
-          ? 'com.wimsby.liquidluck.pro.monthly'
-          : 'com.wimsby.liquidluck.pro.lifetime';
-        pkg = pkgs.find((p: any) => p.product?.productIdentifier === targetId);
-      }
 
       if (!pkg) {
         Alert.alert(
