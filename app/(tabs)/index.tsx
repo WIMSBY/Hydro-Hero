@@ -23,6 +23,7 @@ import { seedDemoData, clearDemoData } from "../../utils/devSeed";
 import { initWatch, teardownWatch, sendHydrationUpdate, setWatchMessageHandler } from "../../utils/WatchManager";
 import { useIsFocused } from "@react-navigation/native";
 import { router } from "expo-router";
+import { setSettingsModalOpener } from "../../utils/settingsModal";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
@@ -2706,6 +2707,13 @@ export default function WaterTracker() {
   const [showHealthModal, setShowHealthModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
+  // The Settings tab in the bottom bar calls requestOpenSettings() to open
+  // this modal. Register the opener while Home is mounted.
+  useEffect(() => {
+    setSettingsModalOpener(() => setShowSettingsModal(true));
+    return () => setSettingsModalOpener(null);
+  }, []);
+
   // Quick Add customization
   const [quickAddAmounts, setQuickAddAmounts] = useState<number[]>(QUICK_ADD_DEFAULTS);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
@@ -4290,13 +4298,8 @@ export default function WaterTracker() {
             <Text style={casinoActionBtnText}>↩ Undo</Text>
           </TouchableOpacity>
         </View>
-        <View style={[styles.actionRow, { marginBottom: 16 }]}>
-          <TouchableOpacity style={casinoActionBtn} onPress={() => setShowSettingsModal(true)}>
-            <Text style={casinoActionBtnText}>⚙️ Settings</Text>
-          </TouchableOpacity>
-        </View>
         <TouchableOpacity
-          style={{ alignSelf: 'center', padding: 16, marginBottom: 32 }}
+          style={{ alignSelf: 'center', padding: 16, marginTop: 8, marginBottom: 32 }}
           activeOpacity={0.7}
           onPress={() => setShowPromoModal(true)}
         >
