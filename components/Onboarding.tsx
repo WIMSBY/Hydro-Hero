@@ -255,6 +255,8 @@ const dotS = StyleSheet.create({
   inactive: { backgroundColor: "rgba(255,255,255,0.25)" },
 });
 
+function ozToMl(oz: number) { return Math.round(oz * 29.5735); }
+
 // ─── Goal option button ───────────────────────────────────────────────────────
 interface GoalOptionProps {
   label: string;
@@ -520,19 +522,19 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
       <View style={s.goalList}>
         <GoalOption
           label="Half Gallon"
-          sublabel="64 oz · Minimum recommended"
+          sublabel={`64 oz · ${ozToMl(64)} ml · Minimum recommended`}
           selected={isPresetSelected(64)}
           onPress={() => onSelect(64)}
         />
         <GoalOption
           label="One Gallon"
-          sublabel="128 oz · High performance"
+          sublabel={`128 oz · ${ozToMl(128)} ml · High performance`}
           selected={isPresetSelected(128)}
           onPress={() => onSelect(128)}
         />
         <GoalOption
           label="Custom"
-          sublabel={isCustomSelected ? `${selectedGoal} oz` : "Set your own number"}
+          sublabel={isCustomSelected && selectedGoal !== null ? `${selectedGoal} oz · ${ozToMl(selectedGoal)} ml` : "Set your own number"}
           selected={isCustomSelected}
           onPress={openCustomGoal}
         />
@@ -604,7 +606,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
         activeOpacity={0.85}
       >
         <Text style={s.recommendTag}>✨ RECOMMENDED FOR YOU</Text>
-        <Text style={s.recommendValue}>{recommended} oz</Text>
+        <Text style={s.recommendValue}>{recommended} oz · {ozToMl(recommended)} ml</Text>
         <Text style={s.recommendSub}>
           {weightLbs} lb · {activity === "low" ? "Low" : activity === "moderate" ? "Moderate" : "High"} activity
           {sex ? ` · ${sex === "male" ? "Male" : "Female"}` : ""}
@@ -641,6 +643,11 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
               placeholder={String(recommended)}
               placeholderTextColor="rgba(255,255,255,0.25)"
             />
+            {customGoalDraft && (
+              <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, textAlign: 'center', marginTop: -6, marginBottom: 12 }}>
+                = {ozToMl(Number(customGoalDraft) || 0)} ml
+              </Text>
+            )}
             <View style={s.customGoalActions}>
               <TouchableOpacity style={s.customGoalCancel} onPress={() => setShowCustomGoal(false)} activeOpacity={0.8}>
                 <Text style={s.customGoalCancelText}>Cancel</Text>

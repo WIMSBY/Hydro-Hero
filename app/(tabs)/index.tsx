@@ -3637,17 +3637,19 @@ export default function WaterTracker() {
   }
 
   async function handleSetGoal() {
-    const g = parseFloat(newGoal);
-    if (!isNaN(g) && g > 0) {
-      haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
-      setGoal(g);
-      await AsyncStorage.setItem("water_goal", JSON.stringify(g));
-      closeGoalModal();
-      sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: g, pct: g > 0 ? totalHydration / g : 0, streak: 0, selectedBeverages }).catch(() => {});
-      rescheduleAfterGoalChange(g);
-    } else {
+    const raw = parseFloat(newGoal);
+    if (isNaN(raw) || raw <= 0) {
       Alert.alert("Invalid Goal", "Please enter a valid number.");
+      return;
     }
+    // Storage is always oz; convert ml input back if the user is in ml mode.
+    const g = preferredUnit === 'ml' ? Math.round((raw / 29.5735) * 10) / 10 : raw;
+    haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+    setGoal(g);
+    await AsyncStorage.setItem("water_goal", JSON.stringify(g));
+    closeGoalModal();
+    sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: g, pct: g > 0 ? totalHydration / g : 0, streak: 0, selectedBeverages }).catch(() => {});
+    rescheduleAfterGoalChange(g);
   }
 
   async function handleSetGallonGoal(oz: number) {
@@ -4322,7 +4324,7 @@ export default function WaterTracker() {
               <View>
                 <TextInput
                   style={styles.modalInput}
-                  placeholder="Enter goal in oz..."
+                  placeholder={preferredUnit === 'ml' ? "Enter goal in ml..." : "Enter goal in oz..."}
                   placeholderTextColor="#AAAAAA"
                   keyboardType="decimal-pad"
                   inputAccessoryViewID={KB_ACCESSORY_ID}
@@ -4330,7 +4332,11 @@ export default function WaterTracker() {
                   onChangeText={setNewGoal}
                 />
                 <Text style={styles.modalMl}>
-                  {newGoal ? `= ${ozToMl(parseFloat(newGoal) || 0)} ml` : ""}
+                  {newGoal
+                    ? preferredUnit === 'ml'
+                      ? `= ${((parseFloat(newGoal) || 0) / 29.5735).toFixed(1)} oz`
+                      : `= ${ozToMl(parseFloat(newGoal) || 0)} ml`
+                    : ""}
                 </Text>
                 <View style={styles.modalBtnRow}>
                   <TouchableOpacity style={styles.modalCancel} onPress={closeGoalModal}>
@@ -4361,8 +4367,12 @@ export default function WaterTracker() {
                       onPress={() => handleSetGallonGoal(oz)}
                     >
                       <Text style={styles.gallonPresetLabel}>{label}</Text>
-                      <Text style={[styles.gallonPresetOz, goal === oz && { color: stage.color }]}>{oz} oz</Text>
-                      <Text style={styles.gallonPresetMl}>{ozToMl(oz)} ml</Text>
+                      <Text style={[styles.gallonPresetOz, goal === oz && { color: stage.color }]}>
+                        {preferredUnit === 'ml' ? `${ozToMl(oz)} ml` : `${oz} oz`}
+                      </Text>
+                      <Text style={styles.gallonPresetMl}>
+                        {preferredUnit === 'ml' ? `${oz} oz` : `${ozToMl(oz)} ml`}
+                      </Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -4506,8 +4516,12 @@ export default function WaterTracker() {
                   <Text style={styles.suggestedResultLabel}>Recommended daily intake</Text>
                   {suggestedOz !== null ? (
                     <>
-                      <Text style={[styles.suggestedOz, { color: stage.color }]}>{suggestedOz} oz</Text>
-                      <Text style={styles.suggestedMl}>{ozToMl(suggestedOz)} ml</Text>
+                      <Text style={[styles.suggestedOz, { color: stage.color }]}>
+                        {preferredUnit === 'ml' ? `${ozToMl(suggestedOz)} ml` : `${suggestedOz} oz`}
+                      </Text>
+                      <Text style={styles.suggestedMl}>
+                        {preferredUnit === 'ml' ? `${suggestedOz} oz` : `${ozToMl(suggestedOz)} ml`}
+                      </Text>
                       {suggestedOz === 128 && (
                         <Text style={styles.suggestedCap}>Max recommendation is 1 gallon (128oz)</Text>
                       )}
