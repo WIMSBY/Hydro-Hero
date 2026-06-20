@@ -1655,9 +1655,9 @@ function ResultBox({ message }: { message: string | null }) {
   const rawOzNum = rawOzMatch ? parseFloat(rawOzMatch[1]) : 0;
   const isJackpot = !!message?.includes("GOAL");
   return (
-    <View style={rbStyles.wrapper}>
+    <View style={[rbStyles.wrapper, !message && rbStyles.wrapperIdle]}>
       <Text style={message ? rbStyles.result : rbStyles.idle}>
-        {message ?? "Select your drink and tap an amount to calculate hydration"}
+        {message ?? "Select your drink and tap an amount to reveal hydration"}
       </Text>
       {message && (
         <Text style={rbStyles.sub}>
@@ -1671,7 +1671,8 @@ function ResultBox({ message }: { message: string | null }) {
 }
 const rbStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 12, marginTop: 10, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)", minHeight: 58, justifyContent: "center" },
-  idle: { color: "rgba(255,255,255,0.7)", fontSize: 14, textAlign: "center", fontStyle: "italic" },
+  wrapperIdle: { backgroundColor: "rgba(0,0,0,0.2)", borderColor: "rgba(255,255,255,0.1)" },
+  idle: { color: "rgba(255,255,255,0.35)", fontSize: 14, textAlign: "center", fontStyle: "italic", fontWeight: "500" },
   result: { color: GOLD, fontSize: 16, fontWeight: "700", textAlign: "center" },
   sub: { color: "rgba(255,255,255,0.8)", fontSize: 13, textAlign: "center", marginTop: 4 },
 });
@@ -3785,6 +3786,7 @@ export default function WaterTracker() {
             // so the user can hit jackpot again the same day after resetting.
             setLastReelOz(0);
             setJackpotFiredToday(false);
+            setResultMessage(null);
             await AsyncStorage.setItem(getTodayKey(), JSON.stringify(0));
             await AsyncStorage.setItem("water_total_hydration", JSON.stringify(0));
             await AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
@@ -3938,7 +3940,7 @@ export default function WaterTracker() {
         <BeverageSelector
           selected={selectedCategory}
           onSelect={setSelectedCategory}
-          visibleBevs={selectedBeverages}
+          visibleBevs={isPro ? selectedBeverages : DEFAULT_VISIBLE_BEVS}
           isPro={isPro}
           onEditBevs={() => {
             if (!isPro) { openPaywall(); return; }
