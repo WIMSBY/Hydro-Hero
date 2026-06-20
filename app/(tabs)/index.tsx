@@ -290,49 +290,126 @@ const bannerStyles = StyleSheet.create({
 });
 
 // --- Presets Row ---
-function PresetsRow({ presets, onSelect, onDelete }: {
-  presets: Preset[]; onSelect: (p: Preset) => void; onDelete: (id: string) => void;
+function WiggleChip({ children, editMode, index }: { children: React.ReactNode; editMode: boolean; index: number }) {
+  const rot = useSharedValue(0);
+  useEffect(() => {
+    if (editMode) {
+      const amp = index % 2 === 0 ? 1.6 : 1.4;
+      const dur = 90 + (index % 3) * 8;
+      rot.value = withRepeat(
+        withSequence(
+          withTiming(-amp, { duration: dur }),
+          withTiming(amp, { duration: dur }),
+        ),
+        -1,
+        true,
+      );
+    } else {
+      cancelAnimation(rot);
+      rot.value = withTiming(0, { duration: 120 });
+    }
+  }, [editMode, index, rot]);
+  const aStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
+  return <Reanimated.View style={aStyle}>{children}</Reanimated.View>;
+}
+
+function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
+  presets: Preset[];
+  onSelect: (p: Preset) => void;
+  onDelete: (id: string) => void;
+  onReorder: (next: Preset[]) => void;
+  isPro: boolean;
 }) {
   const cat = (p: Preset) => CATEGORIES.find((c) => c.key === p.category)!;
+  const canReorder = isPro && presets.length > 1;
+  const [editMode, setEditMode] = useState(false);
+  useEffect(() => { if (!canReorder && editMode) setEditMode(false); }, [canReorder, editMode]);
+  const enterEdit = () => {
+    if (!canReorder || editMode) return;
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+    setEditMode(true);
+  };
+  const confirmDelete = (p: Preset) => Alert.alert("Delete Preset", `Remove "${p.label}"?`, [
+    { text: "Cancel", style: "cancel" },
+    { text: "Delete", style: "destructive", onPress: () => onDelete(p.id) },
+  ]);
+  const renderItem = ({ item, drag, isActive, getIndex }: RenderItemParams<Preset>) => {
+    const idx = getIndex() ?? 0;
+    return (
+      <ScaleDecorator>
+        <WiggleChip editMode={editMode && !isActive} index={idx}>
+          <View style={[presetStyles.chipWrap, isActive && { opacity: 0.85 }]}>
+            <TouchableOpacity
+              style={[presetStyles.chip, { borderLeftColor: cat(item).color }]}
+              onPress={() => { if (!editMode) onSelect(item); }}
+              onLongPress={canReorder ? () => {
+                if (!editMode) enterEdit();
+                drag();
+              } : undefined}
+              delayLongPress={editMode ? 120 : 260}
+              disabled={isActive}
+              activeOpacity={editMode ? 1 : 0.8}
+            >
+              <Text style={presetStyles.chipEmoji}>{cat(item).emoji}</Text>
+              <View>
+                <Text style={presetStyles.chipLabel}>{item.label}</Text>
+                <Text style={[presetStyles.chipSub, { color: cat(item).color }]}>{item.oz} oz</Text>
+              </View>
+            </TouchableOpacity>
+            {editMode && (
+              <TouchableOpacity
+                style={presetStyles.deleteBtn}
+                onPress={() => confirmDelete(item)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityLabel={`Delete ${item.label}`}
+              >
+                <Text style={presetStyles.deleteX}>×</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </WiggleChip>
+      </ScaleDecorator>
+    );
+  };
   return (
     <View style={presetStyles.wrapper}>
-      <Text style={presetStyles.label}>⚡ QUICK PRESETS</Text>
-      <FlatList
+      <View style={presetStyles.headerRow}>
+        <Text style={presetStyles.label}>⚡ QUICK PRESETS</Text>
+        {editMode && (
+          <TouchableOpacity onPress={() => setEditMode(false)} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+            <Text style={presetStyles.doneBtn}>Done</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <DraggableFlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         data={presets}
         keyExtractor={(p) => p.id}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[presetStyles.chip, { borderLeftColor: cat(item).color }]}
-            onPress={() => onSelect(item)}
-            onLongPress={() => Alert.alert("Delete Preset", `Remove "${item.label}"?`, [
-              { text: "Cancel", style: "cancel" },
-              { text: "Delete", style: "destructive", onPress: () => onDelete(item.id) },
-            ])}
-            activeOpacity={0.8}
-          >
-            <Text style={presetStyles.chipEmoji}>{cat(item).emoji}</Text>
-            <View>
-              <Text style={presetStyles.chipLabel}>{item.label}</Text>
-              <Text style={[presetStyles.chipSub, { color: cat(item).color }]}>{item.oz} oz</Text>
-            </View>
-          </TouchableOpacity>
-        )}
+        contentContainerStyle={{ gap: 10, paddingHorizontal: 4, paddingTop: 8, paddingBottom: 2 }}
+        renderItem={renderItem}
+        onDragEnd={({ data }) => onReorder(data)}
+        activationDistance={canReorder ? 6 : 10000}
       />
-      <Text style={presetStyles.hint}>Long-press to delete</Text>
+      <Text style={presetStyles.hint}>
+        {editMode ? "Drag to reorder · Tap × to delete · Done when finished" : canReorder ? "Long-press to edit" : "Long-press to delete"}
+      </Text>
     </View>
   );
 }
 
 const presetStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 24, marginTop: 16 },
-  label: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, marginBottom: 8 },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  label: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8 },
+  doneBtn: { color: "#FFD700", fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
+  chipWrap: { position: "relative" },
   chip: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderLeftWidth: 3 },
   chipEmoji: { fontSize: 20 },
   chipLabel: { color: "#ffffff", fontSize: 12, fontWeight: "600" },
   chipSub: { fontSize: 11, fontWeight: "700" },
+  deleteBtn: { position: "absolute", top: -7, right: -7, width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.92)", borderWidth: 1, borderColor: "rgba(255,255,255,0.45)", alignItems: "center", justifyContent: "center" },
+  deleteX: { color: "#ffffff", fontSize: 15, fontWeight: "700", lineHeight: 17, marginTop: -1 },
   hint: { color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 4 },
 });
 
@@ -3280,6 +3357,11 @@ export default function WaterTracker() {
     await AsyncStorage.setItem("water_presets", JSON.stringify(updated));
   }
 
+  async function reorderPresets(next: Preset[]) {
+    setPresets(next);
+    try { await AsyncStorage.setItem("water_presets", JSON.stringify(next)); } catch {}
+  }
+
   async function saveIntake(newIntake: number, newBreakdown: Record<BevCategory, number>, newHydration: number) {
     const todayKey = getTodayKey();
     const currentGoal = goal;
@@ -3931,8 +4013,15 @@ export default function WaterTracker() {
         {presets.length > 0 && (
           <PresetsRow
             presets={presets}
-            onSelect={(p) => addWater(p.oz, p.category)}
+            onSelect={(p) => {
+              haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+              setSelectedCategory(p.category);
+              setPendingQty(1);
+              setPendingBetOz(p.oz);
+            }}
             onDelete={deletePreset}
+            onReorder={reorderPresets}
+            isPro={isPro}
           />
         )}
 
