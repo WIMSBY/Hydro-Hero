@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Modal,
   ScrollView,
@@ -13,6 +14,17 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, G, Line, Rect, Text as SvgText } from 'react-native-svg';
+import * as Sentry from '@sentry/react-native';
+import { useProContext } from '../../contexts/ProContext';
+import {
+  buildHydrationCSV,
+  shareExportFile,
+  deleteExportFile,
+  type HydrationExportSummary,
+} from '../../utils/hydrationExport';
+
+const FREE_EXPORT_DAYS = 7;
+const PRO_EXPORT_DAYS = 30;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const GOLD = '#FFD700';
@@ -429,6 +441,7 @@ function MonthlyView({
   longestStreak: number; currentStreak: number;
   onDayPress: (d: DayStats) => void;
 }) {
+  const { isPro, openPaywall } = useProContext();
   const pastWithData = days.filter((d) => d.hasData && !d.isFuture);
   const totalHyd = pastWithData.reduce((a, d) => a + d.hydratedOz, 0);
   const avgHyd = pastWithData.length ? totalHyd / pastWithData.length : 0;
@@ -446,19 +459,164 @@ function MonthlyView({
       </View>
 
       <SectionTitle title={`${MONTH_NAMES[today.getMonth()].toUpperCase()} CALENDAR`} />
-      <MonthCalendar days={days} today={today} onDayPress={onDayPress} />
+      {isPro ? (
+        <MonthCalendar days={days} today={today} onDayPress={onDayPress} />
+      ) : (
+        <LockedSection
+          emoji="🗓️"
+          headline="See your whole month at a glance"
+          sub="Daily heatmap of every goal hit. Tap any day to drill in."
+          onUnlock={() => openPaywall()}
+        />
+      )}
 
       <SectionTitle title="MONTHLY TREND" />
-      <TrendChart days={days} goal={goal} />
+      {isPro ? (
+        <TrendChart days={days} goal={goal} />
+      ) : (
+        <LockedSection
+          emoji="📈"
+          headline="Track your trajectory"
+          sub="A line chart of your hydration vs. goal over the month."
+          onUnlock={() => openPaywall()}
+        />
+      )}
 
       <SectionTitle title="PERSONAL RECORDS" />
-      <View style={s.recordGrid}>
-        <RecordCard emoji="💧" label="Best Single Day" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} />
-        <RecordCard emoji="👑" label="Longest Streak" value={`${longestStreak} days`} />
-        <RecordCard emoji="🔥" label="Current Streak" value={`${currentStreak} days`} />
-        <RecordCard emoji="🌊" label="Lifetime Total" value={`${lifetimeOz.toFixed(0)} oz`} />
-      </View>
+      {isPro ? (
+        <View style={s.recordGrid}>
+          <RecordCard emoji="💧" label="Best Single Day" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} />
+          <RecordCard emoji="👑" label="Longest Streak" value={`${longestStreak} days`} />
+          <RecordCard emoji="🔥" label="Current Streak" value={`${currentStreak} days`} />
+          <RecordCard emoji="🌊" label="Lifetime Total" value={`${lifetimeOz.toFixed(0)} oz`} />
+        </View>
+      ) : (
+        <LockedSection
+          emoji="🏆"
+          headline="Unlock your records"
+          sub="Best day, longest streak, current streak, and lifetime total."
+          onUnlock={() => openPaywall()}
+        />
+      )}
+
+      <SectionTitle title="EXPORT" />
+      <ExportSection />
     </>
+  );
+}
+
+function ExportSection() {
+  const { isPro, openPaywall } = useProContext();
+  const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<HydrationExportSummary | null>(null);
+  const days = isPro ? PRO_EXPORT_DAYS : FREE_EXPORT_DAYS;
+
+  async function handleExport() {
+    setLoading(true);
+    try {
+      const result = await buildHydrationCSV(days);
+      if (!result) {
+        Alert.alert('No History Yet', 'No history to export yet — start logging to build your history!');
+        return;
+      }
+      setSummary(result);
+    } catch (e) {
+      Sentry.captureException(e);
+      Alert.alert('Export Failed', `Something went wrong: ${(e as Error)?.message ?? String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleShare() {
+    if (!summary) return;
+    try {
+      await shareExportFile(summary.filePath);
+    } catch {
+      Alert.alert('Share Failed', 'Could not open the share sheet. Please try again.');
+    } finally {
+      deleteExportFile(summary.filePath);
+      setSummary(null);
+    }
+  }
+
+  function handleCancel() {
+    if (summary) deleteExportFile(summary.filePath);
+    setSummary(null);
+  }
+
+  return (
+    <>
+      <View style={s.card}>
+        <TouchableOpacity
+          style={[s.exportBtn, loading && { opacity: 0.6 }]}
+          onPress={handleExport}
+          disabled={loading}
+          activeOpacity={0.85}
+        >
+          {loading
+            ? <ActivityIndicator size="small" color={GOLD} />
+            : <Text style={{ fontSize: 18 }}>⬇️</Text>}
+          <Text style={s.exportBtnTxt}>Export {days} days as CSV</Text>
+        </TouchableOpacity>
+        {!isPro && (
+          <TouchableOpacity onPress={() => openPaywall()} activeOpacity={0.7}>
+            <Text style={s.exportProHint}>
+              Get the full {PRO_EXPORT_DAYS} days with <Text style={{ color: GOLD, fontWeight: '800' }}>Pro</Text> →
+            </Text>
+          </TouchableOpacity>
+        )}
+        <Text style={s.exportFootnote}>
+          Your hydration data lives on this device. Your iPhone backup keeps it safe across new devices.
+        </Text>
+      </View>
+
+      <Modal visible={!!summary} transparent animationType="fade" onRequestClose={handleCancel}>
+        <View style={s.exportOverlay}>
+          <View style={s.exportModal}>
+            <Text style={{ fontSize: 36, marginBottom: 8 }}>✅</Text>
+            <Text style={s.exportModalTitle}>Ready to Export!</Text>
+            <Text style={s.exportModalSub}>
+              Your hydration history is packaged and ready to share
+            </Text>
+            <View style={{ width: '100%', gap: 10, marginBottom: 24 }}>
+              {([
+                ['📅', 'Days included', `${summary?.days ?? 0} days`],
+                ['💧', 'Total consumed', `${summary?.totalConsumed ?? 0} oz`],
+                ['✨', 'True hydration', `${summary?.totalHydrated ?? 0} oz`],
+                ['🔥', 'Best streak', `${summary?.bestStreak ?? 0} days`],
+              ] as const).map(([emoji, label, value]) => (
+                <View key={label} style={s.exportStatRow}>
+                  <Text style={s.exportStatLabel}>{emoji} {label}</Text>
+                  <Text style={s.exportStatValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
+            <TouchableOpacity style={s.exportShareBtn} onPress={handleShare} activeOpacity={0.85}>
+              <Text style={s.exportShareTxt}>📤 Share File</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={handleCancel}>
+              <Text style={s.exportCancelTxt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+function LockedSection({
+  emoji, headline, sub, onUnlock,
+}: { emoji: string; headline: string; sub: string; onUnlock: () => void }) {
+  return (
+    <TouchableOpacity style={s.lockedCard} activeOpacity={0.85} onPress={onUnlock}>
+      <Text style={s.lockedEmoji}>{emoji}</Text>
+      <Text style={s.lockedHeadline}>{headline}</Text>
+      <Text style={s.lockedSub}>{sub}</Text>
+      <View style={s.lockedBtn}>
+        <Text style={s.lockedBtnTxt}>⭐ Unlock with Pro</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -852,4 +1010,56 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   popupCloseTxt: { color: GOLD, fontSize: 14, fontWeight: '700' },
+
+  // Locked section (free tier in Stats)
+  lockedCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    padding: 22,
+    alignItems: 'center',
+  },
+  lockedEmoji: { fontSize: 36, marginBottom: 8 },
+  lockedHeadline: { color: '#fff', fontSize: 15, fontWeight: '800', textAlign: 'center', marginBottom: 4 },
+  lockedSub: { color: 'rgba(255,255,255,0.55)', fontSize: 12, textAlign: 'center', lineHeight: 17, marginBottom: 14, maxWidth: 280 },
+  lockedBtn: {
+    backgroundColor: GOLD,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  lockedBtnTxt: { color: '#0a0520', fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
+
+  // Export section
+  exportBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: GOLD, borderRadius: 12,
+    paddingVertical: 14, paddingHorizontal: 16, gap: 8,
+  },
+  exportBtnTxt: { color: GOLD, fontSize: 15, fontWeight: '700' },
+  exportProHint: { color: 'rgba(255,255,255,0.55)', fontSize: 12, textAlign: 'center', marginTop: 10 },
+  exportFootnote: { color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 12, textAlign: 'center', lineHeight: 16 },
+
+  exportOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  exportModal: {
+    backgroundColor: '#0d0030', borderRadius: 20,
+    borderWidth: 2, borderColor: 'rgba(255,215,0,0.5)',
+    padding: 28, width: '100%', alignItems: 'center',
+  },
+  exportModalTitle: { color: GOLD, fontSize: 22, fontWeight: '900', marginBottom: 4 },
+  exportModalSub: { color: 'rgba(255,255,255,0.55)', fontSize: 13, marginBottom: 20, textAlign: 'center' },
+  exportStatRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10,
+    paddingVertical: 10, paddingHorizontal: 14,
+  },
+  exportStatLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 13 },
+  exportStatValue: { color: GOLD, fontSize: 14, fontWeight: '700' },
+  exportShareBtn: {
+    width: '100%', backgroundColor: GOLD, borderRadius: 14,
+    paddingVertical: 16, alignItems: 'center', marginBottom: 10,
+  },
+  exportShareTxt: { color: '#0a0520', fontSize: 16, fontWeight: '900' },
+  exportCancelTxt: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
 });

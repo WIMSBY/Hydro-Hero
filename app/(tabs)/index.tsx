@@ -18,8 +18,6 @@ import { seedDemoData, clearDemoData } from "../../utils/devSeed";
 import { initWatch, teardownWatch, sendHydrationUpdate, setWatchMessageHandler } from "../../utils/WatchManager";
 import { useIsFocused } from "@react-navigation/native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { File as FSFile, Paths as FSPaths } from "expo-file-system";
-import * as Sharing from "expo-sharing";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as Haptics from "expo-haptics";
@@ -2898,13 +2896,6 @@ export default function WaterTracker() {
   // Post-jackpot fact/joke card
   const [showFactCard, setShowFactCard] = useState(false);
 
-  // CSV export
-  const [exportLoading, setExportLoading] = useState(false);
-  const [showExportSummary, setShowExportSummary] = useState(false);
-  const [exportSummary, setExportSummary] = useState<{
-    days: number; totalConsumed: number; totalHydrated: number; bestStreak: number; filePath: string;
-  } | null>(null);
-
   // Promo code
   const [showPromoModal, setShowPromoModal] = useState(false);
   const [promoCode, setPromoCode] = useState('');
@@ -3514,162 +3505,6 @@ export default function WaterTracker() {
   function openPaywallFromSettings() {
     setShowSettingsModal(false);
     setTimeout(openPaywall, 350);
-  }
-
-  // ── CSV Export ────────────────────────────────────────────────────────────
-  async function handleExportCSV() {
-    if (!isPro) {
-      openPaywallFromSettings();
-      return;
-    }
-
-    setExportLoading(true);
-    try {
-      // Load all history data
-      const [rawHistory, rawGoalHist] = await Promise.all([
-        AsyncStorage.getItem("water_history"),
-        AsyncStorage.getItem("goal_history"),
-      ]);
-
-      const historyArr: { date: string; oz: number; goal: number; breakdown?: Record<string, number> }[] =
-        rawHistory ? JSON.parse(rawHistory) : [];
-
-      if (historyArr.length === 0) {
-        Alert.alert("No History Yet", "No history to export yet — start logging to build your history!");
-        return;
-      }
-
-      const goalHistMap: Record<string, number> = rawGoalHist ? JSON.parse(rawGoalHist) : {};
-
-      // Build streak map: for each date key, what consecutive-day streak number was it?
-      const sortedKeys = Object.keys(goalHistMap)
-        .filter((k) => goalHistMap[k] >= 1.0)
-        .sort();
-      const streakMap: Record<string, number> = {};
-      let run = 0;
-      for (let i = 0; i < sortedKeys.length; i++) {
-        if (i === 0) {
-          run = 1;
-        } else {
-          const prev = new Date(sortedKeys[i - 1].replace(/water_(\d+)_(\d+)_(\d+)/, '$1-$2-$3'));
-          const cur  = new Date(sortedKeys[i].replace(/water_(\d+)_(\d+)_(\d+)/, '$1-$2-$3'));
-          const diff = Math.round((cur.getTime() - prev.getTime()) / 86400000);
-          run = diff === 1 ? run + 1 : 1;
-        }
-        streakMap[sortedKeys[i]] = run;
-      }
-
-      // Best streak
-      const bestStreak = streakMap[sortedKeys[sortedKeys.length - 1]] ?? 0;
-
-      // CSV header
-      const COLS = [
-        "Date", "Day of Week", "Daily Goal (oz)", "True Hydration (oz)",
-        "Total Consumed (oz)", "Hydration %", "Goal Hit",
-        "Water (oz)", "Coffee (oz)", "Tea (oz)", "Soda (oz)", "Juice (oz)",
-        "Sports Drink (oz)", "Beer (oz)", "Cocktail (oz)", "Wine (oz)",
-        "Milk (oz)", "Coconut Water (oz)", "Energy Drink (oz)", "Streak Day #",
-      ];
-
-      const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      const BEV_EXPORT_KEYS: [string, string][] = [
-        ["water", "Water"], ["coffee", "Coffee"], ["tea", "Tea"],
-        ["soda", "Soda"], ["juice", "Juice"], ["sports", "Sports Drink"],
-        ["beer", "Beer"], ["cocktail", "Cocktail"], ["wine", "Wine"],
-        ["milk", "Milk"], ["coconut", "Coconut Water"], ["energy", "Energy Drink"],
-      ];
-
-      const rows: string[] = [COLS.join(",")];
-
-      let totalConsumed = 0;
-      let totalHydrated = 0;
-
-      // Take up to 30 most recent days, chronological order
-      const sorted = [...historyArr]
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .slice(-30);
-
-      for (const day of sorted) {
-        const m = day.date.match(/water_(\d+)_(\d+)_(\d+)/);
-        if (!m) continue;
-        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        const yyyy = d.getFullYear();
-        const dateStr = `${mm}/${dd}/${yyyy}`;
-        const dowStr = DOW[d.getDay()];
-        const goalOz = day.goal ?? 64;
-        const pct = goalHistMap[day.date] ?? 0;
-        const hydOz = Math.round(pct * goalOz * 10) / 10;
-        const consumedOz = day.oz ?? 0;
-        const goalHit = pct >= 1.0 ? "Yes" : "No";
-        const streakDay = streakMap[day.date] ?? 0;
-
-        totalConsumed += consumedOz;
-        totalHydrated += hydOz;
-
-        const bd = day.breakdown ?? {};
-        const bevCols = BEV_EXPORT_KEYS.map(([key]) => (bd[key] ?? 0).toFixed(1));
-
-        rows.push([
-          dateStr, dowStr,
-          goalOz.toFixed(1),
-          hydOz.toFixed(1),
-          consumedOz.toFixed(1),
-          Math.round(pct * 100).toString(),
-          goalHit,
-          ...bevCols,
-          streakDay.toString(),
-        ].join(","));
-      }
-
-      const csvContent = rows.join("\n");
-      const today = new Date();
-      const fileName = `HydroHero_Export_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}.csv`;
-      const file = new FSFile(FSPaths.document, fileName);
-      try { file.create(); } catch {}
-      file.write(csvContent);
-
-      // Close Settings modal first — iOS cannot reliably stack a transparent
-      // modal over a pageSheet modal, which causes the Export Summary to be
-      // hidden or trap touches.
-      setShowSettingsModal(false);
-      setExportSummary({
-        days: sorted.length,
-        totalConsumed: Math.round(totalConsumed),
-        totalHydrated: Math.round(totalHydrated),
-        bestStreak,
-        filePath: file.uri,
-      });
-      setShowExportSummary(true);
-    } catch (e) {
-      Sentry.captureException(e);
-      Alert.alert("Export Failed", `Something went wrong: ${(e as Error)?.message ?? String(e)}`);
-    } finally {
-      setExportLoading(false);
-    }
-  }
-
-  async function shareExportFile(filePath: string) {
-    try {
-      const canShare = await Sharing.isAvailableAsync();
-      if (!canShare) {
-        Alert.alert("Sharing Not Available", "File sharing is not supported on this device.");
-        return;
-      }
-      await Sharing.shareAsync(filePath, {
-        mimeType: "text/csv",
-        dialogTitle: "Share your Hydro Hero history",
-        UTI: "public.comma-separated-values-text",
-      });
-    } catch {
-      Alert.alert("Share Failed", "Could not open the share sheet. Please try again.");
-    } finally {
-      // Clean up temp file
-      try { new FSFile(filePath).delete(); } catch {}
-      setShowExportSummary(false);
-      setExportSummary(null);
-    }
   }
 
   async function loadData() {
@@ -5444,36 +5279,6 @@ export default function WaterTracker() {
                     />
                   </View>
                 </View>
-                {/* DATA section — CSV export */}
-                <View style={{ marginTop: 24, marginBottom: 8 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>DATA</Text>
-                  <TouchableOpacity
-                    style={{
-                      flexDirection: "row", alignItems: "center", justifyContent: "center",
-                      borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 12,
-                      paddingVertical: 14, paddingHorizontal: 16, gap: 8,
-                      opacity: exportLoading ? 0.6 : 1,
-                    }}
-                    onPress={handleExportCSV}
-                    disabled={exportLoading}
-                    activeOpacity={0.8}
-                  >
-                    {exportLoading
-                      ? <ActivityIndicator size="small" color="#c8a000" />
-                      : <Text style={{ fontSize: 18 }}>⬇️</Text>
-                    }
-                    <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>
-                      {isPro ? "Export Hydration History" : "Export Hydration History 🔒"}
-                    </Text>
-                  </TouchableOpacity>
-                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center" }}>
-                    Exports up to 30 days as a CSV file
-                  </Text>
-                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 14, textAlign: "center", lineHeight: 16 }}>
-                    Your hydration data lives on this device. Your iPhone backup keeps it safe across new devices.
-                  </Text>
-                </View>
-
                 {/* Dev-only: demo data for App Store screenshots (never ships — gated by __DEV__) */}
                 {__DEV__ && (
                   <View style={{ marginTop: 24 }}>
@@ -5656,49 +5461,6 @@ export default function WaterTracker() {
             </View>
           </View>
         </TouchableWithoutFeedback>
-      </Modal>
-
-      {/* Export Summary Modal */}
-      <Modal visible={showExportSummary} transparent animationType="fade" onRequestClose={() => setShowExportSummary(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", alignItems: "center", padding: 24 }}>
-          <View style={{ backgroundColor: "#0d0030", borderRadius: 20, borderWidth: 2, borderColor: "rgba(255,215,0,0.5)", padding: 28, width: "100%", alignItems: "center" }}>
-            <Text style={{ fontSize: 36, marginBottom: 8 }}>✅</Text>
-            <Text style={{ color: "#FFD700", fontSize: 22, fontWeight: "900", marginBottom: 4 }}>Ready to Export!</Text>
-            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, marginBottom: 20, textAlign: "center" }}>
-              Your hydration history is packaged and ready to share
-            </Text>
-            <View style={{ width: "100%", gap: 10, marginBottom: 24 }}>
-              {[
-                ["📅", "Days included", `${exportSummary?.days ?? 0} days`],
-                ["💧", "Total consumed", `${exportSummary?.totalConsumed ?? 0} oz`],
-                ["✨", "True hydration", `${exportSummary?.totalHydrated ?? 0} oz`],
-                ["🔥", "Best streak", `${exportSummary?.bestStreak ?? 0} days`],
-              ].map(([emoji, label, value]) => (
-                <View key={label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14 }}>
-                  <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 13 }}>{emoji} {label}</Text>
-                  <Text style={{ color: "#FFD700", fontSize: 14, fontWeight: "700" }}>{value}</Text>
-                </View>
-              ))}
-            </View>
-            <TouchableOpacity
-              style={{ width: "100%", backgroundColor: "#FFD700", borderRadius: 14, paddingVertical: 16, alignItems: "center", marginBottom: 10 }}
-              onPress={() => exportSummary && shareExportFile(exportSummary.filePath)}
-              activeOpacity={0.85}
-            >
-              <Text style={{ color: "#0a0520", fontSize: 16, fontWeight: "900" }}>📤 Share File</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ paddingVertical: 12 }}
-              onPress={() => {
-                if (exportSummary) { try { new FSFile(exportSummary.filePath).delete(); } catch {} }
-                setShowExportSummary(false);
-                setExportSummary(null);
-              }}
-            >
-              <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 14 }}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
       </Modal>
 
       {/* Quick Add Customization Modal */}
