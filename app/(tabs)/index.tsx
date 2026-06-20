@@ -296,7 +296,7 @@ function PresetsRow({ presets, onSelect, onDelete }: {
   const cat = (p: Preset) => CATEGORIES.find((c) => c.key === p.category)!;
   return (
     <View style={presetStyles.wrapper}>
-      <Text style={presetStyles.label}>⚡ Quick Presets</Text>
+      <Text style={presetStyles.label}>⚡ QUICK PRESETS</Text>
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -328,7 +328,7 @@ function PresetsRow({ presets, onSelect, onDelete }: {
 
 const presetStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 24, marginTop: 16 },
-  label: { color: "#ffffff", fontSize: 13, fontWeight: "700", marginBottom: 8 },
+  label: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, marginBottom: 8 },
   chip: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderLeftWidth: 3 },
   chipEmoji: { fontSize: 20 },
   chipLabel: { color: "#ffffff", fontSize: 12, fontWeight: "600" },
@@ -1221,7 +1221,7 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
           {/* Header */}
           <View style={cbStyles.header}>
             <View style={{ flex: 1 }}>
-              <Text style={cbStyles.title}>Choose Your Beverages</Text>
+              <Text style={cbStyles.title}>Customize Your Beverages</Text>
               <Text style={cbStyles.subtitle}>Long-press a tile to drag and reorder</Text>
               <Text style={cbStyles.counter}>
                 <Text style={{ color: GOLD }}>{selected.length}</Text>
@@ -1355,13 +1355,13 @@ function getBevSizing(total: number): { emojiSize: number; labelSize: number; pa
 }
 
 function BeverageSelector({
-  selected, onSelect, onCustom, visibleBevs, onEditBevs,
+  selected, onSelect, visibleBevs, onEditBevs, isPro,
 }: {
   selected: BevCategory;
   onSelect: (c: BevCategory) => void;
-  onCustom: () => void;
   visibleBevs: BevCategory[];
   onEditBevs: () => void;
+  isPro: boolean;
 }) {
   const bevs = visibleBevs.map(getBev);
   // +1 for the Custom button
@@ -1388,9 +1388,22 @@ function BeverageSelector({
           isSel && bev ? { borderColor: bev.color, backgroundColor: bev.color + "22" } : null,
           isCustom ? bvStyles.customBtn : null,
         ]}
-        onPress={() => { playButtonTapSound(); if (isCustom) { onCustom(); } else { onSelect(key as BevCategory); } }}
+        onPress={() => {
+          playButtonTapSound();
+          if (isCustom) { onEditBevs(); }
+          else { onSelect(key as BevCategory); }
+        }}
         activeOpacity={0.8}
       >
+        {isCustom && !isPro && (
+          <View style={{
+            position: "absolute", top: -6, right: -6, zIndex: 10,
+            backgroundColor: GOLD, borderRadius: 5,
+            paddingHorizontal: 5, paddingVertical: 2,
+          }}>
+            <Text style={{ color: "#0a0520", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
+          </View>
+        )}
         <Text style={{ fontSize: sizing.emojiSize }}>{emoji}</Text>
         <Text
           style={[bvStyles.name, { fontSize: sizing.labelSize }, isSel && bev ? { color: bev.color } : null]}
@@ -1410,10 +1423,7 @@ function BeverageSelector({
   return (
     <View style={bvStyles.wrapper}>
       <View style={bvStyles.labelRow}>
-        <Text style={bvStyles.sectionLabel}>SELECT A BEVERAGE  ⌄</Text>
-        <TouchableOpacity onPress={onEditBevs} style={bvStyles.editBtn} activeOpacity={0.7}>
-          <Text style={bvStyles.editTxt}>✏️</Text>
-        </TouchableOpacity>
+        <Text style={bvStyles.sectionLabel}>SELECT A BEVERAGE</Text>
       </View>
       {useScroll ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
@@ -1431,8 +1441,8 @@ const bvStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 12, marginTop: 10 },
   labelRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
   sectionLabel: { flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8 },
-  editBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,215,0,0.12)", borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", justifyContent: "center" },
-  editTxt: { fontSize: 13 },
+  editBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" },
+  editTxt: { fontSize: 17, lineHeight: 22 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   btn: { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", minWidth: 52 },
   customBtn: { borderColor: "rgba(255,215,0,0.35)", borderStyle: "dashed", backgroundColor: "rgba(255,255,255,0.06)" },
@@ -1647,7 +1657,7 @@ function ResultBox({ message }: { message: string | null }) {
   return (
     <View style={rbStyles.wrapper}>
       <Text style={message ? rbStyles.result : rbStyles.idle}>
-        {message ?? "Select your drink and tap an amount to log it!"}
+        {message ?? "Select your drink and tap an amount to calculate hydration"}
       </Text>
       {message && (
         <Text style={rbStyles.sub}>
@@ -3928,8 +3938,8 @@ export default function WaterTracker() {
         <BeverageSelector
           selected={selectedCategory}
           onSelect={setSelectedCategory}
-          onCustom={openCustomModal}
           visibleBevs={selectedBeverages}
+          isPro={isPro}
           onEditBevs={() => {
             if (!isPro) { openPaywall(); return; }
             setShowChooseBevs(true);
@@ -3939,23 +3949,82 @@ export default function WaterTracker() {
         {/* Quick Bet Buttons */}
         <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}>
           <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
-          <TouchableOpacity
-            onPress={() => { playButtonTapSound(); openCustomModal(); }}
-            activeOpacity={0.7}
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center", marginRight: 8 }}
-            accessibilityLabel="Enter custom amount"
-          >
-            <Text style={{ fontSize: 22, lineHeight: 24, color: GOLD, fontWeight: "700" }}>＋</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => { if (!isPro) { openPaywall(); return; } setShowQuickAddModal(true); }}
-            activeOpacity={0.7}
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" }}
-          >
-            <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
-          </TouchableOpacity>
+          {isPro && (
+            <TouchableOpacity
+              onPress={() => setShowQuickAddModal(true)}
+              activeOpacity={0.7}
+              style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" }}
+              accessibilityLabel="Edit quick-add amounts"
+            >
+              <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingQty(1); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
+
+        {/* Pro upsell — Quick Add customization (free users only) */}
+        {!isPro && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => openPaywall()}
+            style={{
+              marginHorizontal: 12,
+              marginTop: 10,
+              borderRadius: 14,
+              borderWidth: 1.5,
+              borderColor: "rgba(255,215,0,0.5)",
+              borderStyle: "dashed",
+              backgroundColor: "rgba(255,215,0,0.06)",
+              padding: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <Text style={{ fontSize: 26 }}>⭐</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: GOLD, fontSize: 14, fontWeight: "800", letterSpacing: 0.3 }}>
+                Customize Your Quick Add
+              </Text>
+              <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 2, lineHeight: 16 }}>
+                Pick the amounts you actually drink — set 6 of your own.
+              </Text>
+            </View>
+            <View style={{
+              backgroundColor: GOLD, borderRadius: 6,
+              paddingHorizontal: 8, paddingVertical: 3,
+            }}>
+              <Text style={{ color: "#0a0520", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 }}>PRO</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Custom Amount entry — replaces the old "+" header button and the
+            "⭐ Custom" beverage tile so there's one unambiguous entry point. */}
+        <TouchableOpacity
+          style={{
+            marginHorizontal: 12,
+            marginTop: 8,
+            paddingVertical: 13,
+            paddingHorizontal: 16,
+            borderRadius: 12,
+            borderWidth: 1.5,
+            borderColor: "rgba(255,215,0,0.45)",
+            backgroundColor: "rgba(255,215,0,0.06)",
+            alignItems: "center",
+            flexDirection: "row",
+            justifyContent: "center",
+            gap: 8,
+          }}
+          activeOpacity={0.75}
+          onPress={() => { playButtonTapSound(); openCustomModal(); }}
+        >
+          <Text style={{ fontSize: 18, color: GOLD }}>＋</Text>
+          <Text style={{ color: GOLD, fontSize: 15, fontWeight: "700", letterSpacing: 0.5 }}>Other Amount</Text>
+        </TouchableOpacity>
+
+        {/* Result Box */}
+        <ResultBox message={resultMessage} />
 
         {/* Undo Last Entry — prominent full-width button below quick add */}
         <TouchableOpacity
@@ -3975,9 +4044,6 @@ export default function WaterTracker() {
               : "↩ No entry to undo"}
           </Text>
         </TouchableOpacity>
-
-        {/* Result Box */}
-        <ResultBox message={resultMessage} />
 
         {/* Stats Bar */}
         <StatsBar
@@ -4064,43 +4130,11 @@ export default function WaterTracker() {
                     </TouchableOpacity>
                   </View>
 
-                  <Text style={styles.modalTitle}>💧 Add Custom Amount</Text>
+                  <Text style={styles.modalTitle}>💧 Enter Amount</Text>
                   <View style={styles.modalDivider} />
 
-                  {/* Drink selector */}
-                  <Text style={styles.modalFieldLabel}>Select Drink</Text>
-                  <ScrollView
-                    style={{ maxHeight: 200 }}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator
-                  >
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
-                      {CATEGORIES.map((cat) => {
-                        const isSel = cat.key === selectedCategory;
-                        return (
-                          <TouchableOpacity
-                            key={cat.key}
-                            style={{
-                              width: "22%",
-                              borderWidth: 2,
-                              borderRadius: 12,
-                              paddingVertical: 8,
-                              alignItems: "center",
-                              backgroundColor: isSel ? cat.color + "22" : "#ffffff",
-                              borderColor: isSel ? cat.color : "#E0E0E0",
-                            }}
-                            onPress={() => setSelectedCategory(cat.key)}
-                          >
-                            <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
-                            <Text style={{ fontSize: 10, fontWeight: "700", color: isSel ? cat.color : "#666", marginTop: 2, textAlign: "center" }}>{cat.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-
                   {/* Unit toggle */}
-                  <View style={[styles.modalTabs, { marginTop: 16 }]}>
+                  <View style={[styles.modalTabs, { marginTop: 8 }]}>
                     {(["oz", "ml"] as const).map((u) => (
                       <TouchableOpacity
                         key={u}
