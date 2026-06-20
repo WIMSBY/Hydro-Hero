@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, View } from
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import Achievements from '../../components/Achievements';
+import TrophyCase from '../../components/TrophyCase';
 import { playBadgeUnlockSound } from '../../utils/SoundManager';
 import { setPendingBadgeCount } from '../../utils/badgeDetection';
 
@@ -103,6 +104,7 @@ export default function BadgesScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+          <TrophyCase goalHistory={data.goalHistory} />
           <Achievements
             trigger={trigger}
             streak={data.streak}
