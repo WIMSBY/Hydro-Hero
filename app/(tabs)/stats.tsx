@@ -15,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, G, Line, Rect, Text as SvgText } from 'react-native-svg';
 import * as Sentry from '@sentry/react-native';
+import { BEVERAGES } from '../../constants/beverages';
 import { useProContext } from '../../contexts/ProContext';
 import {
   buildHydrationCSV,
@@ -324,7 +325,7 @@ export default function StatsScreen() {
       ) : (
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} bounces={false}>
           {view === 'weekly'
-            ? <WeeklyView days={weekDays} goal={currentGoal} />
+            ? <WeeklyView days={weekDays} goal={currentGoal} currentStreak={currentStreak} />
             : <MonthlyView days={monthDays} goal={currentGoal} lifetimeOz={lifetimeOz}
                 longestStreak={longestStreak} currentStreak={currentStreak}
                 onDayPress={(d) => { if (!d.isFuture && d.hasData) setSelectedDay(d); }} />
@@ -378,7 +379,7 @@ function PopupRow({ label, value, valueColor }: { label: string; value: string; 
 }
 
 // ─── Weekly View ──────────────────────────────────────────────────────────────
-function WeeklyView({ days, goal }: { days: DayStats[]; goal: number }) {
+function WeeklyView({ days, goal, currentStreak }: { days: DayStats[]; goal: number; currentStreak: number }) {
   const withData = days.filter((d) => d.hasData);
   const avgHyd = withData.length ? withData.reduce((a, d) => a + d.hydratedOz, 0) / withData.length : 0;
   const bestDay = days.reduce<DayStats | null>((b, d) => !b || d.hydratedOz > b.hydratedOz ? d : b, null);
@@ -392,22 +393,41 @@ function WeeklyView({ days, goal }: { days: DayStats[]; goal: number }) {
   const totalConsumed = withData.reduce((a, d) => a + d.totalOz, 0);
   const efficiency = totalConsumed > 0 ? (totalHyd / totalConsumed) * 100 : 0;
 
+  // Top beverage across the week
+  const topBevKey = (Object.entries(bevTotals) as [string, number][])
+    .sort((a, b) => b[1] - a[1])
+    .find(([, v]) => v > 0)?.[0];
+  const topBev = topBevKey ? BEVERAGES.find((b) => b.key === topBevKey) : null;
+  const bestDayDate = bestDay ? `${bestDay.date.getMonth() + 1}/${bestDay.date.getDate()}` : '—';
+
   return (
     <>
       <View style={s.cardRow}>
         <SummaryCard label="AVG DAILY" value={`${avgHyd.toFixed(1)} oz`} sub={`${Math.round(avgPct * 100)}% of goal`} />
-        <SummaryCard label="BEST DAY" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} sub={bestDay ? DAY_NAMES[bestDay.date.getDay()] : '—'} />
+        <SummaryCard label="BEST DAY" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} sub={bestDayDate} />
         <GoalRingCard goalsHit={goalsHit} total={7} />
+      </View>
+      <View style={[s.cardRow, { marginTop: 8 }]}>
+        <SummaryCard
+          label="TOP BEVERAGE"
+          value={topBev?.emoji ?? '—'}
+          sub={topBev?.label ?? 'No data'}
+        />
+        <SummaryCard
+          label="DAY STREAK"
+          value={currentStreak > 0 ? `🔥${currentStreak}` : '—'}
+          sub={currentStreak > 0 ? (currentStreak === 1 ? 'day' : 'days') : 'No streak'}
+        />
       </View>
 
       <SectionTitle title="DAILY HYDRATION" />
       <WeeklyBarChart days={days} goal={goal} />
 
-      <SectionTitle title="BEVERAGE MIX THIS WEEK" />
+      <SectionTitle title="BEVERAGE TRENDS" />
       <View style={s.card}>
         {totalBev > 0 ? (
           <>
-            <BeverageStackedBar totals={bevTotals} totalBev={totalBev} />
+            <DailyBevTrendsChart days={days} />
             <BeverageLegend totals={bevTotals} />
           </>
         ) : (
@@ -710,14 +730,55 @@ function WeeklyBarChart({ days, goal }: { days: DayStats[]; goal: number }) {
   );
 }
 
-function BeverageStackedBar({ totals, totalBev }: { totals: Record<string, number>; totalBev: number }) {
-  const nonZero = BEV_KEYS.filter((k) => totals[k] > 0);
+function DailyBevTrendsChart({ days }: { days: DayStats[] }) {
+  const { width } = Dimensions.get('window');
+  const svgW = width - 32 - 28; // outer page padding + card inner padding
+  const chartH = 130;
+  const padL = 24, padR = 4, padT = 8, padB = 18;
+  const innerW = svgW - padL - padR;
+  const colW = innerW / 7;
+  const barW = Math.min(24, colW * 0.62);
+
+  const dayTotals = days.map((d) => Object.values(d.breakdown).reduce((a, b) => a + b, 0));
+  const maxOz = Math.max(8, ...dayTotals);
+
   return (
-    <View style={{ height: 28, flexDirection: 'row', borderRadius: 14, overflow: 'hidden' }}>
-      {nonZero.map((k) => (
-        <View key={k} style={{ flex: totals[k] / totalBev, backgroundColor: BEV_COLORS[k] }} />
-      ))}
-    </View>
+    <Svg width={svgW} height={padT + chartH + padB}>
+      {/* Y guide lines + labels */}
+      {[0, 0.5, 1].map((frac) => {
+        const y = padT + chartH - frac * chartH;
+        const oz = Math.round(frac * maxOz);
+        return (
+          <G key={frac}>
+            <Line x1={padL} y1={y} x2={svgW - padR} y2={y}
+              stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+            <SvgText x={padL - 4} y={y + 3} fontSize={8}
+              fill="rgba(255,255,255,0.45)" textAnchor="end">{oz}</SvgText>
+          </G>
+        );
+      })}
+      {/* Per-day stacked bars */}
+      {days.map((day, i) => {
+        const x = padL + colW * i + (colW - barW) / 2;
+        let stackY = padT + chartH;
+        const segments = BEV_KEYS
+          .filter((k) => (day.breakdown[k] ?? 0) > 0)
+          .map((k) => {
+            const h = (day.breakdown[k] / maxOz) * chartH;
+            stackY -= h;
+            return <Rect key={k} x={x} y={stackY} width={barW} height={h} fill={BEV_COLORS[k]} rx={2} />;
+          });
+        return (
+          <G key={day.dateKey}>
+            {segments}
+            <SvgText x={x + barW / 2} y={padT + chartH + 12}
+              fontSize={9} fill="rgba(255,255,255,0.6)" textAnchor="middle">
+              {DOW_ABBR[day.date.getDay()]}
+            </SvgText>
+          </G>
+        );
+      })}
+    </Svg>
   );
 }
 
