@@ -3254,6 +3254,15 @@ export default function WaterTracker() {
     } catch {}
   }
 
+  async function savePreset(label: string, oz: number, category: BevCategory) {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const next: Preset = { id: `p_${Date.now()}`, label: trimmed.slice(0, 24), oz, category };
+    const updated = [...presets, next];
+    setPresets(updated);
+    try { await AsyncStorage.setItem("water_presets", JSON.stringify(updated)); } catch {}
+  }
+
   async function deletePreset(id: string) {
     const updated = presets.filter((p) => p.id !== id);
     setPresets(updated);
@@ -3906,6 +3915,15 @@ export default function WaterTracker() {
           />
         </View>
 
+        {/* Presets Row — placed above the beverage picker so one-tap repeats stay visible without scrolling */}
+        {presets.length > 0 && (
+          <PresetsRow
+            presets={presets}
+            onSelect={(p) => addWater(p.oz, p.category)}
+            onDelete={deletePreset}
+          />
+        )}
+
         {/* Beverage Selector */}
         <BeverageSelector
           selected={selectedCategory}
@@ -3988,16 +4006,6 @@ export default function WaterTracker() {
               setWeatherBannerDismissed(true);
             }}
             onDismiss={() => setWeatherBannerDismissed(true)}
-          />
-        )}
-
-
-        {/* Presets Row */}
-        {presets.length > 0 && (
-          <PresetsRow
-            presets={presets}
-            onSelect={(p) => addWater(p.oz, p.category)}
-            onDelete={deletePreset}
           />
         )}
 
@@ -4224,6 +4232,47 @@ export default function WaterTracker() {
                 );
               })}
             </View>
+
+            {/* Save as Preset (Pro) */}
+            <TouchableOpacity
+              style={{
+                borderRadius: 12,
+                paddingVertical: 11,
+                alignItems: "center",
+                marginBottom: 10,
+                borderWidth: 1,
+                borderColor: "rgba(255,215,0,0.35)",
+                backgroundColor: "rgba(255,215,0,0.06)",
+              }}
+              activeOpacity={0.8}
+              onPress={() => {
+                // Tiered: free tier gets 1 preset slot; Pro gets unlimited.
+                if (!isPro && presets.length >= 1) { setPendingBetOz(null); setPendingQty(1); openPaywall(); return; }
+                const baseOz = pendingBetOz ?? 0;
+                const totalOz = baseOz * pendingQty;
+                const catLabel = CATEGORIES.find((c) => c.key === selectedCategory)?.label ?? "Drink";
+                const suggested = pendingQty > 1 ? `${pendingQty} × ${catLabel}` : `My ${catLabel}`;
+                Alert.prompt(
+                  "Save as Preset",
+                  `One-tap log for ${totalOz} oz ${catLabel}.`,
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Save",
+                      onPress: (name) => {
+                        savePreset(name ?? suggested, totalOz, selectedCategory);
+                      },
+                    },
+                  ],
+                  "plain-text",
+                  suggested,
+                );
+              }}
+            >
+              <Text style={{ color: GOLD, fontSize: 14, fontWeight: "700", letterSpacing: 0.4 }}>
+                💾 Save as Preset{!isPro && presets.length >= 1 ? " 🔒" : ""}
+              </Text>
+            </TouchableOpacity>
 
             {/* FILL */}
             <TouchableOpacity
