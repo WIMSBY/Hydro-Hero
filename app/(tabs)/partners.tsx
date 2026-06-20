@@ -283,13 +283,15 @@ function SimpleQRGrid({ code }: { code: string }) {
 function ShareCodeModal({
   visible, code, onClose,
 }: { visible: boolean; code: string; onClose: () => void }) {
-  const url = `${DEEP_LINK_PREFIX}${code}`;
+  const APP_STORE_URL = 'https://apps.apple.com/app/id6764692053';
+  const buildBody = (intro: string) =>
+    `${intro}\n\n1. Open Hydro Hero (or get it: ${APP_STORE_URL})\n2. Go to Squad → Add Member → Paste Code\n3. Paste this code:\n\n${code}`;
   const share = async (intro: string) => {
-    try { await Share.share({ message: `${intro}\n\n${url}` }); } catch {}
+    try { await Share.share({ message: buildBody(intro) }); } catch {}
   };
   const emailShare = () => {
-    const subj = encodeURIComponent('My Hydro Hero Progress');
-    const body = encodeURIComponent(`Tap the link to add me to your Hydro Hero squad:\n\n${url}`);
+    const subj = encodeURIComponent('Add me to your Hydro Hero squad');
+    const body = encodeURIComponent(buildBody('Hey! Add me to your Hydro Hero squad 💧'));
     Linking.openURL(`mailto:?subject=${subj}&body=${body}`).catch(() => {});
   };
 
