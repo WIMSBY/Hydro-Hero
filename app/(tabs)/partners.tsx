@@ -879,11 +879,11 @@ export default function PartnersScreen() {
   }
 
   // ── Generate my progress code ────────────────────────────────────────────────
-  function generateCode() {
+  function buildAndShowCode() {
     const now = Date.now();
     const payload = {
       v: 2,
-      u: username || 'Anonymous',
+      u: username.trim() || 'Anonymous',
       a: avatar,
       h: Math.round(myHydration * 10) / 10,
       p: Math.round(myPct * 1000) / 1000,
@@ -897,6 +897,21 @@ export default function PartnersScreen() {
     const code = encodePayload(payload);
     setMyCode(code);
     setShowShare(true);
+  }
+
+  function generateCode() {
+    if (!username.trim()) {
+      Alert.alert(
+        'Share as Anonymous?',
+        'You haven\'t set a display name yet. Your squad will see you as "Anonymous". Set a name first so they know it\'s you.',
+        [
+          { text: 'Edit Name', style: 'cancel' },
+          { text: 'Share Anyway', onPress: buildAndShowCode },
+        ],
+      );
+      return;
+    }
+    buildAndShowCode();
   }
 
   // ── Save username / avatar ───────────────────────────────────────────────────
