@@ -16,6 +16,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, G, Line, Rect, Text as SvgText } from 'react-native-svg';
 import * as Sentry from '@sentry/react-native';
 import { BEVERAGES } from '../../constants/beverages';
+import GoalHistoryCalendar from '../../components/GoalHistoryCalendar';
 import { useProContext } from '../../contexts/ProContext';
 import {
   buildHydrationCSV,
@@ -186,6 +187,8 @@ export default function StatsScreen() {
   const [longestStreak, setLongestStreak] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [selectedDay, setSelectedDay] = useState<DayStats | null>(null);
+  const [calGoalHistory, setCalGoalHistory] = useState<Record<string, number>>({});
+  const [calHistory, setCalHistory] = useState<{ date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[]>([]);
 
   const hasAnyData = weekDays.some((d) => d.hasData) || monthDays.some((d) => d.hasData);
 
@@ -217,6 +220,8 @@ export default function StatsScreen() {
       const goalHistory: Record<string, number> = rawGoalHist ? JSON.parse(rawGoalHist) : {};
       const history: { date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[] =
         rawHistory ? JSON.parse(rawHistory) : [];
+      setCalGoalHistory(goalHistory);
+      setCalHistory(history);
       const todayHyd: number = rawTodayHyd ? JSON.parse(rawTodayHyd) : 0;
       const todayBreakdown: Record<BevCat, number> = rawBreakdown ? mergeBd(JSON.parse(rawBreakdown)) : emptyBd();
 
@@ -328,7 +333,7 @@ export default function StatsScreen() {
             ? <WeeklyView days={weekDays} goal={currentGoal} currentStreak={currentStreak} />
             : <MonthlyView days={monthDays} goal={currentGoal} lifetimeOz={lifetimeOz}
                 longestStreak={longestStreak} currentStreak={currentStreak}
-                onDayPress={(d) => { if (!d.isFuture && d.hasData) setSelectedDay(d); }} />
+                goalHistory={calGoalHistory} history={calHistory} />
           }
           <View style={{ height: 32 }} />
         </ScrollView>
@@ -455,11 +460,12 @@ function WeeklyView({ days, goal, currentStreak }: { days: DayStats[]; goal: num
 
 // ─── Monthly View ─────────────────────────────────────────────────────────────
 function MonthlyView({
-  days, goal, lifetimeOz, longestStreak, currentStreak, onDayPress,
+  days, goal, lifetimeOz, longestStreak, currentStreak, goalHistory, history,
 }: {
   days: DayStats[]; goal: number; lifetimeOz: number;
   longestStreak: number; currentStreak: number;
-  onDayPress: (d: DayStats) => void;
+  goalHistory: Record<string, number>;
+  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[];
 }) {
   const { isPro, openPaywall } = useProContext();
   const pastWithData = days.filter((d) => d.hasData && !d.isFuture);
@@ -478,17 +484,10 @@ function MonthlyView({
         <SummaryCard label="SUCCESS" value={`${Math.round(successRate)}%`} sub="days hit goal" />
       </View>
 
-      <SectionTitle title={`${MONTH_NAMES[today.getMonth()].toUpperCase()} CALENDAR`} />
-      {isPro ? (
-        <MonthCalendar days={days} today={today} onDayPress={onDayPress} />
-      ) : (
-        <LockedSection
-          emoji="🗓️"
-          headline="See your whole month at a glance"
-          sub="Daily heatmap of every goal hit. Tap any day to drill in."
-          onUnlock={() => openPaywall()}
-        />
-      )}
+      <SectionTitle title="CALENDAR" />
+      <View style={s.card}>
+        <GoalHistoryCalendar goalHistory={goalHistory} history={history} outerPadding={32 + 28} />
+      </View>
 
       <SectionTitle title="MONTHLY TREND" />
       {isPro ? (

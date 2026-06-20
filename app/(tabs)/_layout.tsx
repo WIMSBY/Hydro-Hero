@@ -32,7 +32,7 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
         tabBarLabelStyle: { fontSize: 10, marginTop: -2 },
         tabBarIconStyle: { marginTop: 2 },
-        tabBarStyle: { height: 65, paddingTop: 4 },
+        tabBarStyle: { height: 65, paddingTop: 4, paddingHorizontal: 12 },
       }}>
       <Tabs.Screen
         name="index"
