@@ -322,10 +322,11 @@ function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
 }) {
   const cat = (p: Preset) => CATEGORIES.find((c) => c.key === p.category)!;
   const canReorder = isPro && presets.length > 1;
+  const canEdit = presets.length > 0;
   const [editMode, setEditMode] = useState(false);
-  useEffect(() => { if (!canReorder && editMode) setEditMode(false); }, [canReorder, editMode]);
+  useEffect(() => { if (!canEdit && editMode) setEditMode(false); }, [canEdit, editMode]);
   const enterEdit = () => {
-    if (!canReorder || editMode) return;
+    if (!canEdit || editMode) return;
     try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
     setEditMode(true);
   };
@@ -337,14 +338,14 @@ function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
     const idx = getIndex() ?? 0;
     return (
       <ScaleDecorator>
-        <WiggleChip editMode={editMode && !isActive} index={idx}>
+        <WiggleChip editMode={editMode && canReorder && !isActive} index={idx}>
           <View style={[presetStyles.chipWrap, isActive && { opacity: 0.85 }]}>
             <TouchableOpacity
               style={[presetStyles.chip, { borderLeftColor: cat(item).color }]}
               onPress={() => { if (!editMode) onSelect(item); }}
-              onLongPress={canReorder ? () => {
+              onLongPress={canEdit ? () => {
                 if (!editMode) enterEdit();
-                drag();
+                if (canReorder) drag();
               } : undefined}
               delayLongPress={editMode ? 120 : 260}
               disabled={isActive}
@@ -392,7 +393,11 @@ function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
         activationDistance={canReorder ? 6 : 10000}
       />
       <Text style={presetStyles.hint}>
-        {editMode ? "Drag to reorder · Tap × to delete · Done when finished" : canReorder ? "Long-press to edit" : "Long-press to delete"}
+        {editMode
+          ? canReorder
+            ? "Drag to reorder · Tap × to delete · Done when finished"
+            : "Tap × to delete · Done when finished"
+          : "Long-press to edit"}
       </Text>
     </View>
   );
