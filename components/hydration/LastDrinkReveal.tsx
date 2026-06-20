@@ -36,6 +36,7 @@ type Props = {
   beverage: BevDef;
   ozLogged: number;
   hydratedOz: number;
+  preferredUnit?: 'oz' | 'ml';
   /**
    * Fires when the ring is filled and it's time for the parent to launch the
    * top-level handoff droplet overlay. The droplet animation and the eventual
@@ -86,7 +87,12 @@ function AnimatedNumber({
 }
 
 export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
-  ({ beverage, ozLogged, hydratedOz, onHandoffStart }, ref) => {
+  ({ beverage, ozLogged, hydratedOz, preferredUnit = 'oz', onHandoffStart }, ref) => {
+    const unitFactor = preferredUnit === 'ml' ? 29.5735 : 1;
+    const displayedLogged = ozLogged * unitFactor;
+    const displayedHydrated = hydratedOz * unitFactor;
+    const numDecimals = preferredUnit === 'ml' ? 0 : 1;
+    const intDecimals = 0;
     const reduced = useReducedMotion();
     const { Icon } = beverage;
     const liquidRingViewRef = useRef<View>(null);
@@ -140,8 +146,8 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
         iconOpacity.value = 1;
         iconY.value = 30;
         numOpacity.value = 1;
-        ozSV.value = withTiming(ozLogged, { duration: 200 });
-        hydratedSV.value = withTiming(hydratedOz, { duration: 200 });
+        ozSV.value = withTiming(displayedLogged, { duration: 200 });
+        hydratedSV.value = withTiming(displayedHydrated, { duration: 200 });
         level.value = withTiming(1, { duration: 250 }, (done) => {
           'worklet';
           if (done) runOnJS(fireHandoff)();
@@ -180,7 +186,7 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
       });
       ozSV.value = withDelay(
         T.iconFall,
-        withTiming(ozLogged, { duration: 600, easing: Easing.out(Easing.cubic) })
+        withTiming(displayedLogged, { duration: 600, easing: Easing.out(Easing.cubic) })
       );
 
       // 4) ring fills in beverage color; "+N.N" rises in near the end
@@ -199,7 +205,7 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
       numOpacity.value = withDelay(T.numberAppearAt, withTiming(1, { duration: 300 }));
       hydratedSV.value = withDelay(
         T.numberAppearAt,
-        withTiming(hydratedOz, { duration: 500, easing: Easing.out(Easing.cubic) })
+        withTiming(displayedHydrated, { duration: 500, easing: Easing.out(Easing.cubic) })
       );
 
       // 5) at handoff time, signal the parent to launch the overlay droplet.
@@ -270,8 +276,8 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
           </Animated.View>
 
           <Animated.View style={[styles.cell, cellStyle(1)]}>
-            <AnimatedNumber value={ozSV} decimals={0} style={styles.bigNum} />
-            <Text style={styles.label}>OZ LOGGED</Text>
+            <AnimatedNumber value={ozSV} decimals={intDecimals} style={styles.bigNum} />
+            <Text style={styles.label}>{preferredUnit === 'ml' ? 'ML LOGGED' : 'OZ LOGGED'}</Text>
           </Animated.View>
 
           <Animated.View style={[styles.cell, cellStyle(2)]}>
@@ -285,12 +291,12 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
                 <AnimatedNumber
                   value={hydratedSV}
                   prefix="+"
-                  decimals={1}
+                  decimals={numDecimals}
                   style={styles.ringNumText}
                 />
               </Animated.View>
             </View>
-            <Text style={styles.label}>HYDRATED OZ</Text>
+            <Text style={styles.label}>{preferredUnit === 'ml' ? 'HYDRATED ML' : 'HYDRATED OZ'}</Text>
           </Animated.View>
         </View>
 

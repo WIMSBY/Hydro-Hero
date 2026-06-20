@@ -128,6 +128,17 @@ function mergeBreakdown(stored: Record<string, number>): Record<BevCategory, num
   return { ...EMPTY_BREAKDOWN, ...stored } as Record<BevCategory, number>;
 }
 
+/**
+ * Format an oz value as either "X oz" or "Y ml" depending on the user's
+ * preferred-unit setting. Use this at the call site of any single-unit
+ * display so it tracks the preference.
+ */
+function fmtAmount(oz: number, preferred: 'oz' | 'ml', opts: { precision?: number } = {}): string {
+  if (preferred === 'ml') return `${ozToMl(oz)} ml`;
+  const p = opts.precision ?? 1;
+  return `${oz.toFixed(p)} oz`;
+}
+
 function ozToMl(oz: number) {
   return Math.round(oz * 29.5735);
 }
@@ -366,7 +377,7 @@ function StarParticles() {
 
 // --- Marquee Header ---
 const MQ_LIGHTS = 6;
-function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number }) {
+function MarqueeHeader({ goal, hydration, preferredUnit }: { goal: number; hydration: number; preferredUnit: 'oz' | 'ml' }) {
   const lightAnims = useRef(Array.from({ length: MQ_LIGHTS * 2 }, () => new Animated.Value(0.2))).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const focused = useIsFocused();
@@ -403,7 +414,8 @@ function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number })
     };
   }, [focused, lightAnims, pulseAnim]);
   const won = hydration >= goal;
-  const remaining = Math.max(0, goal - hydration).toFixed(1);
+  const remainingOz = Math.max(0, goal - hydration);
+  const remaining = preferredUnit === 'ml' ? `${ozToMl(remainingOz)} ml` : `${remainingOz.toFixed(1)} oz`;
   return (
     <View style={mqStyles.wrapper}>
       <View style={mqStyles.lightsRow}>
@@ -419,7 +431,7 @@ function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number })
       </View>
       <Animated.View style={[mqStyles.badge, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={won ? mqStyles.wonText : mqStyles.remainText}>
-          {won ? "🎯 GOAL REACHED! 🎯" : `💧 ${remaining} oz to go`}
+          {won ? "🎯 GOAL REACHED! 🎯" : `💧 ${remaining} to go`}
         </Text>
       </Animated.View>
       <View style={mqStyles.lightsRow}>
@@ -571,7 +583,7 @@ function adDiamondPath(cx: number, cy: number, r: number): string {
 }
 
 // All static decoration — never re-renders with phase/water animation
-const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: number }) {
+const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal, preferredUnit }: { vGoal: number; preferredUnit: 'oz' | 'ml' }) {
   return (
     <Svg width={AD_SVG_W} height={AD_SVG_H}>
       <Defs>
@@ -643,7 +655,7 @@ const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: nu
             <Line x1={AD_TANK_X - 8} y1={tY} x2={AD_TANK_X} y2={tY} stroke="rgba(255,215,0,0.6)" strokeWidth={1.5} />
             <SvgText x={AD_TANK_X - 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="end" fontWeight="600">{Math.round(m * 100)}%</SvgText>
             <Line x1={AD_TANK_X + AD_TANK_W} y1={tY} x2={AD_TANK_X + AD_TANK_W + 8} y2={tY} stroke="rgba(255,215,0,0.6)" strokeWidth={1.5} />
-            <SvgText x={AD_TANK_X + AD_TANK_W + 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="start" fontWeight="600">{Math.round(m * vGoal)}oz</SvgText>
+            <SvgText x={AD_TANK_X + AD_TANK_W + 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="start" fontWeight="600">{preferredUnit === 'ml' ? `${ozToMl(m * vGoal)}ml` : `${Math.round(m * vGoal)}oz`}</SvgText>
           </G>
         );
       })}
@@ -840,12 +852,14 @@ function ArtDecoVault({
   pct, oz, goal: vGoal,
   loggedCategory, lastReelOz, logNonce,
   onSpoutRef, onTankFill, onLaunchDroplet,
+  preferredUnit,
 }: {
   pct: number; oz: number; goal: number;
   loggedCategory: BevCategory; lastReelOz: number; logNonce: number;
   onSpoutRef?: (x: number, y: number) => void;
   onTankFill?: () => void;
   onLaunchDroplet?: (start: {x:number;y:number}, end: {x:number;y:number}, onLand: () => void) => void;
+  preferredUnit: 'oz' | 'ml';
 }) {
   const hydOz = lastReelOz > 0 ? calcHydratedOz(lastReelOz, loggedCategory) : 0;
   const beverage: BevDef = getBev(loggedCategory);
@@ -988,7 +1002,7 @@ function ArtDecoVault({
 
         {/* ── Static decoration — never re-renders with phase ── */}
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-          <VaultStaticSVG vGoal={vGoal} />
+          <VaultStaticSVG vGoal={vGoal} preferredUnit={preferredUnit} />
         </View>
 
         {/* ── Animated water SVG — only AnimatedWaterSVG re-renders at 60fps ── */}
@@ -1017,6 +1031,7 @@ function ArtDecoVault({
               beverage={beverage}
               ozLogged={lastReelOz}
               hydratedOz={hydOz}
+              preferredUnit={preferredUnit}
               onHandoffStart={handleHandoffStart}
             />
           ) : (
@@ -1040,10 +1055,10 @@ function ArtDecoVault({
             {`${Math.round(pct * 100)}%`}
           </Text>
           <Text style={{ fontSize: 11, fontWeight: "700", color: "rgba(200,240,255,0.92)", marginTop: 4 }}>
-            {`${oz.toFixed(1)} oz hydrated`}
+            {`${fmtAmount(oz, preferredUnit)} hydrated`}
           </Text>
           <Text style={{ fontSize: 9, color: "rgba(255,215,0,0.7)", marginTop: 3 }}>
-            {`${ozToMl(oz)} ml`}
+            {preferredUnit === 'ml' ? `${oz.toFixed(1)} oz` : `${ozToMl(oz)} ml`}
           </Text>
         </View>
 
@@ -1425,16 +1440,22 @@ const bvStyles = StyleSheet.create({
 });
 
 // --- Quick Bet Buttons ---
-function QuickBets({ onBet, spinning, amounts }: { onBet: (oz: number) => void; spinning: boolean; amounts: number[] }) {
+function QuickBets({ onBet, spinning, amounts, preferredUnit }: { onBet: (oz: number) => void; spinning: boolean; amounts: number[]; preferredUnit: 'oz' | 'ml' }) {
   return (
     <View style={qbStyles.wrapper}>
       <View style={qbStyles.grid}>
-        {amounts.map((oz, i) => (
-          <TouchableOpacity key={i} style={[qbStyles.btn, spinning && qbStyles.dis]} onPress={() => { if (!spinning) { playButtonTapSound(); onBet(oz); } }} activeOpacity={0.8}>
-            <Text style={qbStyles.ozTxt}>{formatOz(oz)} oz</Text>
-            <Text style={qbStyles.mlTxt}>{ozToMl(oz)} ml</Text>
-          </TouchableOpacity>
-        ))}
+        {amounts.map((oz, i) => {
+          const ozText = `${formatOz(oz)} oz`;
+          const mlText = `${ozToMl(oz)} ml`;
+          const primary = preferredUnit === 'oz' ? ozText : mlText;
+          const secondary = preferredUnit === 'oz' ? mlText : ozText;
+          return (
+            <TouchableOpacity key={i} style={[qbStyles.btn, spinning && qbStyles.dis]} onPress={() => { if (!spinning) { playButtonTapSound(); onBet(oz); } }} activeOpacity={0.8}>
+              <Text style={qbStyles.ozTxt}>{primary}</Text>
+              <Text style={qbStyles.mlTxt}>{secondary}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -1653,6 +1674,7 @@ function StatsBar({
   streak,
   healthActive,
   onHealthPress,
+  preferredUnit,
 }: {
   goal: number;
   hydration: number;
@@ -1660,11 +1682,17 @@ function StatsBar({
   streak: number;
   healthActive: boolean;
   onHealthPress: () => void;
+  preferredUnit: 'oz' | 'ml';
 }) {
+  const consumedOz = `${statIntake.toFixed(1)} oz`;
+  const consumedMl = `${ozToMl(statIntake)} ml`;
+  const goalLabel = preferredUnit === 'ml' ? `${ozToMl(statGoal)} ml` : `${Math.round(statGoal)} oz`;
+  const hydratedLabel = preferredUnit === 'ml' ? `${ozToMl(hydration)} ml` : `${hydration.toFixed(1)} oz`;
+  const hydratedPct = Math.round((statGoal > 0 ? hydration / statGoal : 0) * 100);
   const secs = [
-    { label: "DAILY GOAL", val: `${Math.round(statGoal)} oz` },
-    { label: "HYDRATED", val: `${hydration.toFixed(1)} oz\n${Math.round((statGoal > 0 ? hydration / statGoal : 0) * 100)}%` },
-    { label: "CONSUMED", val: `${statIntake.toFixed(1)} oz\n${ozToMl(statIntake)} ml` },
+    { label: "DAILY GOAL", val: goalLabel },
+    { label: "HYDRATED", val: `${hydratedLabel}\n${hydratedPct}%` },
+    { label: "CONSUMED", val: preferredUnit === 'oz' ? `${consumedOz}\n${consumedMl}` : `${consumedMl}\n${consumedOz}` },
     { label: "STREAK", val: streak > 0 ? `${streak} 🔥` : "0" },
   ];
   return (
@@ -1699,10 +1727,11 @@ const stbStyles = StyleSheet.create({
 });
 
 // --- Drink Log ---
-function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
+function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [], preferredUnit }: {
   breakdown: Record<BevCategory, number>;
   intake: number;
   entries?: DrinkEntry[];
+  preferredUnit: 'oz' | 'ml';
 }) {
   const { colors, isDark } = useTheme();
   const catEntries = CATEGORIES.filter((c) => breakdown[c.key] > 0);
@@ -1719,9 +1748,9 @@ function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
               <View key={cat.key} style={dlStyles.row}>
                 <View style={[dlStyles.dot, { backgroundColor: cat.color }]} />
                 <Text style={[dlStyles.name, { color: colors.text }]}>{cat.emoji} {cat.label}</Text>
-                <Text style={[dlStyles.raw, { color: colors.textSub }]}>{raw.toFixed(1)} oz</Text>
+                <Text style={[dlStyles.raw, { color: colors.textSub }]}>{preferredUnit === 'ml' ? `${ozToMl(raw)} ml` : `${raw.toFixed(1)} oz`}</Text>
                 <Text style={[dlStyles.effTxt, { color: colors.textMuted }]}>{Math.round(getBev(cat.key).eff * 100)}%</Text>
-                <Text style={[dlStyles.hyd, { color: isDark ? "#88ccff" : "#0066cc" }]}>→{hyd.toFixed(1)}oz</Text>
+                <Text style={[dlStyles.hyd, { color: isDark ? "#88ccff" : "#0066cc" }]}>→{preferredUnit === 'ml' ? `${ozToMl(hyd)}ml` : `${hyd.toFixed(1)}oz`}</Text>
                 <Text style={[dlStyles.share, { color: cat.color }]}>{share}%</Text>
               </View>
             );
@@ -1739,7 +1768,7 @@ function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
               <View key={i} style={dlStyles.entryRow}>
                 <View style={[dlStyles.dot, { backgroundColor: cat.color }]} />
                 <Text style={[dlStyles.entryText, { color: colors.text }]}>
-                  {cat.emoji} {formatOz(e.oz)} oz {cat.label}
+                  {cat.emoji} {preferredUnit === 'ml' ? `${ozToMl(e.oz)} ml` : `${formatOz(e.oz)} oz`} {cat.label}
                 </Text>
                 <Text style={[dlStyles.entryTime, { color: colors.textMuted }]}>
                   {formatEntryTime(e.timestamp)}
@@ -2395,6 +2424,14 @@ export default function WaterTracker() {
 
   // Haptics
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
+
+  // Preferred display unit. Affects which unit shows large/first on Quick
+  // Add tiles, the CONSUMED stat row, and the Custom Amount input default.
+  // Both units stay visible everywhere — this only controls primary/secondary.
+  const [preferredUnit, setPreferredUnit] = useState<'oz' | 'ml'>('oz');
+  // Open the Custom Amount modal with the unit toggle defaulted to the user's
+  // preferred unit. The user can still flip it mid-flow.
+  const openCustomModal = () => { setCustomUnit(preferredUnit); setShowCustomModal(true); };
 
   // Sound pack
   const [selectedSoundPack, setSelectedSoundPack] = useState(DEFAULT_PACK_ID);
@@ -3067,6 +3104,7 @@ export default function WaterTracker() {
         'sound_enabled',
         'custom_quick_add_amounts',
         'haptics_enabled',
+        'preferred_unit',
         'water_log_entries',
         'selected_sound_pack',
         'selected_beverages',
@@ -3173,6 +3211,10 @@ export default function WaterTracker() {
       // Haptics preference
       const savedHaptics = get('haptics_enabled');
       if (savedHaptics !== null) setHapticsEnabled(savedHaptics !== "false");
+
+      // Preferred display unit
+      const savedUnit = get('preferred_unit');
+      if (savedUnit === 'ml' || savedUnit === 'oz') setPreferredUnit(savedUnit);
 
       // Today's drink log entries
       try {
@@ -3841,7 +3883,7 @@ export default function WaterTracker() {
       >
 
         {/* Marquee Header */}
-        <MarqueeHeader goal={goal} hydration={totalHydration} />
+        <MarqueeHeader goal={goal} hydration={totalHydration} preferredUnit={preferredUnit} />
 
         {/* Art Deco Vault — unified tank + dispenser */}
         <View onLayout={(e) => setReelFrameY(e.nativeEvent.layout.y)}>
@@ -3855,6 +3897,7 @@ export default function WaterTracker() {
             onSpoutRef={(x, y) => setSpoutOrigin({ x, y })}
             onTankFill={fireSpray}
             onLaunchDroplet={launchDroplet}
+            preferredUnit={preferredUnit}
           />
         </View>
 
@@ -3862,7 +3905,7 @@ export default function WaterTracker() {
         <BeverageSelector
           selected={selectedCategory}
           onSelect={setSelectedCategory}
-          onCustom={() => setShowCustomModal(true)}
+          onCustom={openCustomModal}
           visibleBevs={selectedBeverages}
           onEditBevs={() => {
             if (!isPro) { openPaywall(); return; }
@@ -3874,7 +3917,7 @@ export default function WaterTracker() {
         <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}>
           <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
           <TouchableOpacity
-            onPress={() => { playButtonTapSound(); setShowCustomModal(true); }}
+            onPress={() => { playButtonTapSound(); openCustomModal(); }}
             activeOpacity={0.7}
             style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center", marginRight: 8 }}
             accessibilityLabel="Enter custom amount"
@@ -3889,7 +3932,7 @@ export default function WaterTracker() {
             <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
           </TouchableOpacity>
         </View>
-        <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} />
+        <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
 
         {/* Undo Last Entry — prominent full-width button below quick add */}
         <TouchableOpacity
@@ -3903,9 +3946,9 @@ export default function WaterTracker() {
         >
           <Text style={[undoStyles.btnText, lastEntry === null && undoStyles.btnTextDisabled]}>
             {lastEntry !== null && lastEntryCategory
-              ? `↩ Undo last: +${formatOz(lastEntry)} oz ${CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? ""}`
+              ? `↩ Undo last: +${preferredUnit === 'ml' ? `${ozToMl(lastEntry)} ml` : `${formatOz(lastEntry)} oz`} ${CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? ""}`
               : lastEntry !== null
-              ? `↩ Undo last: +${formatOz(lastEntry)} oz`
+              ? `↩ Undo last: +${preferredUnit === 'ml' ? `${ozToMl(lastEntry)} ml` : `${formatOz(lastEntry)} oz`}`
               : "↩ No entry to undo"}
           </Text>
         </TouchableOpacity>
@@ -3921,10 +3964,11 @@ export default function WaterTracker() {
           streak={streak}
           healthActive={healthPermissionGranted && healthSyncEnabled}
           onHealthPress={() => setShowHealthModal(true)}
+          preferredUnit={preferredUnit}
         />
 
         {/* Drink Log */}
-        <DrinkLog breakdown={categoryBreakdown} intake={intake} entries={drinkLogEntries} />
+        <DrinkLog breakdown={categoryBreakdown} intake={intake} entries={drinkLogEntries} preferredUnit={preferredUnit} />
 
         {/* Weather Banner */}
         {weatherBannerOz !== null && !weatherBannerDismissed && (
@@ -3960,13 +4004,6 @@ export default function WaterTracker() {
           </TouchableOpacity>
           <TouchableOpacity style={casinoActionBtn} onPress={resetToday}>
             <Text style={casinoActionBtnText}>🔄 Reset</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[casinoActionBtn, lastEntry === null && { opacity: 0.4 }]}
-            onPress={undoLastEntry}
-            disabled={lastEntry === null}
-          >
-            <Text style={casinoActionBtnText}>↩ Undo</Text>
           </TouchableOpacity>
         </View>
         <TouchableOpacity
@@ -4824,6 +4861,42 @@ export default function WaterTracker() {
                     />
                   </View>
                 </View>
+
+                {/* Preferred unit (oz / ml) */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 6 }}>UNITS</Text>
+                  <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18, marginBottom: 10 }}>
+                    Choose which appears larger. Both stay visible everywhere.
+                  </Text>
+                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.04)", borderRadius: 10, padding: 3 }}>
+                    {(["oz", "ml"] as const).map((u) => {
+                      const active = preferredUnit === u;
+                      return (
+                        <TouchableOpacity
+                          key={u}
+                          activeOpacity={0.8}
+                          style={{
+                            flex: 1,
+                            backgroundColor: active ? "#c8a000" : "transparent",
+                            borderRadius: 8,
+                            paddingVertical: 10,
+                            alignItems: "center",
+                          }}
+                          onPress={async () => {
+                            setPreferredUnit(u);
+                            try { await AsyncStorage.setItem("preferred_unit", u); } catch {}
+                          }}
+                        >
+                          <Text style={{
+                            color: active ? "#ffffff" : "#1a1a2e",
+                            fontSize: 14, fontWeight: "800", letterSpacing: 0.5,
+                          }}>{u.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
                 {/* Dev-only: demo data for App Store screenshots (never ships — gated by __DEV__) */}
                 {__DEV__ && (
                   <View style={{ marginTop: 24 }}>

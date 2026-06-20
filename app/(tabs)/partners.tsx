@@ -92,6 +92,8 @@ interface CodePayload extends SquadMember {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const MAX_PASTE_CHARS = 6000;
 
+function ozToMl(oz: number) { return Math.round(oz * 29.5735); }
+
 function dateKey(d: Date) {
   return `water_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
 }
@@ -626,7 +628,7 @@ function PreviewModal({
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: GOLD, fontSize: 16, fontWeight: '800' }}>{preview.username}</Text>
                         <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>
-                          Streak: {preview.streak} 🔥  ·  Goal: {preview.goalOz} oz
+                          Streak: {preview.streak} 🔥  ·  Goal: {preview.goalOz} oz · {ozToMl(preview.goalOz)} ml
                         </Text>
                       </View>
                       <View style={{ alignItems: 'center' }}>
@@ -1040,7 +1042,7 @@ export default function PartnersScreen() {
               {myStreak > 0 ? `🔥 ${myStreak} day streak` : 'No streak yet'}
             </Text>
             <View style={{ flex: 1 }} />
-            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Goal: {myGoal} oz</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Goal: {myGoal} oz · {ozToMl(myGoal)} ml</Text>
           </View>
 
           {myTotalBev > 0 && (

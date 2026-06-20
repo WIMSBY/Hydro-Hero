@@ -131,6 +131,15 @@ function formatDate(d: Date) {
   return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
 }
 
+function ozToMl(oz: number) {
+  return Math.round(oz * 29.5735);
+}
+
+function fmtAmount(oz: number, preferred: 'oz' | 'ml', precision = 1): string {
+  if (preferred === 'ml') return `${ozToMl(oz)} ml`;
+  return `${oz.toFixed(precision)} oz`;
+}
+
 function computeStreaks(
   goalHistory: Record<string, number>,
   today: Date,
@@ -189,6 +198,7 @@ export default function StatsScreen() {
   const [selectedDay, setSelectedDay] = useState<DayStats | null>(null);
   const [calGoalHistory, setCalGoalHistory] = useState<Record<string, number>>({});
   const [calHistory, setCalHistory] = useState<{ date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[]>([]);
+  const [preferredUnit, setPreferredUnit] = useState<'oz' | 'ml'>('oz');
 
   const hasAnyData = weekDays.some((d) => d.hasData) || monthDays.some((d) => d.hasData);
 
@@ -203,7 +213,7 @@ export default function StatsScreen() {
     try {
       const [
         rawHistory, rawGoalHist, rawGoal,
-        rawTodayHyd, rawBreakdown, rawLifetime,
+        rawTodayHyd, rawBreakdown, rawLifetime, rawUnit,
       ] = await Promise.all([
         AsyncStorage.getItem('water_history'),
         AsyncStorage.getItem('goal_history'),
@@ -211,7 +221,9 @@ export default function StatsScreen() {
         AsyncStorage.getItem('water_total_hydration'),
         AsyncStorage.getItem('water_category_breakdown'),
         AsyncStorage.getItem('lifetime_hydration_oz'),
+        AsyncStorage.getItem('preferred_unit'),
       ]);
+      if (rawUnit === 'ml' || rawUnit === 'oz') setPreferredUnit(rawUnit);
 
       const goal: number = rawGoal ? JSON.parse(rawGoal) : 64;
       setCurrentGoal(goal);
@@ -330,10 +342,10 @@ export default function StatsScreen() {
       ) : (
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} bounces={false}>
           {view === 'weekly'
-            ? <WeeklyView days={weekDays} goal={currentGoal} currentStreak={currentStreak} />
+            ? <WeeklyView days={weekDays} goal={currentGoal} currentStreak={currentStreak} preferredUnit={preferredUnit} />
             : <MonthlyView days={monthDays} goal={currentGoal} lifetimeOz={lifetimeOz}
                 longestStreak={longestStreak} currentStreak={currentStreak}
-                goalHistory={calGoalHistory} history={calHistory} />
+                goalHistory={calGoalHistory} history={calHistory} preferredUnit={preferredUnit} />
           }
           <View style={{ height: 32 }} />
         </ScrollView>
@@ -384,7 +396,7 @@ function PopupRow({ label, value, valueColor }: { label: string; value: string; 
 }
 
 // ─── Weekly View ──────────────────────────────────────────────────────────────
-function WeeklyView({ days, goal, currentStreak }: { days: DayStats[]; goal: number; currentStreak: number }) {
+function WeeklyView({ days, goal, currentStreak, preferredUnit }: { days: DayStats[]; goal: number; currentStreak: number; preferredUnit: 'oz' | 'ml' }) {
   const withData = days.filter((d) => d.hasData);
   const avgHyd = withData.length ? withData.reduce((a, d) => a + d.hydratedOz, 0) / withData.length : 0;
   const bestDay = days.reduce<DayStats | null>((b, d) => !b || d.hydratedOz > b.hydratedOz ? d : b, null);
@@ -408,8 +420,8 @@ function WeeklyView({ days, goal, currentStreak }: { days: DayStats[]; goal: num
   return (
     <>
       <View style={s.cardRow}>
-        <SummaryCard label="AVG DAILY" value={`${avgHyd.toFixed(1)} oz`} sub={`${Math.round(avgPct * 100)}% of goal`} />
-        <SummaryCard label="BEST DAY" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} sub={bestDayDate} />
+        <SummaryCard label="AVG DAILY" value={fmtAmount(avgHyd, preferredUnit)} sub={`${Math.round(avgPct * 100)}% of goal`} />
+        <SummaryCard label="BEST DAY" value={fmtAmount(bestDay?.hydratedOz ?? 0, preferredUnit)} sub={bestDayDate} />
         <GoalRingCard goalsHit={goalsHit} total={7} />
       </View>
       <View style={[s.cardRow, { marginTop: 8 }]}>
@@ -433,7 +445,7 @@ function WeeklyView({ days, goal, currentStreak }: { days: DayStats[]; goal: num
         {totalBev > 0 ? (
           <>
             <DailyBevTrendsChart days={days} />
-            <BeverageLegend totals={bevTotals} />
+            <BeverageLegend totals={bevTotals} preferredUnit={preferredUnit} />
           </>
         ) : (
           <Text style={s.noData}>No beverage data this week</Text>
@@ -450,7 +462,7 @@ function WeeklyView({ days, goal, currentStreak }: { days: DayStats[]; goal: num
             <View key={k} style={s.effRow}>
               <View style={[s.effDot, { backgroundColor: BEV_COLORS[k] }]} />
               <Text style={s.effLabel}>{BEV_LABELS[k]}</Text>
-              <Text style={s.effOz}>{bevTotals[k].toFixed(1)} oz</Text>
+              <Text style={s.effOz}>{fmtAmount(bevTotals[k], preferredUnit)}</Text>
             </View>
           ))}
       </View>
@@ -460,12 +472,13 @@ function WeeklyView({ days, goal, currentStreak }: { days: DayStats[]; goal: num
 
 // ─── Monthly View ─────────────────────────────────────────────────────────────
 function MonthlyView({
-  days, goal, lifetimeOz, longestStreak, currentStreak, goalHistory, history,
+  days, goal, lifetimeOz, longestStreak, currentStreak, goalHistory, history, preferredUnit,
 }: {
   days: DayStats[]; goal: number; lifetimeOz: number;
   longestStreak: number; currentStreak: number;
   goalHistory: Record<string, number>;
   history: { date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[];
+  preferredUnit: 'oz' | 'ml';
 }) {
   const { isPro, openPaywall } = useProContext();
   const pastWithData = days.filter((d) => d.hasData && !d.isFuture);
@@ -479,8 +492,8 @@ function MonthlyView({
   return (
     <>
       <View style={s.cardRow}>
-        <SummaryCard label="MONTHLY AVG" value={`${avgHyd.toFixed(1)} oz`} sub="per day" />
-        <SummaryCard label="TOTAL" value={`${totalHyd.toFixed(0)} oz`} sub="true hydration" />
+        <SummaryCard label="MONTHLY AVG" value={fmtAmount(avgHyd, preferredUnit)} sub="per day" />
+        <SummaryCard label="TOTAL" value={fmtAmount(totalHyd, preferredUnit, 0)} sub="true hydration" />
         <SummaryCard label="SUCCESS" value={`${Math.round(successRate)}%`} sub="days hit goal" />
       </View>
 
@@ -504,10 +517,10 @@ function MonthlyView({
       <SectionTitle title="PERSONAL RECORDS" />
       {isPro ? (
         <View style={s.recordGrid}>
-          <RecordCard emoji="💧" label="Best Single Day" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} />
+          <RecordCard emoji="💧" label="Best Single Day" value={fmtAmount(bestDay?.hydratedOz ?? 0, preferredUnit)} />
           <RecordCard emoji="👑" label="Longest Streak" value={`${longestStreak} days`} />
           <RecordCard emoji="🔥" label="Current Streak" value={`${currentStreak} days`} />
-          <RecordCard emoji="🌊" label="Lifetime Total" value={`${lifetimeOz.toFixed(0)} oz`} />
+          <RecordCard emoji="🌊" label="Lifetime Total" value={fmtAmount(lifetimeOz, preferredUnit, 0)} />
         </View>
       ) : (
         <LockedSection
@@ -781,7 +794,7 @@ function DailyBevTrendsChart({ days }: { days: DayStats[] }) {
   );
 }
 
-function BeverageLegend({ totals }: { totals: Record<string, number> }) {
+function BeverageLegend({ totals, preferredUnit }: { totals: Record<string, number>; preferredUnit: 'oz' | 'ml' }) {
   const nonZero = BEV_KEYS.filter((k) => totals[k] > 0);
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
@@ -789,7 +802,7 @@ function BeverageLegend({ totals }: { totals: Record<string, number> }) {
         <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: BEV_COLORS[k] }} />
           <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-            {BEV_LABELS[k]}  {totals[k].toFixed(1)}oz
+            {BEV_LABELS[k]}  {preferredUnit === 'ml' ? `${ozToMl(totals[k])}ml` : `${totals[k].toFixed(1)}oz`}
           </Text>
         </View>
       ))}
