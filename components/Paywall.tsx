@@ -51,6 +51,7 @@ const REEL_FEATURES = [
   'Unlimited Squad Members',
   'Sound Effects',
   'Custom Quick Add',
+  'Custom Quick Presets',
 ];
 
 // Each bullet must reflect an actually PRO-gated feature. The audit on
@@ -60,9 +61,10 @@ const REEL_FEATURES = [
 // shared data with no PRO check). Don't re-add without a real gate.
 const PRO_BENEFITS = [
   'All 20 beverage categories',
-  'Full Stats & monthly calendar',
+  'Full Stats',
   'Unlimited Squad members',
   'Sound effects & haptic feedback',
+  'Customize Quick Add & save unlimited presets',
 ];
 
 interface PaywallProps {
