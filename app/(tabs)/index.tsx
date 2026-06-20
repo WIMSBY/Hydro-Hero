@@ -2366,6 +2366,8 @@ export default function WaterTracker() {
   // is identical to the previous log.
   const [logNonce, setLogNonce] = useState(0);
   const [pendingBetOz, setPendingBetOz] = useState<number | null>(null);
+  // Multi-quantity for the Confirm Drink modal (× 1–5 servings of the same drink).
+  const [pendingQty, setPendingQty] = useState(1);
   const [displayedHydration, setDisplayedHydration] = useState(0);
 
   // Particle spray — origin updates after GlassTank layout
@@ -3610,6 +3612,7 @@ export default function WaterTracker() {
       setShowCustomModal(false);
       setCustomAmount("");
       setCustomUnit("oz");
+      setPendingQty(1);
       setPendingBetOz(oz);
     } else {
       Alert.alert("Please enter a valid amount");
@@ -3934,7 +3937,7 @@ export default function WaterTracker() {
             <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
           </TouchableOpacity>
         </View>
-        <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
+        <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingQty(1); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
 
         {/* Undo Last Entry — prominent full-width button below quick add */}
         <TouchableOpacity
@@ -4148,7 +4151,7 @@ export default function WaterTracker() {
       </Modal>
 
       {/* Confirm Drink Modal */}
-      <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => setPendingBetOz(null)}>
+      <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => { setPendingBetOz(null); setPendingQty(1); }}>
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.75)" }}>
           <View style={{
             backgroundColor: "#0d0030",
@@ -4168,6 +4171,10 @@ export default function WaterTracker() {
             {/* Chosen drink */}
             {(() => {
               const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
+              const baseOz = pendingBetOz ?? 0;
+              const totalOz = baseOz * pendingQty;
+              const baseDisplay = preferredUnit === 'ml' ? `${ozToMl(baseOz)} ml` : `${baseOz} oz`;
+              const totalDisplay = preferredUnit === 'ml' ? `${ozToMl(totalOz)} ml` : `${totalOz} oz`;
               return (
                 <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,215,0,0.08)", borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)" }}>
                   <Text style={{ fontSize: 40, marginRight: 14 }}>{cat.emoji}</Text>
@@ -4178,14 +4185,45 @@ export default function WaterTracker() {
                     </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ color: GOLD, fontSize: 26, fontWeight: "900" }}>{pendingBetOz} oz</Text>
+                    <Text style={{ color: GOLD, fontSize: 26, fontWeight: "900" }}>{totalDisplay}</Text>
                     <Text style={{ color: "rgba(255,215,0,0.6)", fontSize: 11, marginTop: 2 }}>
-                      → {pendingBetOz !== null ? calcHydratedOz(pendingBetOz, selectedCategory) : 0} oz hydrated
+                      {pendingQty > 1
+                        ? `${pendingQty} × ${baseDisplay}`
+                        : `→ ${calcHydratedOz(totalOz, selectedCategory)} oz hydrated`}
                     </Text>
                   </View>
                 </View>
               );
             })()}
+
+            {/* Quantity selector */}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+              {[1, 2, 3, 4, 5].map((n) => {
+                const active = pendingQty === n;
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    style={{
+                      flex: 1,
+                      backgroundColor: active ? GOLD : "rgba(255,255,255,0.06)",
+                      borderWidth: 1,
+                      borderColor: active ? GOLD : "rgba(255,215,0,0.25)",
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      alignItems: "center",
+                    }}
+                    activeOpacity={0.8}
+                    onPress={() => setPendingQty(n)}
+                  >
+                    <Text style={{
+                      color: active ? "#0a0520" : "rgba(255,255,255,0.7)",
+                      fontSize: 15,
+                      fontWeight: "800",
+                    }}>× {n}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
             {/* FILL */}
             <TouchableOpacity
@@ -4198,8 +4236,9 @@ export default function WaterTracker() {
               }}
               onPress={() => {
                 playButtonTapSound();
-                const oz = pendingBetOz!;
+                const oz = (pendingBetOz ?? 0) * pendingQty;
                 setPendingBetOz(null);
+                setPendingQty(1);
                 handleBet(oz);
               }}
             >
@@ -4209,7 +4248,7 @@ export default function WaterTracker() {
             {/* Cancel */}
             <TouchableOpacity
               style={{ alignItems: "center", paddingVertical: 16 }}
-              onPress={() => setPendingBetOz(null)}
+              onPress={() => { setPendingBetOz(null); setPendingQty(1); }}
               hitSlop={{ top: 8, bottom: 8, left: 24, right: 24 }}
             >
               <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 14 }}>Cancel</Text>
