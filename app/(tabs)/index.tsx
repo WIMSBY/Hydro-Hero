@@ -3,20 +3,26 @@ import { BevCategory, BevDef, BEVERAGES } from "../../constants/beverages";
 import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hydration/LastDrinkReveal";
 import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
 import Constants from "expo-constants";
-import Achievements from "../../components/Achievements";
 import Onboarding from "../../components/Onboarding";
 import {
   initSounds, teardownSounds, reloadSounds, setSoundEnabled,
   playButtonTapSound,
   playWaterLogSound, playWaterFillSound, playJackpotSound,
-  playBadgeUnlockSound, playStreakSound, playMorningResetSound,
+  playStreakSound, playMorningResetSound,
   setActivePack, previewPack, stopPreview, ALL_SOUND_PACKS, DEFAULT_PACK_ID,
 } from "../../utils/SoundManager";
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
 import { syncWidgetData } from "../../utils/WidgetDataSync";
+import {
+  detectPendingBadges,
+  loadUnlockedBadgeIds,
+  setPendingBadgeCount,
+} from "../../utils/badgeDetection";
+import type { BadgeDef } from "../../components/Achievements";
 import { seedDemoData, clearDemoData } from "../../utils/devSeed";
 import { initWatch, teardownWatch, sendHydrationUpdate, setWatchMessageHandler } from "../../utils/WatchManager";
 import { useIsFocused } from "@react-navigation/native";
+import { router } from "expo-router";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
@@ -2800,8 +2806,6 @@ export default function WaterTracker() {
   const [lifetimeCoffeeLogs, setLifetimeCoffeeLogs] = useState(0);
   const [lifetimeBeerLogs, setLifetimeBeerLogs] = useState(0);
   const [firstDrinkTime, setFirstDrinkTime] = useState<string | null>(null);
-  const [achievementTrigger, setAchievementTrigger] = useState(0);
-  const [achievementRevalidate, setAchievementRevalidate] = useState(0);
 
   // Weather
   const [weatherBannerOz, setWeatherBannerOz] = useState<8 | 16 | null>(null);
@@ -2895,6 +2899,13 @@ export default function WaterTracker() {
 
   // Post-jackpot fact/joke card
   const [showFactCard, setShowFactCard] = useState(false);
+
+  // New-badge toast (fires when a drink log unlocks one or more badges)
+  const [badgeToast, setBadgeToast] = useState<BadgeDef[] | null>(null);
+  const badgeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (badgeToastTimer.current) clearTimeout(badgeToastTimer.current);
+  }, []);
 
   // Promo code
   const [showPromoModal, setShowPromoModal] = useState(false);
@@ -3794,16 +3805,46 @@ export default function WaterTracker() {
         AsyncStorage.setItem("lifetime_beer_logs",     JSON.stringify(newLifeBeer)),
       ];
       // Record first drink time once, never overwrite
+      let firstDrinkTimeAfter = firstDrinkTime;
       if (firstDrinkTime === null) {
         const ts = new Date().toISOString();
         setFirstDrinkTime(ts);
+        firstDrinkTimeAfter = ts;
         lifeSaves.push(AsyncStorage.setItem("first_drink_time", ts));
       }
       await Promise.all(lifeSaves);
-    } catch {}
 
-    // Fire achievement check
-    setAchievementTrigger((n) => n + 1);
+      // Detect newly-unlockable badges and surface them: tab dot + Home toast.
+      // Use locally-computed values so we don't race the state setters above.
+      try {
+        const todayKey = getTodayKey();
+        const newGoalHist = { ...goalHistory, [todayKey]: goal > 0 ? Math.min(newHydration / goal, 1) : 0 };
+        let newStreak = 0;
+        const d = new Date();
+        while ((newGoalHist[getDateKey(d)] ?? 0) >= 1.0) { newStreak++; d.setDate(d.getDate() - 1); }
+        const unlockedIds = await loadUnlockedBadgeIds();
+        const pending = detectPendingBadges({
+          streak: newStreak,
+          goalHistory: newGoalHist,
+          totalHydration: newHydration,
+          intake: newIntake,
+          goal,
+          categoryBreakdown: newBreakdown,
+          lifetimeHydrationOz: newLifeHyd,
+          lifetimeJackpots: newLifeJack,
+          lifetimeCoffeeLogs: newLifeCoffee,
+          lifetimeBeerLogs: newLifeBeer,
+          firstDrinkTime: firstDrinkTimeAfter,
+          nowHour: new Date().getHours(),
+        }, unlockedIds);
+        if (pending.length > 0) {
+          await setPendingBadgeCount(pending.length);
+          if (badgeToastTimer.current) clearTimeout(badgeToastTimer.current);
+          setBadgeToast(pending);
+          badgeToastTimer.current = setTimeout(() => setBadgeToast(null), 5000);
+        }
+      } catch {}
+    } catch {}
 
     // Fire immediate threshold notifications (once per day each)
     const todayKey2 = getTodayKey();
@@ -4000,8 +4041,6 @@ export default function WaterTracker() {
             }
 
             await Promise.all(baseRemovals);
-            // Tell Achievements to drop any badge whose check() no longer holds.
-            setAchievementRevalidate((n) => n + 1);
           },
         },
       ],
@@ -4179,10 +4218,6 @@ export default function WaterTracker() {
             delete newGoalHistory[todayKey];
             setGoalHistory(newGoalHistory);
             await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
-            // Drop any badge whose check() no longer passes (e.g. Rainbow
-            // Drinker, Early Bird, Night Owl, today's goal hit, Perfect Week).
-            // Lifetime badges (Beer Baron, etc.) are unaffected.
-            setAchievementRevalidate((n) => n + 1);
           },
         },
       ],
@@ -4254,6 +4289,35 @@ export default function WaterTracker() {
     <View style={{ flex: 1, backgroundColor: "#0a0520" }}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0520" />
       <StarParticles />
+      {badgeToast && (
+        <TouchableOpacity
+          style={{
+            position: "absolute", top: 56, left: 16, right: 16, zIndex: 50,
+            backgroundColor: "rgba(255,215,0,0.96)", borderRadius: 14,
+            paddingVertical: 12, paddingHorizontal: 14,
+            flexDirection: "row", alignItems: "center", gap: 12,
+            shadowColor: "#000", shadowOpacity: 0.4, shadowOffset: { width: 0, height: 4 }, shadowRadius: 10,
+          }}
+          activeOpacity={0.9}
+          onPress={() => {
+            setBadgeToast(null);
+            if (badgeToastTimer.current) clearTimeout(badgeToastTimer.current);
+            router.navigate("/(tabs)/badges");
+          }}
+        >
+          <Text style={{ fontSize: 28 }}>{badgeToast[0]?.emoji ?? "🏆"}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#0a0520", fontSize: 13, fontWeight: "900", letterSpacing: 0.4 }}>
+              {badgeToast.length === 1
+                ? `NEW BADGE: ${badgeToast[0].name.toUpperCase()}`
+                : `${badgeToast.length} NEW BADGES UNLOCKED!`}
+            </Text>
+            <Text style={{ color: "rgba(10,5,32,0.7)", fontSize: 12, marginTop: 2 }}>
+              Tap to view in Badges →
+            </Text>
+          </View>
+        </TouchableOpacity>
+      )}
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <Animated.ScrollView
         ref={mainScrollRef}
@@ -4366,24 +4430,6 @@ export default function WaterTracker() {
 
         {/* Goal History Calendar */}
         <GoalHistory goalHistory={goalHistory} history={history} />
-
-        {/* Achievements */}
-        <Achievements
-          trigger={achievementTrigger}
-          revalidateTrigger={achievementRevalidate}
-          streak={streak}
-          goalHistory={goalHistory}
-          totalHydration={totalHydration}
-          intake={intake}
-          goal={goal}
-          categoryBreakdown={categoryBreakdown}
-          lifetimeHydrationOz={lifetimeHydrationOz}
-          lifetimeJackpots={lifetimeJackpots}
-          lifetimeCoffeeLogs={lifetimeCoffeeLogs}
-          lifetimeBeerLogs={lifetimeBeerLogs}
-          firstDrinkTime={firstDrinkTime}
-          onBadgeUnlocked={() => { playBadgeUnlockSound(); }}
-        />
 
         {/* Weekly Summary */}
         <WeeklySummaryCard history={history} goalHistory={goalHistory} />

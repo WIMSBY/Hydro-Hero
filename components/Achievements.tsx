@@ -27,9 +27,9 @@ const BADGE_SIZE = 70;
 const UNLOCK_DISMISS_LABELS = ["AWESOME!", "NICE!", "LOVE IT!", "KEEP GOING!", "GOT IT!"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type BevCategory = "water" | "soda" | "coffee" | "juice" | "sports" | "beer" | "cocktail";
+export type BevCategory = "water" | "soda" | "coffee" | "juice" | "sports" | "beer" | "cocktail";
 
-interface BadgeCheckData {
+export interface BadgeCheckData {
   streak: number;
   goalHistory: Record<string, number>;
   totalHydration: number;
@@ -44,7 +44,7 @@ interface BadgeCheckData {
   nowHour: number;
 }
 
-interface BadgeDef {
+export interface BadgeDef {
   id: string;
   name: string;
   emoji: string;
@@ -77,7 +77,7 @@ export interface AchievementsProps {
 }
 
 // ─── Badge definitions ────────────────────────────────────────────────────────
-const ALL_BADGES: BadgeDef[] = [
+export const ALL_BADGES: BadgeDef[] = [
   // Streak
   {
     id: "first_drop", name: "First Drop", emoji: "💧",
