@@ -1815,9 +1815,9 @@ const undoStyles = StyleSheet.create({
     borderRadius: 12, backgroundColor: "rgba(0,0,0,0.3)",
     borderWidth: 1.5, borderColor: GOLD_DIM, alignItems: "center",
   },
-  btnDisabled: { borderColor: "rgba(255,255,255,0.15)", opacity: 0.45 },
+  btnDisabled: { borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(0,0,0,0.2)" },
   btnText: { color: GOLD, fontSize: 15, fontWeight: "700" },
-  btnTextDisabled: { color: "rgba(255,255,255,0.35)" },
+  btnTextDisabled: { color: "rgba(255,255,255,0.35)", fontStyle: "italic", fontWeight: "500", fontSize: 14 },
 });
 
 // --- Entry Time Formatter ---
