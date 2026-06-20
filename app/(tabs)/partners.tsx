@@ -287,7 +287,7 @@ function ShareCodeModal({
 }: { visible: boolean; code: string; onClose: () => void }) {
   const APP_STORE_URL = 'https://apps.apple.com/app/id6764692053';
   const buildBody = (intro: string) =>
-    `${intro}\n\n1. Open Hydro Hero (or get it: ${APP_STORE_URL})\n2. Go to Squad → Add Member → Paste Code\n3. Paste this code:\n\n${code}`;
+    `${intro}\n\nTap to add me:\n${DEEP_LINK_PREFIX}${code}\n\nDon't have the app?\n${APP_STORE_URL}\n(After installing, come back and tap the first link.)`;
   const share = async (intro: string) => {
     try { await Share.share({ message: buildBody(intro) }); } catch {}
   };
@@ -306,8 +306,8 @@ function ShareCodeModal({
               <TouchableOpacity style={s.closeBtn} onPress={onClose}>
                 <Text style={s.closeTxt}>✕</Text>
               </TouchableOpacity>
-              <Text style={s.modalTitle}>📤 My Progress Code</Text>
-              <Text style={s.modalSub}>Share this with squad members so they can see your stats.{'\n'}Code expires in 24 hours.</Text>
+              <Text style={s.modalTitle}>💧 Invite to Squad</Text>
+              <Text style={s.modalSub}>Send this to anyone you want on your squad — tap to add works whether or not they have the app yet.{'\n'}Code expires in 24 hours.</Text>
 
               <SimpleQRGrid code={code} />
 
@@ -317,11 +317,11 @@ function ShareCodeModal({
                 </ScrollView>
               </View>
 
-              <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share('Hey! Here\'s my Hydro Hero progress code 💧')}>
-                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>💬 Share via Messages</Text>
+              <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share('Hey! Join my Hydro Hero squad 💧')}>
+                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>💬 Send via Messages</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actionBtn} onPress={emailShare}>
-                <Text style={s.actionBtnTxt}>✉️ Share via Email</Text>
+                <Text style={s.actionBtnTxt}>✉️ Send via Email</Text>
               </TouchableOpacity>
             </View>
           </TouchableWithoutFeedback>
@@ -1053,7 +1053,7 @@ export default function PartnersScreen() {
           <WeekDots history={myWeekHist} />
 
           <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD, marginTop: 14 }]} onPress={generateCode}>
-            <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>📤 Share My Progress</Text>
+            <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>💧 Invite to Squad</Text>
           </TouchableOpacity>
         </View>
 
@@ -1061,7 +1061,7 @@ export default function PartnersScreen() {
         <Text style={s.sectionTitle}>➕ ADD A SQUAD MEMBER</Text>
         <View style={s.card}>
           <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 10 }}>
-            Ask a friend to share their progress code, then paste it here.
+            Got an invite from a friend? Tap their link, or paste/scan their code here.
           </Text>
           <TouchableOpacity style={s.actionBtn} onPress={() => { setIsUpdateFor(null); setShowAdd(true); }}>
             <Text style={s.actionBtnTxt}>📋 Paste a Progress Code</Text>
@@ -1071,14 +1071,6 @@ export default function PartnersScreen() {
             onPress={() => { setIsUpdateFor(null); setShowScan(true); }}
           >
             <Text style={s.actionBtnTxt}>📷 Scan QR Code</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.actionBtn, { marginTop: 8 }]}
-            onPress={() => Share.share({
-              message: `Hey!${username ? ` ${username} here —` : ''} I'm using Hydro Hero to track my hydration and I want you on my squad. Download it here: https://apps.apple.com/app/id6764692053`,
-            })}
-          >
-            <Text style={s.actionBtnTxt}>✉️ Invite a Friend</Text>
           </TouchableOpacity>
         </View>
 
