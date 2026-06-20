@@ -3,7 +3,7 @@
     "name": "Hydro Hero",
     "slug": "hydration-station",
     "description": "Track your daily water intake with Hydro Hero",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "runtimeVersion": {
       "policy": "appVersion"
     },
