@@ -4295,7 +4295,7 @@ export default function WaterTracker() {
                     { text: "Cancel", style: "cancel" },
                     {
                       text: "Save",
-                      onPress: (name) => {
+                      onPress: (name?: string) => {
                         savePreset(name ?? suggested, totalOz, selectedCategory);
                       },
                     },
