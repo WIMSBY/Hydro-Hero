@@ -179,54 +179,14 @@ const scifiPack: SoundPack = {
   tagline: 'Lasers, warp drives & power-ups',
   isPro: true,
   tones: {
-    // Quick laser click
-    // Real file: assets/sounds/scifi/laser_click.mp3
-    buttonTap: [
-      { freq: 2400, freqEnd: 1600, durationMs: 22, amplitude: 65 },
-    ],
-
-    // Energy bolt — droplet leaves the +X oz ring
-    droplet: [
-      { freq: 1800, freqEnd: 900, durationMs: 80, amplitude: 70 },
-    ],
-
-    // Power-up charge with rising sweep
-    // Real file: assets/sounds/scifi/power_up.mp3
-    waterLog: [
-      { freq: 200, freqEnd: 1200, durationMs: 300, amplitude: 85 },
-      { freq: 1200, durationMs: 100, amplitude: 70, silenceMs: 10 },
-    ],
-
-    // Energy charge building to teleport burst
-    // Real file: assets/sounds/scifi/energy_charge.mp3
-    jackpot: [
-      { freq: 300,  freqEnd: 800,  durationMs: 180, amplitude: 80, silenceMs: 15 },
-      { freq: 800,  freqEnd: 1400, durationMs: 180, amplitude: 88, silenceMs: 15 },
-      { freq: 1400, freqEnd: 2200, durationMs: 180, amplitude: 94, silenceMs: 15 },
-      { freq: 2200, durationMs: 500, amplitude: 100 },
-    ],
-
-    // Teleport sound — two-sweep power discharge
-    // Real file: assets/sounds/scifi/teleport.mp3
-    badgeUnlock: [
-      { freq: 400,  freqEnd: 1600, durationMs: 200, amplitude: 85, silenceMs: 30 },
-      { freq: 1600, freqEnd: 400,  durationMs: 200, amplitude: 82, silenceMs: 30 },
-      { freq: 400,  freqEnd: 2400, durationMs: 400, amplitude: 92 },
-    ],
-
-    // Computer system startup beeps
-    // Real file: assets/sounds/scifi/startup_beep.mp3
-    morning: [
-      { freq: 880,  durationMs: 60, amplitude: 70, silenceMs: 40 },
-      { freq: 1320, durationMs: 60, amplitude: 73, silenceMs: 40 },
-      { freq: 1760, durationMs: 160, amplitude: 76 },
-    ],
+    buttonTap:   { asset: require('../assets/sounds/scifi/button_tap.m4a') },
+    droplet:     { asset: require('../assets/sounds/scifi/droplet.m4a') },
+    waterLog:    { asset: require('../assets/sounds/scifi/water_log.m4a') },
+    jackpot:     { asset: require('../assets/sounds/scifi/jackpot.m4a') },
+    badgeUnlock: { asset: require('../assets/sounds/scifi/badge_unlock.m4a') },
+    morning:     { asset: require('../assets/sounds/scifi/morning.m4a') },
   },
-  preview: [
-    { freq: 300,  freqEnd: 800,  durationMs: 160, amplitude: 78, silenceMs: 15 },
-    { freq: 800,  freqEnd: 1600, durationMs: 160, amplitude: 85, silenceMs: 15 },
-    { freq: 1600, freqEnd: 2400, durationMs: 400, amplitude: 92 },
-  ],
+  preview: { asset: require('../assets/sounds/scifi/water_log.m4a') },
 };
 
 // ─── Exported registry ────────────────────────────────────────────────────────
