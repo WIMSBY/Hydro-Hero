@@ -12,7 +12,7 @@
 import { Audio } from "expo-av";
 import { File as FSFile } from "expo-file-system";
 
-export const MAX_DURATION_MS = 2000;
+export const DEFAULT_MAX_DURATION_MS = 2000;
 
 export interface RecordingResult {
   uri: string | null;
@@ -37,10 +37,13 @@ export async function ensureMicPermission(): Promise<boolean> {
 }
 
 /**
- * Start a recording. Auto-stops after MAX_DURATION_MS and calls onAutoStop.
+ * Start a recording. Auto-stops after `maxMs` (default 2 s) and calls onAutoStop.
  * Only one recording at a time — concurrent starts return reason: 'busy'.
  */
-export async function startRecording(onAutoStop?: () => void): Promise<StartResult> {
+export async function startRecording(
+  maxMs: number = DEFAULT_MAX_DURATION_MS,
+  onAutoStop?: () => void,
+): Promise<StartResult> {
   if (_activeRec) return { ok: false, reason: 'busy' };
   const granted = await ensureMicPermission();
   if (!granted) return { ok: false, reason: 'permission' };
@@ -56,7 +59,7 @@ export async function startRecording(onAutoStop?: () => void): Promise<StartResu
     _autoStopTimer = setTimeout(() => {
       _autoStopTimer = null;
       onAutoStop?.();
-    }, MAX_DURATION_MS);
+    }, maxMs);
     return { ok: true };
   } catch {
     _activeRec = null;

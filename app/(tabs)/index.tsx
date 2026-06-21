@@ -5087,7 +5087,11 @@ export default function WaterTracker() {
                     }}
                     onPress={() => {
                       if (!isPro) { openPaywallFromSettings(); return; }
-                      setShowCustomSounds(true);
+                      // Same iOS modal-stacking trap as openPaywallFromSettings —
+                      // wait for Settings to fully dismiss before presenting the
+                      // Custom Sounds modal, or iOS absorbs the new presentation.
+                      setShowSettingsModal(false);
+                      setTimeout(() => setShowCustomSounds(true), 350);
                     }}
                   >
                     <Text style={{ fontSize: 22 }}>🎙</Text>
@@ -5369,6 +5373,12 @@ export default function WaterTracker() {
       <CustomSoundsModal
         visible={showCustomSounds}
         onClose={() => setShowCustomSounds(false)}
+        onBackToSettings={() => {
+          setShowCustomSounds(false);
+          // Same Modal-stacking trap — wait for this Modal to dismiss before
+          // re-presenting Settings.
+          setTimeout(() => setShowSettingsModal(true), 350);
+        }}
         activePackName={ALL_SOUND_PACKS.find((p) => p.id === selectedSoundPack)?.name ?? "your pack"}
       />
 

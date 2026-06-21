@@ -27,6 +27,7 @@ import {
   CustomSoundsState,
   CustomizableRole,
   MAX_CLIPS_PER_ROLE,
+  MAX_DURATION_MS_BY_ROLE,
   addCustomClip,
   clearAllCustomSounds,
   deleteCustomClip,
@@ -34,7 +35,6 @@ import {
   renameCustomClip,
 } from "../utils/CustomSounds";
 import {
-  MAX_DURATION_MS,
   cancelRecording,
   startRecording,
   stopRecording,
@@ -60,10 +60,12 @@ const ROLE_META: RoleMeta[] = [
 export default function CustomSoundsModal({
   visible,
   onClose,
+  onBackToSettings,
   activePackName,
 }: {
   visible: boolean;
   onClose: () => void;
+  onBackToSettings?: () => void;
   activePackName: string;
 }) {
   const [state, setState] = useState<CustomSoundsState>({});
@@ -171,15 +173,18 @@ export default function CustomSoundsModal({
   }
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={s.overlay}>
         <View style={s.sheet}>
           <View style={s.header}>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <TouchableOpacity onPress={onBackToSettings ?? onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={s.headerBack}>← Sound Packs</Text>
             </TouchableOpacity>
             <Text style={s.headerTitle}>Custom Sounds</Text>
-            <View style={{ width: 90 }} />
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Text style={s.headerDone}>Done</Text>
+            </TouchableOpacity>
           </View>
 
           <ScrollView contentContainerStyle={{ paddingBottom: 32 }}>
@@ -245,17 +250,24 @@ export default function CustomSoundsModal({
             </Text>
           </ScrollView>
         </View>
-      </View>
 
-      <RecordSheet
-        role={recordingFor}
-        onCancel={() => setRecordingFor(null)}
-        onSaved={async () => {
-          setRecordingFor(null);
-          await refresh();
-        }}
-      />
+        {/* RecordSheet rendered as an in-Modal overlay (not a nested Modal) —
+            iOS won't present a Modal on top of another Modal. */}
+        {recordingFor !== null && (
+          <View style={StyleSheet.absoluteFill}>
+            <RecordSheet
+              role={recordingFor}
+              onCancel={() => setRecordingFor(null)}
+              onSaved={async () => {
+                setRecordingFor(null);
+                await refresh();
+              }}
+            />
+          </View>
+        )}
+      </View>
     </Modal>
+    </>
   );
 }
 
@@ -318,10 +330,12 @@ function RecordSheet({
     return () => loop.stop();
   }, [phase, pulse]);
 
+  const maxMs = role ? MAX_DURATION_MS_BY_ROLE[role] : 2000;
+
   async function handleStart() {
     if (!role) return;
     setPermissionDenied(false);
-    const result = await startRecording(() => {
+    const result = await startRecording(maxMs, () => {
       // auto-stop fired
       handleStop();
     });
@@ -333,7 +347,7 @@ function RecordSheet({
     setElapsedMs(0);
     startTsRef.current = Date.now();
     tickerRef.current = setInterval(() => {
-      const ms = Math.min(MAX_DURATION_MS, Date.now() - startTsRef.current);
+      const ms = Math.min(maxMs, Date.now() - startTsRef.current);
       setElapsedMs(ms);
     }, 50);
   }
@@ -351,7 +365,7 @@ function RecordSheet({
       ? result.durationMs
       : Math.max(200, Date.now() - startTsRef.current);
     setReviewUri(result.uri);
-    setReviewDurationMs(Math.min(MAX_DURATION_MS, dur));
+    setReviewDurationMs(Math.min(maxMs, dur));
     setPhase('review');
   }
 
@@ -422,7 +436,6 @@ function RecordSheet({
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0.3] });
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleCancel}>
       <View style={recStyles.overlay}>
         <View style={recStyles.sheet}>
           <Text style={recStyles.title}>Recording {meta?.title}</Text>
@@ -436,7 +449,7 @@ function RecordSheet({
           </View>
 
           <Text style={recStyles.timer}>
-            {(elapsedMs / 1000).toFixed(1)} / {(MAX_DURATION_MS / 1000).toFixed(1)}s
+            {(elapsedMs / 1000).toFixed(1)} / {(maxMs / 1000).toFixed(1)}s
           </Text>
 
           {phase === 'idle' && !permissionDenied && (
@@ -483,7 +496,6 @@ function RecordSheet({
           </TouchableOpacity>
         </View>
       </View>
-    </Modal>
   );
 }
 
@@ -495,6 +507,7 @@ const s = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
   headerBack: { color: GOLD, fontSize: 14, fontWeight: "700" },
   headerTitle: { color: NAVY, fontSize: 17, fontWeight: "800" },
+  headerDone: { color: GOLD, fontSize: 15, fontWeight: "800" },
   subtitle: { color: "#555", fontSize: 13, lineHeight: 19, marginBottom: 20 },
   roleCard: { backgroundColor: "#ffffff", borderRadius: 16, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: GOLD_DIM },
   roleHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },

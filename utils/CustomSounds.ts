@@ -29,6 +29,14 @@ export interface CustomSoundClip {
 export const CUSTOMIZABLE_ROLES: CustomizableRole[] = ['waterLog', 'jackpot'];
 export const MAX_CLIPS_PER_ROLE = 5;
 
+// Per-role recording cap. Goal Celebration is longer because it plays
+// rarely (once per goal hit) and gives users room for a real cheer.
+// Drink Splash plays on every log so it needs to stay short.
+export const MAX_DURATION_MS_BY_ROLE: Record<CustomizableRole, number> = {
+  waterLog: 2000,
+  jackpot: 4000,
+};
+
 export type CustomSoundsState = Partial<Record<CustomizableRole, CustomSoundClip[]>>;
 
 const STORAGE_KEY = 'custom_sounds_v1';
