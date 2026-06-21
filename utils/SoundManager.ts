@@ -15,6 +15,7 @@
 
 import { Audio } from "expo-av";
 import { ALL_SOUND_PACKS, DEFAULT_PACK_ID, NoteSpec, RoleSound, SoundPack, getPackById } from "./SoundPacks";
+import { CustomizableRole, CustomSoundClip, CustomSoundsState, loadCustomSounds } from "./CustomSounds";
 
 function isNoteSpecArray(s: RoleSound): s is NoteSpec[] {
   return Array.isArray(s);
@@ -33,6 +34,12 @@ let _previewSound: Audio.Sound | null = null;
 
 // Pool keyed by role name — rebuilt on pack change
 const _pool: Partial<Record<string, Audio.Sound>> = {};
+
+// Custom user recordings, keyed by role then clip id. Pre-loaded so playback
+// is instant. Shuffle queues hold the random play order; reshuffled on
+// exhaustion or whenever the clip list changes.
+const _customPool: Partial<Record<CustomizableRole, Record<string, Audio.Sound>>> = {};
+const _shuffleQueues: Partial<Record<CustomizableRole, { order: string[]; cursor: number }>> = {};
 
 // ─── WAV synthesis ─────────────────────────────────────────────────────────────
 
@@ -126,9 +133,40 @@ async function unloadAll(): Promise<void> {
   } catch {}
 }
 
+function pickNextCustomClipId(role: CustomizableRole): string | null {
+  const pool = _customPool[role];
+  if (!pool) return null;
+  const ids = Object.keys(pool);
+  if (ids.length === 0) return null;
+  let q = _shuffleQueues[role];
+  if (!q || q.cursor >= q.order.length) {
+    // Fisher–Yates shuffle, then reset cursor
+    const order = [...ids];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    q = { order, cursor: 0 };
+    _shuffleQueues[role] = q;
+  }
+  return q.order[q.cursor++];
+}
+
 async function playKey(role: string): Promise<void> {
   if (!_enabled) return;
   try {
+    // Custom user recordings override the active pack for their role.
+    if (role === 'waterLog' || role === 'jackpot') {
+      const customId = pickNextCustomClipId(role);
+      if (customId) {
+        const customSnd = _customPool[role]?.[customId];
+        if (customSnd) {
+          await customSnd.setPositionAsync(0);
+          await customSnd.playAsync();
+          return;
+        }
+      }
+    }
     const snd = _pool[role];
     if (!snd) return;
     await snd.setPositionAsync(0);
@@ -145,6 +183,51 @@ async function buildPool(pack: SoundPack): Promise<void> {
   ));
 }
 
+async function unloadCustomRole(role: CustomizableRole): Promise<void> {
+  const pool = _customPool[role];
+  if (!pool) return;
+  for (const snd of Object.values(pool)) {
+    try { await snd.unloadAsync(); } catch {}
+  }
+  delete _customPool[role];
+  delete _shuffleQueues[role];
+}
+
+async function unloadAllCustom(): Promise<void> {
+  await Promise.all(
+    (Object.keys(_customPool) as CustomizableRole[]).map(unloadCustomRole)
+  );
+}
+
+/**
+ * Load every clip in `state` into the custom pool, replacing whatever was
+ * loaded before. Call this from the UI after add/delete/rename or on init.
+ */
+export async function refreshCustomSounds(state?: CustomSoundsState): Promise<void> {
+  const cs = state ?? (await loadCustomSounds());
+  await unloadAllCustom();
+  for (const role of ['waterLog', 'jackpot'] as CustomizableRole[]) {
+    const clips: CustomSoundClip[] = cs[role] ?? [];
+    if (clips.length === 0) continue;
+    const volume = VOLUMES[role] ?? 0.6;
+    const entries: [string, Audio.Sound][] = [];
+    await Promise.all(clips.map(async (clip) => {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: clip.uri },
+          { volume, shouldPlay: false, isLooping: false },
+        );
+        entries.push([clip.id, sound]);
+      } catch {
+        // Skip clips that fail to load — file may be corrupt or removed.
+      }
+    }));
+    if (entries.length > 0) {
+      _customPool[role] = Object.fromEntries(entries);
+    }
+  }
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /** Load all sounds for the default (or previously set) pack. */
@@ -156,6 +239,7 @@ export async function initSounds(): Promise<void> {
       staysActiveInBackground: false,
     });
     await buildPool(_activePack);
+    await refreshCustomSounds().catch(() => {});
     _initialized = true;
   } catch {}
 }
@@ -165,6 +249,7 @@ export async function teardownSounds(): Promise<void> {
   _initialized = false;
   try {
     await unloadAll();
+    await unloadAllCustom();
     if (_previewSound) {
       await _previewSound.unloadAsync().catch(() => {});
       _previewSound = null;
@@ -183,6 +268,13 @@ export function setSoundEnabled(enabled: boolean): void {
   if (!enabled) {
     for (const snd of Object.values(_pool)) {
       snd?.stopAsync().catch(() => {});
+    }
+    for (const role of Object.keys(_customPool) as CustomizableRole[]) {
+      const pool = _customPool[role];
+      if (!pool) continue;
+      for (const snd of Object.values(pool)) {
+        snd?.stopAsync().catch(() => {});
+      }
     }
   }
 }

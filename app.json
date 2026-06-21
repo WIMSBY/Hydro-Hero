@@ -22,6 +22,7 @@
         "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
         "NSLocationWhenInUseUsageDescription": "Hydro Hero uses your approximate location to check the local temperature and suggest extra hydration on hot days. Your location is never stored or shared.",
         "NSCameraUsageDescription": "Hydro Hero uses the camera to scan a squad member's QR code so you can add them to your squad.",
+        "NSMicrophoneUsageDescription": "Hydro Hero records short custom sound effects that play when you log a drink or hit your daily goal. Recordings stay on your device.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {

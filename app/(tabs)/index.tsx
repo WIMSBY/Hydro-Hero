@@ -4,6 +4,7 @@ import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hy
 import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
 import Constants from "expo-constants";
 import Onboarding from "../../components/Onboarding";
+import CustomSoundsModal from "../../components/CustomSoundsModal";
 import {
   initSounds, teardownSounds, reloadSounds, setSoundEnabled,
   playButtonTapSound,
@@ -2532,6 +2533,7 @@ export default function WaterTracker() {
   // Sound pack
   const [selectedSoundPack, setSelectedSoundPack] = useState(DEFAULT_PACK_ID);
   const [previewingPack, setPreviewingPack] = useState<string | null>(null);
+  const [showCustomSounds, setShowCustomSounds] = useState(false);
 
   // Beverage customization
   const [selectedBeverages, setSelectedBeverages] = useState<BevCategory[]>(DEFAULT_VISIBLE_BEVS);
@@ -5067,6 +5069,43 @@ export default function WaterTracker() {
                       );
                     })}
                   </View>
+
+                  {/* Record Your Own Sounds (Pro) */}
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    style={{
+                      marginTop: 12,
+                      borderRadius: 12,
+                      borderWidth: 1.5,
+                      borderColor: "rgba(200,160,0,0.5)",
+                      borderStyle: "dashed",
+                      backgroundColor: "rgba(200,160,0,0.06)",
+                      padding: 14,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                    onPress={() => {
+                      if (!isPro) { openPaywallFromSettings(); return; }
+                      setShowCustomSounds(true);
+                    }}
+                  >
+                    <Text style={{ fontSize: 22 }}>🎙</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: "#c8a000", fontSize: 14, fontWeight: "800", letterSpacing: 0.3 }}>
+                        Record Your Own Sounds
+                      </Text>
+                      <Text style={{ color: "#666", fontSize: 11, marginTop: 2, lineHeight: 15 }}>
+                        Up to 5 clips each for the drink splash and goal celebration.
+                      </Text>
+                    </View>
+                    <View style={{
+                      backgroundColor: "#c8a000", borderRadius: 6,
+                      paddingHorizontal: 8, paddingVertical: 3,
+                    }}>
+                      <Text style={{ color: "#ffffff", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 }}>PRO</Text>
+                    </View>
+                  </TouchableOpacity>
                 </View>
 
                 {/* Haptic Feedback toggle */}
@@ -5324,6 +5363,13 @@ export default function WaterTracker() {
           try { await AsyncStorage.setItem("custom_quick_add_amounts", JSON.stringify(amounts)); } catch {}
         }}
         onCancel={() => setShowQuickAddModal(false)}
+      />
+
+      {/* Custom Sounds Modal */}
+      <CustomSoundsModal
+        visible={showCustomSounds}
+        onClose={() => setShowCustomSounds(false)}
+        activePackName={ALL_SOUND_PACKS.find((p) => p.id === selectedSoundPack)?.name ?? "your pack"}
       />
 
       {/* Morning toast notification */}

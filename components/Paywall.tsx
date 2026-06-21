@@ -49,7 +49,7 @@ const REEL_FEATURES = [
   '20 Drink Categories',
   'Full Analytics',
   'Unlimited Squad Members',
-  'Sound Effects',
+  'Record Your Own Sounds',
   'Custom Quick Add',
   'Custom Quick Presets',
 ];
@@ -63,7 +63,7 @@ const PRO_BENEFITS = [
   'All 20 beverage categories',
   'Full Stats',
   'Unlimited Squad members',
-  'Sound effects & haptic feedback',
+  'Sound effects, haptics & record your own',
   'Customize Quick Add & save unlimited presets',
 ];
 
