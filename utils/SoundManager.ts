@@ -14,7 +14,15 @@
  */
 
 import { Audio } from "expo-av";
-import { ALL_SOUND_PACKS, DEFAULT_PACK_ID, NoteSpec, SoundPack, getPackById } from "./SoundPacks";
+import { ALL_SOUND_PACKS, DEFAULT_PACK_ID, NoteSpec, RoleSound, SoundPack, getPackById } from "./SoundPacks";
+
+function isNoteSpecArray(s: RoleSound): s is NoteSpec[] {
+  return Array.isArray(s);
+}
+
+function toSource(sound: RoleSound): { uri: string } | number {
+  return isNoteSpecArray(sound) ? { uri: generateWav(sound) } : sound.asset;
+}
 
 // ─── Module state ──────────────────────────────────────────────────────────────
 
@@ -25,7 +33,6 @@ let _previewSound: Audio.Sound | null = null;
 
 // Pool keyed by role name — rebuilt on pack change
 const _pool: Partial<Record<string, Audio.Sound>> = {};
-let _spinSound: Audio.Sound | null = null;
 
 // ─── WAV synthesis ─────────────────────────────────────────────────────────────
 
@@ -87,27 +94,21 @@ function generateWav(notes: NoteSpec[]): string {
 // Volume map per role (0.0–1.0)
 const VOLUMES: Record<string, number> = {
   buttonTap:   0.20,
+  droplet:     0.45,
   waterLog:    0.60,
-  spin:        0.50,
-  reelStop:    0.70,
-  reelStop1:   0.70,
-  reelStop2:   0.70,
-  reelStop3:   0.70,
   jackpot:     0.80,
   badgeUnlock: 0.75,
   morning:     0.50,
   // legacy keys kept for backward compat
   streak:      0.65,
-  waterFill:   0.40,
 };
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
-async function loadRole(role: string, notes: NoteSpec[], volume: number): Promise<void> {
+async function loadRole(role: string, roleSound: RoleSound, volume: number): Promise<void> {
   try {
-    const uri = generateWav(notes);
     const { sound } = await Audio.Sound.createAsync(
-      { uri },
+      toSource(roleSound),
       { volume, shouldPlay: false, isLooping: false }
     );
     _pool[role] = sound;
@@ -122,10 +123,6 @@ async function unloadAll(): Promise<void> {
       if (snd) await snd.unloadAsync().catch(() => {});
     }
     Object.keys(_pool).forEach((k) => { delete _pool[k]; });
-    if (_spinSound) {
-      await _spinSound.unloadAsync().catch(() => {});
-      _spinSound = null;
-    }
   } catch {}
 }
 
@@ -146,16 +143,6 @@ async function buildPool(pack: SoundPack): Promise<void> {
   await Promise.all(roles.map((role) =>
     loadRole(role, pack.tones[role], VOLUMES[role] ?? 0.6)
   ));
-  // Pre-generate three pitched variants for reelStop
-  const baseStop = pack.tones.reelStop;
-  await Promise.all([0, 1, 2].map((idx) => {
-    const pitched = baseStop.map((n) => ({
-      ...n,
-      freq:    n.freq    + (2 - idx) * 50,
-      freqEnd: n.freqEnd ? n.freqEnd + (2 - idx) * 40 : undefined,
-    }));
-    return loadRole(`reelStop${idx + 1}`, pitched, VOLUMES.reelStop);
-  }));
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -194,7 +181,6 @@ export async function reloadSounds(): Promise<void> {
 export function setSoundEnabled(enabled: boolean): void {
   _enabled = enabled;
   if (!enabled) {
-    stopSpinSound();
     for (const snd of Object.values(_pool)) {
       snd?.stopAsync().catch(() => {});
     }
@@ -231,9 +217,8 @@ export async function previewPack(packId: string): Promise<void> {
       _previewSound = null;
     }
     const pack = getPackById(packId);
-    const uri = generateWav(pack.preview);
     const { sound } = await Audio.Sound.createAsync(
-      { uri },
+      toSource(pack.preview),
       { volume: 0.7, shouldPlay: true, isLooping: false }
     );
     _previewSound = sound;
@@ -267,40 +252,11 @@ export function playButtonTapSound(): void {
   playKey("buttonTap").catch(() => {});
 }
 
-export async function playSpinSound(): Promise<void> {
-  if (!_enabled) return;
-  try {
-    const snd = _pool["spin"];
-    if (!snd) return;
-    _spinSound = snd;
-    await snd.setIsLoopingAsync(true);
-    await snd.setPositionAsync(0);
-    await snd.setVolumeAsync(VOLUMES.spin);
-    await snd.playAsync();
-  } catch {}
-}
-
-export async function stopSpinSound(): Promise<void> {
-  try {
-    if (_spinSound) {
-      await _spinSound.setIsLoopingAsync(false);
-      await _spinSound.stopAsync();
-      _spinSound = null;
-    }
-  } catch {}
-}
-
-export function playReelStopSound(reelIndex: 0 | 1 | 2 = 2): void {
-  playKey(`reelStop${reelIndex + 1}`).catch(() => {});
+export function playDropletSound(): void {
+  playKey("droplet").catch(() => {});
 }
 
 export function playWaterLogSound(): void {
-  playKey("waterLog").catch(() => {});
-}
-
-export function playWaterFillSound(): void {
-  // waterFill maps to the pack's waterLog sound at lower volume
-  // (Classic pack had a separate waterFill; others reuse waterLog)
   playKey("waterLog").catch(() => {});
 }
 

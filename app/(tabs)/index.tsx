@@ -7,7 +7,7 @@ import Onboarding from "../../components/Onboarding";
 import {
   initSounds, teardownSounds, reloadSounds, setSoundEnabled,
   playButtonTapSound,
-  playWaterLogSound, playWaterFillSound, playJackpotSound,
+  playWaterLogSound, playJackpotSound, playDropletSound,
   playStreakSound, playMorningResetSound,
   setActivePack, previewPack, stopPreview, ALL_SOUND_PACKS, DEFAULT_PACK_ID,
 } from "../../utils/SoundManager";
@@ -342,7 +342,7 @@ function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
           <View style={[presetStyles.chipWrap, isActive && { opacity: 0.85 }]}>
             <TouchableOpacity
               style={[presetStyles.chip, { borderLeftColor: cat(item).color }]}
-              onPress={() => { if (!editMode) onSelect(item); }}
+              onPress={() => { if (!editMode) { playButtonTapSound(); onSelect(item); } }}
               onLongPress={canEdit ? () => {
                 if (!editMode) enterEdit();
                 if (canReorder) drag();
@@ -360,7 +360,7 @@ function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
             {editMode && (
               <TouchableOpacity
                 style={presetStyles.deleteBtn}
-                onPress={() => confirmDelete(item)}
+                onPress={() => { playButtonTapSound(); confirmDelete(item); }}
                 hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                 accessibilityLabel={`Delete ${item.label}`}
               >
@@ -377,7 +377,7 @@ function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
       <View style={presetStyles.headerRow}>
         <Text style={presetStyles.label}>⚡ QUICK PRESETS</Text>
         {editMode && (
-          <TouchableOpacity onPress={() => setEditMode(false)} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+          <TouchableOpacity onPress={() => { playButtonTapSound(); setEditMode(false); }} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
             <Text style={presetStyles.doneBtn}>Done</Text>
           </TouchableOpacity>
         )}
@@ -1050,6 +1050,7 @@ function ArtDecoVault({
     if (!ringPos) return;
     const anchor = vaultWaterAnchorRef.current;
     if (!anchor) return;
+    playDropletSound();
     anchor.measureInWindow((x, y, w, h) => {
       onLaunchDroplet(ringPos, { x: x + w / 2, y: y + h / 2 }, onReachTank);
     });
@@ -3575,8 +3576,9 @@ export default function WaterTracker() {
     // STALE pct — i.e. empty tank on first log, last-value on subsequent.
     setDisplayedHydration((prev) => prev + hydrated);
     setLogNonce(n => n + 1);
-    playWaterLogSound();
-    playWaterFillSound();
+    // Reveal start: the middle-area number drop. The water_log / jackpot
+    // splash sounds fire later — after the tank fills and the spray lands.
+    playMorningResetSound();
     // fireSpray now triggers from the vault's onTankFill so it fires when the
     // handoff droplet actually lands, not immediately on tap.
     // Always scroll the tank into view on tap — the user may have scrolled
@@ -3586,11 +3588,10 @@ export default function WaterTracker() {
     const bt = betTimersRef.current;
 
     if (triggersJackpot) {
-      playJackpotSound();
-
       // Celebratory shake + confetti when the fill completes.
       bt.push(setTimeout(() => {
         haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+        playJackpotSound();
         screenShakeAnim.setValue(0);
         Animated.sequence([
           Animated.timing(screenShakeAnim, { toValue: -6, duration: 40, useNativeDriver: true }),
@@ -3961,11 +3962,11 @@ export default function WaterTracker() {
       {badgeToast && (
         <TouchableOpacity
           style={{
-            position: "absolute", top: 56, left: 16, right: 16, zIndex: 50,
+            position: "absolute", bottom: tabBarHeight + 12, left: 16, right: 16, zIndex: 50,
             backgroundColor: "rgba(255,215,0,0.96)", borderRadius: 14,
             paddingVertical: 12, paddingHorizontal: 14,
             flexDirection: "row", alignItems: "center", gap: 12,
-            shadowColor: "#000", shadowOpacity: 0.4, shadowOffset: { width: 0, height: 4 }, shadowRadius: 10,
+            shadowColor: "#000", shadowOpacity: 0.4, shadowOffset: { width: 0, height: -4 }, shadowRadius: 10,
           }}
           activeOpacity={0.9}
           onPress={() => {
@@ -4008,7 +4009,7 @@ export default function WaterTracker() {
             lastReelOz={lastReelOz}
             logNonce={logNonce}
             onSpoutRef={(x, y) => setSpoutOrigin({ x, y })}
-            onTankFill={fireSpray}
+            onTankFill={() => { fireSpray(); playWaterLogSound(); }}
             onLaunchDroplet={launchDroplet}
             preferredUnit={preferredUnit}
           />
