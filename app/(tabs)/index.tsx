@@ -4519,8 +4519,13 @@ export default function WaterTracker() {
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={styles.modalBox}>
+              {/* Plain View w/ onStartShouldSetResponder swallows tap-bubble to the
+                  outer Keyboard.dismiss without claiming pan gestures — lets the
+                  Suggest tab's ScrollPickers receive drag events. */}
+              <View
+                style={styles.modalBox}
+                onStartShouldSetResponder={() => true}
+              >
                   {/* Close button */}
                   <View style={styles.kbToolbar}>
                     <TouchableOpacity onPress={closeGoalModal}>
@@ -4781,7 +4786,6 @@ export default function WaterTracker() {
               </View>
             )}
                 </View>
-              </TouchableWithoutFeedback>
               {/* Android: floating Done toolbar above keyboard */}
               {Platform.OS === "android" && kbHeight > 0 && (
                 <View style={[styles.androidKbBar, { bottom: kbHeight }]}>
