@@ -2447,6 +2447,10 @@ export default function WaterTracker() {
   const [selectedCategory, setSelectedCategory] = useState<BevCategory>("water");
   const [spinning, setSpinning] = useState(false);
   const [jackpotSpinning, setJackpotSpinning] = useState(false);
+  // Set true synchronously in handleBet when the pour will trigger the goal
+  // celebration. onTankFill checks this and skips the splash so only the
+  // jackpot sound plays for goal hits. Cleared by the onTankFill consumer.
+  const skipNextSplashRef = useRef(false);
   const [reelConfettiVisible, setReelConfettiVisible] = useState(false);
   const [reelFrameY, setReelFrameY] = useState(300);
   const screenShakeAnim = useRef(new Animated.Value(0)).current;
@@ -3570,7 +3574,10 @@ export default function WaterTracker() {
     // The tank's fillAnim takes ~1.2s to ease the water up to the new level.
     // We pour into the tank immediately and gate further taps for that window.
     setSpinning(true);
-    if (triggersJackpot) setJackpotSpinning(true);
+    if (triggersJackpot) {
+      setJackpotSpinning(true);
+      skipNextSplashRef.current = true;
+    }
     // CRITICAL: bump logNonce in the SAME render batch as setDisplayedHydration.
     // The vault's useEffect[logNonce] fires revealRef.play(), which captures
     // the current `onReachTank` closure (which captures `pct`). If logNonce
@@ -4011,7 +4018,14 @@ export default function WaterTracker() {
             lastReelOz={lastReelOz}
             logNonce={logNonce}
             onSpoutRef={(x, y) => setSpoutOrigin({ x, y })}
-            onTankFill={() => { fireSpray(); playWaterLogSound(); }}
+            onTankFill={() => {
+              fireSpray();
+              if (skipNextSplashRef.current) {
+                skipNextSplashRef.current = false;
+              } else {
+                playWaterLogSound();
+              }
+            }}
             onLaunchDroplet={launchDroplet}
             preferredUnit={preferredUnit}
           />
