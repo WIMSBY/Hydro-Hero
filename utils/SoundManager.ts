@@ -101,14 +101,15 @@ function generateWav(notes: NoteSpec[]): string {
 
 // Volume map per role (0.0–1.0)
 const VOLUMES: Record<string, number> = {
-  buttonTap:   0.20,
-  droplet:     0.45,
-  waterLog:    0.60,
-  jackpot:     0.80,
-  badgeUnlock: 0.75,
-  morning:     0.50,
+  buttonTap:    0.20,
+  droplet:      0.45,
+  waterLog:     0.60,
+  jackpot:      0.80,
+  badgeUnlock:  0.75,
+  reveal:       0.50,
+  morningReset: 0.55,
   // legacy keys kept for backward compat
-  streak:      0.65,
+  streak:       0.65,
 };
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
@@ -380,8 +381,12 @@ export function playStreakSound(): void {
   playKey("badgeUnlock").catch(() => {});
 }
 
+export function playRevealSound(): void {
+  playKey("reveal").catch(() => {});
+}
+
 export function playMorningResetSound(): void {
-  playKey("morning").catch(() => {});
+  playKey("morningReset").catch(() => {});
 }
 
 // ── Expose pack list for UI ───────────────────────────────────────────────────

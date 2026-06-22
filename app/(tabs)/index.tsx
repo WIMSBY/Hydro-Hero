@@ -9,7 +9,7 @@ import {
   initSounds, teardownSounds, reloadSounds, setSoundEnabled,
   playButtonTapSound,
   playWaterLogSound, playJackpotSound, playDropletSound,
-  playStreakSound, playMorningResetSound,
+  playStreakSound, playMorningResetSound, playRevealSound,
   setActivePack, previewPack, stopPreview, ALL_SOUND_PACKS, DEFAULT_PACK_ID,
 } from "../../utils/SoundManager";
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
@@ -3602,7 +3602,7 @@ export default function WaterTracker() {
     setLogNonce(n => n + 1);
     // Reveal start: the middle-area number drop. The water_log / jackpot
     // splash sounds fire later — after the tank fills and the spray lands.
-    playMorningResetSound();
+    playRevealSound();
     // fireSpray now triggers from the vault's onTankFill so it fires when the
     // handoff droplet actually lands, not immediately on tap.
     // Always scroll the tank into view on tap — the user may have scrolled

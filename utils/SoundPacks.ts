@@ -37,16 +37,17 @@ export interface AssetSound {
 export type RoleSound = NoteSpec[] | AssetSound;
 
 /**
- * The six logical sound roles that SoundManager maps to.
+ * The seven logical sound roles that SoundManager maps to.
  * Each pack provides a RoleSound for every role.
  */
 export type SoundRole =
-  | 'buttonTap'   // every UI button press
-  | 'droplet'     // droplet leaves the +Xoz circle to fly to the tank
-  | 'waterLog'    // droplet lands in the tank and cues the fill
-  | 'jackpot'     // goal hit fanfare
-  | 'badgeUnlock' // achievement unlocked
-  | 'morning';    // morning reset / new day chime
+  | 'buttonTap'    // every UI button press
+  | 'droplet'      // droplet leaves the +Xoz circle to fly to the tank
+  | 'waterLog'     // droplet lands in the tank and cues the fill
+  | 'jackpot'      // goal hit fanfare
+  | 'badgeUnlock'  // achievement unlocked
+  | 'reveal'       // mid-screen +Xoz reveal at the start of a drink log
+  | 'morningReset'; // first-tap-of-the-day / new-day chime
 
 export interface SoundPack {
   id: string;
@@ -105,10 +106,19 @@ const classicPack: SoundPack = {
       { freq: 1568, durationMs: 420, amplitude: 92 },
     ],
 
-    // Gentle two-tone drop
-    morning: [
+    // Drink-log reveal: gentle falling two-tone drop. Plays at the moment
+    // the +X oz number lands in the middle of the screen.
+    reveal: [
       { freq: 880, durationMs: 90,  amplitude: 72, silenceMs: 55 },
       { freq: 660, durationMs: 210, amplitude: 68 },
+    ],
+
+    // Morning reset: distinct rising two-tone chime — fresh new-day feel,
+    // intentionally different from the falling reveal cue so the once-a-day
+    // moment sounds special.
+    morningReset: [
+      { freq: 523, durationMs: 110, amplitude: 72, silenceMs: 35 },
+      { freq: 784, durationMs: 220, amplitude: 78 },
     ],
   },
   preview: [
@@ -133,12 +143,13 @@ const flowingPack: SoundPack = {
   tagline: 'Hydrate to the sound of moving water',
   isPro: true,
   tones: {
-    buttonTap:   { asset: require('../assets/sounds/flowing/button_tap.m4a') },
-    droplet:     { asset: require('../assets/sounds/flowing/droplet.m4a') },
-    waterLog:    { asset: require('../assets/sounds/flowing/water_log.m4a') },
-    jackpot:     { asset: require('../assets/sounds/flowing/jackpot.m4a') },
-    badgeUnlock: { asset: require('../assets/sounds/flowing/badge_unlock.m4a') },
-    morning:     { asset: require('../assets/sounds/flowing/morning.m4a') },
+    buttonTap:    { asset: require('../assets/sounds/flowing/button_tap.m4a') },
+    droplet:      { asset: require('../assets/sounds/flowing/droplet.m4a') },
+    waterLog:     { asset: require('../assets/sounds/flowing/water_log.m4a') },
+    jackpot:      { asset: require('../assets/sounds/flowing/jackpot.m4a') },
+    badgeUnlock:  { asset: require('../assets/sounds/flowing/badge_unlock.m4a') },
+    reveal:       { asset: require('../assets/sounds/flowing/reveal.m4a') },
+    morningReset: { asset: require('../assets/sounds/flowing/morning_reset.m4a') },
   },
   preview: { asset: require('../assets/sounds/flowing/water_log.m4a') },
 };
@@ -156,12 +167,13 @@ const naturePack: SoundPack = {
   tagline: 'Peaceful ocean & forest vibes',
   isPro: true,
   tones: {
-    buttonTap:   { asset: require('../assets/sounds/nature/button_tap.m4a') },
-    droplet:     { asset: require('../assets/sounds/nature/droplet.m4a') },
-    waterLog:    { asset: require('../assets/sounds/nature/water_log.m4a') },
-    jackpot:     { asset: require('../assets/sounds/nature/jackpot.m4a') },
-    badgeUnlock: { asset: require('../assets/sounds/nature/badge_unlock.m4a') },
-    morning:     { asset: require('../assets/sounds/nature/morning.m4a') },
+    buttonTap:    { asset: require('../assets/sounds/nature/button_tap.m4a') },
+    droplet:      { asset: require('../assets/sounds/nature/droplet.m4a') },
+    waterLog:     { asset: require('../assets/sounds/nature/water_log.m4a') },
+    jackpot:      { asset: require('../assets/sounds/nature/jackpot.m4a') },
+    badgeUnlock:  { asset: require('../assets/sounds/nature/badge_unlock.m4a') },
+    reveal:       { asset: require('../assets/sounds/nature/reveal.m4a') },
+    morningReset: { asset: require('../assets/sounds/nature/morning_reset.m4a') },
   },
   preview: { asset: require('../assets/sounds/nature/water_log.m4a') },
 };
@@ -179,12 +191,13 @@ const scifiPack: SoundPack = {
   tagline: 'Lasers, warp drives & power-ups',
   isPro: true,
   tones: {
-    buttonTap:   { asset: require('../assets/sounds/scifi/button_tap.m4a') },
-    droplet:     { asset: require('../assets/sounds/scifi/droplet.m4a') },
-    waterLog:    { asset: require('../assets/sounds/scifi/water_log.m4a') },
-    jackpot:     { asset: require('../assets/sounds/scifi/jackpot.m4a') },
-    badgeUnlock: { asset: require('../assets/sounds/scifi/badge_unlock.m4a') },
-    morning:     { asset: require('../assets/sounds/scifi/morning.m4a') },
+    buttonTap:    { asset: require('../assets/sounds/scifi/button_tap.m4a') },
+    droplet:      { asset: require('../assets/sounds/scifi/droplet.m4a') },
+    waterLog:     { asset: require('../assets/sounds/scifi/water_log.m4a') },
+    jackpot:      { asset: require('../assets/sounds/scifi/jackpot.m4a') },
+    badgeUnlock:  { asset: require('../assets/sounds/scifi/badge_unlock.m4a') },
+    reveal:       { asset: require('../assets/sounds/scifi/reveal.m4a') },
+    morningReset: { asset: require('../assets/sounds/scifi/morning_reset.m4a') },
   },
   preview: { asset: require('../assets/sounds/scifi/water_log.m4a') },
 };
