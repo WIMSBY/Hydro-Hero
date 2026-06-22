@@ -465,12 +465,23 @@ function computeGoalOz(weightLbs: number, activity: ActivityLevel, sex: SexInput
 }
 
 function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
+  // Canonical weight is lbs (computeGoalOz takes lbs). bodyUnit only flips
+  // the stepper UI between lb (±5) and kg (±2); we keep weightKg in sync so
+  // the display number doesn't drift through repeated round-trips.
+  const [bodyUnit, setBodyUnit] = useState<'imperial' | 'metric'>('imperial');
   const [weightLbs, setWeightLbs] = useState(160);
+  const [weightKg, setWeightKg] = useState(73);
   const [activity, setActivity] = useState<ActivityLevel>("moderate");
   const [sex, setSex] = useState<SexInput>(null);
 
   const [showCustomGoal, setShowCustomGoal] = useState(false);
   const [customGoalDraft, setCustomGoalDraft] = useState("");
+
+  useEffect(() => {
+    AsyncStorage.getItem('body_unit').then((val) => {
+      if (val === 'metric' || val === 'imperial') setBodyUnit(val);
+    }).catch(() => {});
+  }, []);
 
   const recommended = computeGoalOz(weightLbs, activity, sex);
 
@@ -484,8 +495,21 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
     prevRecommendedRef.current = recommended;
   }, [recommended, selectedGoal, onSelect]);
 
-  function bumpWeight(delta: number) {
-    setWeightLbs((w) => Math.min(Math.max(w + delta, 60), 400));
+  async function changeBodyUnit(u: 'imperial' | 'metric') {
+    setBodyUnit(u);
+    try { await AsyncStorage.setItem('body_unit', u); } catch {}
+  }
+
+  function bumpWeight(direction: 1 | -1) {
+    if (bodyUnit === 'metric') {
+      const newKg = Math.min(Math.max(weightKg + direction * 2, 27), 181);
+      setWeightKg(newKg);
+      setWeightLbs(Math.round(newKg * 2.20462));
+    } else {
+      const newLbs = Math.min(Math.max(weightLbs + direction * 5, 60), 400);
+      setWeightLbs(newLbs);
+      setWeightKg(Math.round(newLbs / 2.20462));
+    }
   }
 
   const isPresetSelected = (oz: number) => selectedGoal === oz;
@@ -546,13 +570,35 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
       <View style={s.personalizeBox}>
         {/* Weight stepper */}
         <View style={s.personRow}>
-          <Text style={s.personLabel}>Weight</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.personLabel}>Weight</Text>
+            <View style={s.unitToggleWrap}>
+              {([
+                { key: "imperial" as const, label: "lb" },
+                { key: "metric" as const, label: "kg" },
+              ]).map(({ key, label }) => {
+                const active = bodyUnit === key;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={() => changeBodyUnit(key)}
+                    activeOpacity={0.75}
+                    style={[s.unitToggleBtn, active && s.unitToggleBtnSel]}
+                  >
+                    <Text style={[s.unitToggleText, active && s.unitToggleTextSel]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
           <View style={s.stepperWrap}>
-            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(-5)} activeOpacity={0.7}>
+            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(-1)} activeOpacity={0.7}>
               <Text style={s.stepperBtnText}>−</Text>
             </TouchableOpacity>
-            <Text style={s.stepperValue}>{weightLbs} lb</Text>
-            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(5)} activeOpacity={0.7}>
+            <Text style={s.stepperValue}>
+              {bodyUnit === "metric" ? `${weightKg} kg` : `${weightLbs} lb`}
+            </Text>
+            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(1)} activeOpacity={0.7}>
               <Text style={s.stepperBtnText}>+</Text>
             </TouchableOpacity>
           </View>
@@ -746,6 +792,31 @@ const s = StyleSheet.create({
     color: "rgba(255,255,255,0.4)",
     fontSize: 11,
     fontWeight: "500",
+  },
+  unitToggleWrap: {
+    flexDirection: "row",
+    marginTop: 4,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 8,
+    padding: 2,
+    alignSelf: "flex-start",
+  },
+  unitToggleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  unitToggleBtnSel: {
+    backgroundColor: "rgba(255,215,0,0.85)",
+  },
+  unitToggleText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  unitToggleTextSel: {
+    color: "#1a1a2e",
   },
   stepperWrap: {
     flexDirection: "row",

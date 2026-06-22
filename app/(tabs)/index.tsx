@@ -2404,7 +2404,9 @@ export default function WaterTracker() {
   // Goal modal tab state
   const [goalTab, setGoalTab] = useState<"custom" | "gallon" | "suggested">("custom");
 
-  // Suggested tab state
+  // Suggested tab state. Imperial fields are canonical; metric values are
+  // derived for display and converted back on input change. Separate "type"
+  // strings per unit so the keyboard input mirrors what the user typed.
   const [suggWeightLbs, setSuggWeightLbs] = useState(150);
   const [suggFeet, setSuggFeet] = useState(5);
   const [suggInches, setSuggInches] = useState(7);
@@ -2414,6 +2416,8 @@ export default function WaterTracker() {
   const [typeWeight, setTypeWeight] = useState("");
   const [typeFeet, setTypeFeet] = useState("");
   const [typeInches, setTypeInches] = useState("");
+  const [typeWeightKg, setTypeWeightKg] = useState("");
+  const [typeHeightCm, setTypeHeightCm] = useState("");
   const [kbHeight, setKbHeight] = useState(0);
   const KB_ACCESSORY_ID = "modal-kb-done";
   const CUSTOM_ACCESSORY_ID = "custom-kb-done";
@@ -2530,6 +2534,7 @@ export default function WaterTracker() {
   // Add tiles, the CONSUMED stat row, and the Custom Amount input default.
   // Both units stay visible everywhere — this only controls primary/secondary.
   const [preferredUnit, setPreferredUnit] = useState<'oz' | 'ml'>('oz');
+  const [bodyUnit, setBodyUnit] = useState<'imperial' | 'metric'>('imperial');
   // Open the Custom Amount modal with the unit toggle defaulted to the user's
   // preferred unit. The user can still flip it mid-flow.
   const openCustomModal = () => { setCustomUnit(preferredUnit); setShowCustomModal(true); };
@@ -3207,6 +3212,7 @@ export default function WaterTracker() {
         'custom_quick_add_amounts',
         'haptics_enabled',
         'preferred_unit',
+        'body_unit',
         'water_log_entries',
         'selected_sound_pack',
         'selected_beverages',
@@ -3317,6 +3323,10 @@ export default function WaterTracker() {
       // Preferred display unit
       const savedUnit = get('preferred_unit');
       if (savedUnit === 'ml' || savedUnit === 'oz') setPreferredUnit(savedUnit);
+
+      // Preferred body-measurement unit (Suggest tab inputs)
+      const savedBodyUnit = get('body_unit');
+      if (savedBodyUnit === 'metric' || savedBodyUnit === 'imperial') setBodyUnit(savedBodyUnit);
 
       // Today's drink log entries
       try {
@@ -3783,53 +3793,91 @@ export default function WaterTracker() {
 
   function calcSuggestedOz(): number | null {
     let weightLbs: number;
-    if (weightMode === "type") {
-      const w = parseFloat(typeWeight);
-      if (isNaN(w) || w < 80 || w > 400) return null;
-      weightLbs = w;
+    if (bodyUnit === "metric") {
+      if (weightMode === "type") {
+        const kg = parseFloat(typeWeightKg);
+        if (isNaN(kg) || kg < 36 || kg > 181) return null;
+        weightLbs = kg * 2.20462;
+      } else {
+        weightLbs = suggWeightLbs;
+      }
     } else {
-      weightLbs = suggWeightLbs;
+      if (weightMode === "type") {
+        const w = parseFloat(typeWeight);
+        if (isNaN(w) || w < 80 || w > 400) return null;
+        weightLbs = w;
+      } else {
+        weightLbs = suggWeightLbs;
+      }
     }
-    let feet: number;
-    let inches: number;
-    if (heightMode === "type") {
-      const f = parseFloat(typeFeet);
-      const i = parseFloat(typeInches);
-      if (isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11) return null;
-      feet = f;
-      inches = i;
+    let totalInches: number;
+    if (bodyUnit === "metric") {
+      if (heightMode === "type") {
+        const cm = parseFloat(typeHeightCm);
+        if (isNaN(cm) || cm < 120 || cm > 220) return null;
+        totalInches = cm / 2.54;
+      } else {
+        totalInches = suggFeet * 12 + suggInches;
+      }
     } else {
-      feet = suggFeet;
-      inches = suggInches;
+      if (heightMode === "type") {
+        const f = parseFloat(typeFeet);
+        const i = parseFloat(typeInches);
+        if (isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11) return null;
+        totalInches = f * 12 + i;
+      } else {
+        totalInches = suggFeet * 12 + suggInches;
+      }
     }
     const factor =
       suggActivity === "sedentary" ? 0.5 :
       suggActivity === "moderate" ? 0.6 : 0.7;
     let oz = weightLbs * factor;
-    const totalInches = feet * 12 + inches;
     if (totalInches > 60) oz += Math.floor((totalInches - 60) / 6) * 12;
     return Math.min(Math.round(oz), 128);
   }
 
   function switchWeightMode(mode: "scroll" | "type") {
     if (mode === "type" && weightMode === "scroll") {
-      setTypeWeight(String(suggWeightLbs));
+      if (bodyUnit === "metric") {
+        setTypeWeightKg(String(Math.round(suggWeightLbs / 2.20462)));
+      } else {
+        setTypeWeight(String(suggWeightLbs));
+      }
     } else if (mode === "scroll" && weightMode === "type") {
-      const w = parseFloat(typeWeight);
-      if (!isNaN(w) && w >= 80 && w <= 400) setSuggWeightLbs(Math.round(w));
+      if (bodyUnit === "metric") {
+        const kg = parseFloat(typeWeightKg);
+        if (!isNaN(kg) && kg >= 36 && kg <= 181) setSuggWeightLbs(Math.round(kg * 2.20462));
+      } else {
+        const w = parseFloat(typeWeight);
+        if (!isNaN(w) && w >= 80 && w <= 400) setSuggWeightLbs(Math.round(w));
+      }
     }
     setWeightMode(mode);
   }
 
   function switchHeightMode(mode: "scroll" | "type") {
     if (mode === "type" && heightMode === "scroll") {
-      setTypeFeet(String(suggFeet));
-      setTypeInches(String(suggInches));
+      if (bodyUnit === "metric") {
+        setTypeHeightCm(String(Math.round(suggFeet * 30.48 + suggInches * 2.54)));
+      } else {
+        setTypeFeet(String(suggFeet));
+        setTypeInches(String(suggInches));
+      }
     } else if (mode === "scroll" && heightMode === "type") {
-      const f = parseFloat(typeFeet);
-      const i = parseFloat(typeInches);
-      if (!isNaN(f) && f >= 4 && f <= 7) setSuggFeet(Math.round(f));
-      if (!isNaN(i) && i >= 0 && i <= 11) setSuggInches(Math.round(i));
+      if (bodyUnit === "metric") {
+        const cm = parseFloat(typeHeightCm);
+        if (!isNaN(cm) && cm >= 120 && cm <= 220) {
+          const totalIn = cm / 2.54;
+          setSuggFeet(Math.floor(totalIn / 12));
+          setSuggInches(Math.round(totalIn % 12));
+        }
+      } else {
+        const f = parseFloat(typeFeet);
+        const i = parseFloat(typeInches);
+        if (!isNaN(f) && f >= 4 && f <= 7) setSuggFeet(Math.round(f));
+        if (!isNaN(i) && i >= 0 && i <= 11) setSuggInches(Math.round(i));
+      }
     }
     setHeightMode(mode);
   }
@@ -3856,6 +3904,8 @@ export default function WaterTracker() {
     setTypeWeight("");
     setTypeFeet("");
     setTypeInches("");
+    setTypeWeightKg("");
+    setTypeHeightCm("");
   }
 
   async function resetToday() {
@@ -3907,8 +3957,9 @@ export default function WaterTracker() {
   const stage = getStage(Math.min(hydrationPct, 1));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const suggestedOz = useMemo(() => calcSuggestedOz(), [
-    weightMode, typeWeight, suggWeightLbs,
-    heightMode, typeFeet, typeInches, suggFeet, suggInches, suggActivity,
+    bodyUnit,
+    weightMode, typeWeight, typeWeightKg, suggWeightLbs,
+    heightMode, typeFeet, typeInches, typeHeightCm, suggFeet, suggInches, suggActivity,
   ]);
   const streak = useMemo(() => {
     let s = 0;
@@ -4644,12 +4695,36 @@ export default function WaterTracker() {
                 </View>
                 {weightMode === "scroll" ? (
                   <View style={styles.pickerRow}>
-                    <ScrollPicker
-                      items={Array.from({ length: 321 }, (_, i) => i + 80)}
-                      selectedIndex={suggWeightLbs - 80}
-                      onIndexChange={(i) => setSuggWeightLbs(i + 80)}
-                      label="lbs"
+                    {bodyUnit === "metric" ? (
+                      <ScrollPicker
+                        items={Array.from({ length: 146 }, (_, i) => i + 36)}
+                        selectedIndex={Math.max(0, Math.min(145, Math.round(suggWeightLbs / 2.20462) - 36))}
+                        onIndexChange={(i) => setSuggWeightLbs(Math.round((i + 36) * 2.20462))}
+                        label="kg"
+                      />
+                    ) : (
+                      <ScrollPicker
+                        items={Array.from({ length: 321 }, (_, i) => i + 80)}
+                        selectedIndex={suggWeightLbs - 80}
+                        onIndexChange={(i) => setSuggWeightLbs(i + 80)}
+                        label="lbs"
+                      />
+                    )}
+                  </View>
+                ) : bodyUnit === "metric" ? (
+                  <View>
+                    <TextInput
+                      style={styles.typeInput}
+                      placeholder="Weight in kg"
+                      placeholderTextColor="#AAAAAA"
+                      keyboardType="numeric"
+                      inputAccessoryViewID={KB_ACCESSORY_ID}
+                      value={typeWeightKg}
+                      onChangeText={setTypeWeightKg}
                     />
+                    {typeWeightKg.length > 0 && (() => { const w = parseFloat(typeWeightKg); return isNaN(w) || w < 36 || w > 181; })() && (
+                      <Text style={styles.validationError}>Please enter a valid weight (36–181 kg)</Text>
+                    )}
                   </View>
                 ) : (
                   <View>
@@ -4687,18 +4762,49 @@ export default function WaterTracker() {
                 </View>
                 {heightMode === "scroll" ? (
                   <View style={styles.pickerRow}>
-                    <ScrollPicker
-                      items={[4, 5, 6, 7]}
-                      selectedIndex={suggFeet - 4}
-                      onIndexChange={(i) => setSuggFeet(i + 4)}
-                      label="ft"
+                    {bodyUnit === "metric" ? (
+                      <ScrollPicker
+                        items={Array.from({ length: 101 }, (_, i) => i + 120)}
+                        selectedIndex={Math.max(0, Math.min(100, Math.round(suggFeet * 30.48 + suggInches * 2.54) - 120))}
+                        onIndexChange={(i) => {
+                          const cm = i + 120;
+                          const totalIn = cm / 2.54;
+                          setSuggFeet(Math.floor(totalIn / 12));
+                          setSuggInches(Math.round(totalIn % 12));
+                        }}
+                        label="cm"
+                      />
+                    ) : (
+                      <>
+                        <ScrollPicker
+                          items={[4, 5, 6, 7]}
+                          selectedIndex={suggFeet - 4}
+                          onIndexChange={(i) => setSuggFeet(i + 4)}
+                          label="ft"
+                        />
+                        <ScrollPicker
+                          items={Array.from({ length: 12 }, (_, i) => i)}
+                          selectedIndex={suggInches}
+                          onIndexChange={(i) => setSuggInches(i)}
+                          label="in"
+                        />
+                      </>
+                    )}
+                  </View>
+                ) : bodyUnit === "metric" ? (
+                  <View>
+                    <TextInput
+                      style={styles.typeInput}
+                      placeholder="Height in cm"
+                      placeholderTextColor="#AAAAAA"
+                      keyboardType="numeric"
+                      inputAccessoryViewID={KB_ACCESSORY_ID}
+                      value={typeHeightCm}
+                      onChangeText={setTypeHeightCm}
                     />
-                    <ScrollPicker
-                      items={Array.from({ length: 12 }, (_, i) => i)}
-                      selectedIndex={suggInches}
-                      onIndexChange={(i) => setSuggInches(i)}
-                      label="in"
-                    />
+                    {typeHeightCm.length > 0 && (() => { const c = parseFloat(typeHeightCm); return isNaN(c) || c < 120 || c > 220; })() && (
+                      <Text style={styles.validationError}>Please enter a valid height (120–220 cm)</Text>
+                    )}
                   </View>
                 ) : (
                   <View>
@@ -5185,6 +5291,44 @@ export default function WaterTracker() {
                             color: active ? "#ffffff" : "#1a1a2e",
                             fontSize: 14, fontWeight: "800", letterSpacing: 0.5,
                           }}>{u.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Body measurements (lbs+ft/in vs kg+cm) — drives the Suggest goal tab */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 6 }}>BODY MEASUREMENTS</Text>
+                  <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18, marginBottom: 10 }}>
+                    For the Suggested goal calculator. Pick your preferred system.
+                  </Text>
+                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.04)", borderRadius: 10, padding: 3 }}>
+                    {([
+                      { key: "imperial" as const, label: "LBS / FT" },
+                      { key: "metric" as const, label: "KG / CM" },
+                    ]).map(({ key, label }) => {
+                      const active = bodyUnit === key;
+                      return (
+                        <TouchableOpacity
+                          key={key}
+                          activeOpacity={0.8}
+                          style={{
+                            flex: 1,
+                            backgroundColor: active ? "#c8a000" : "transparent",
+                            borderRadius: 8,
+                            paddingVertical: 10,
+                            alignItems: "center",
+                          }}
+                          onPress={async () => {
+                            setBodyUnit(key);
+                            try { await AsyncStorage.setItem("body_unit", key); } catch {}
+                          }}
+                        >
+                          <Text style={{
+                            color: active ? "#ffffff" : "#1a1a2e",
+                            fontSize: 14, fontWeight: "800", letterSpacing: 0.5,
+                          }}>{label}</Text>
                         </TouchableOpacity>
                       );
                     })}
