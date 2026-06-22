@@ -11,6 +11,7 @@
 
 import { Audio } from "expo-av";
 import { File as FSFile } from "expo-file-system";
+import { reloadSounds } from "./SoundManager";
 
 export const DEFAULT_MAX_DURATION_MS = 2000;
 
@@ -85,6 +86,10 @@ export async function stopRecording(): Promise<RecordingResult | null> {
       allowsRecordingIOS: false,
       playsInSilentModeIOS: false,
     });
+    // Switching the iOS audio session to playAndRecord invalidates the
+    // pre-loaded Audio.Sound instances in the SoundManager pool — without a
+    // rebuild here, every non-custom pack sound goes silent until restart.
+    await reloadSounds().catch(() => {});
     return { uri, durationMs };
   } catch {
     return null;
@@ -113,6 +118,7 @@ export async function cancelRecording(): Promise<void> {
       playsInSilentModeIOS: false,
     });
   } catch {}
+  await reloadSounds().catch(() => {});
 }
 
 export function isRecording(): boolean {

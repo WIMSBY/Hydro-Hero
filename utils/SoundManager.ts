@@ -269,9 +269,22 @@ export async function teardownSounds(): Promise<void> {
   } catch {}
 }
 
-/** Reload sounds (call after returning from background). */
+/**
+ * Force-rebuild the audio pool. Call after the iOS audio session has been
+ * perturbed (e.g. AudioRecorder switched it to playAndRecord and back) —
+ * pre-loaded Audio.Sound instances go silent after a mode change but the
+ * `_initialized` guard would skip a normal initSounds() retry.
+ */
 export async function reloadSounds(): Promise<void> {
-  await initSounds();
+  try {
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: false,
+      staysActiveInBackground: false,
+    });
+    await buildPool(_activePack);
+    await refreshCustomSounds().catch(() => {});
+    _initialized = true;
+  } catch {}
 }
 
 /** Toggle sound effects on/off immediately. */
