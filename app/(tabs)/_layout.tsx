@@ -17,12 +17,12 @@ export default function TabLayout() {
     let mounted = true;
     const tick = async () => {
       const n = await getPendingBadgeCount();
-      if (mounted && n !== pendingBadges) setPendingBadges(n);
+      if (mounted) setPendingBadges((prev) => (prev !== n ? n : prev));
     };
     tick();
     const id = setInterval(tick, 2000);
     return () => { mounted = false; clearInterval(id); };
-  }, [pendingBadges]);
+  }, []);
 
   return (
     <Tabs
