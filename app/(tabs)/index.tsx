@@ -4568,15 +4568,12 @@ export default function WaterTracker() {
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              {/* Plain View w/ onStartShouldSetResponder swallows tap-bubble to the
-                  outer Keyboard.dismiss without claiming pan gestures — lets the
-                  Suggest tab's ScrollPickers receive drag events. */}
-              <View
-                style={styles.modalBox}
-                onStartShouldSetResponder={() => true}
-              >
+          {/* No backdrop tap-to-dismiss wrapper here: TouchableWithoutFeedback
+              claims the iOS gesture responder and silently blocks the Suggest
+              tab's ScrollPickers. iOS users dismiss the keyboard via the
+              InputAccessoryView Done button below. */}
+          <View style={styles.modalOverlay}>
+              <View style={styles.modalBox}>
                   {/* Close button */}
                   <View style={styles.kbToolbar}>
                     <TouchableOpacity onPress={closeGoalModal}>
@@ -4901,7 +4898,6 @@ export default function WaterTracker() {
                 </View>
               )}
             </View>
-          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
         {/* iOS: InputAccessoryView docked above keyboard */}
         {Platform.OS === "ios" && (
