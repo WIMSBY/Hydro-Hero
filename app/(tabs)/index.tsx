@@ -2640,10 +2640,11 @@ export default function WaterTracker() {
     try {
       const done = await AsyncStorage.getItem("onboarding_complete");
       setShowOnboarding(done !== "1");
-      // Returning user — onboarding already complete, so request notification
-      // permission now (we have app context, better than the cold-start moment).
+      // Returning user — onboarding already complete. Defer the OS permission
+      // dialog so it doesn't compete with the Home tree's first render
+      // (HYDRO-HERO-4: iOS watchdog killed Build 28 here under RAM pressure).
       if (done === "1") {
-        requestNotificationPermission();
+        setTimeout(() => { requestNotificationPermission(); }, 800);
       }
     } catch {
       setShowOnboarding(false);
@@ -2653,10 +2654,14 @@ export default function WaterTracker() {
   function handleOnboardingComplete(goalOz: number) {
     setGoal(goalOz);
     setShowOnboarding(false);
-    // New user — request notification permission AFTER onboarding so the user
-    // has seen what the app does before the OS dialog appears.
-    requestNotificationPermission();
-    requestHealthPermissionIfNeeded();
+    // Defer permission prompts so the Home component (~6k lines) can complete
+    // its first render before three OS dialogs (notification, Apple Health
+    // Alert, HealthKit auth sheet) cascade. HYDRO-HERO-4 captured a watchdog
+    // termination at exactly this moment in Build 28.
+    setTimeout(() => {
+      requestNotificationPermission();
+      requestHealthPermissionIfNeeded();
+    }, 800);
   }
 
   async function requestHealthPermissionIfNeeded() {

@@ -68,20 +68,28 @@ export default function BadgesScreen() {
         AsyncStorage.getItem('first_drink_time'),
       ]);
 
-      const goalHistory: Record<string, number> = rawGoalHist ? JSON.parse(rawGoalHist) : {};
-      const breakdown: Record<string, number> = rawBreakdown ? JSON.parse(rawBreakdown) : {};
+      // Tolerant parse: a single corrupt key (Sentry HYDRO-HERO-9 saw
+      // "Unexpected character in number: -" here) used to abort the whole
+      // load via the outer .catch. Now each key falls back to its default.
+      const parseOr = <T,>(raw: string | null, fallback: T): T => {
+        if (!raw) return fallback;
+        try { return JSON.parse(raw) as T; } catch { return fallback; }
+      };
+
+      const goalHistory = parseOr<Record<string, number>>(rawGoalHist, {});
+      const breakdown = parseOr<Record<string, number>>(rawBreakdown, {});
 
       setData({
         streak: computeCurrentStreak(goalHistory),
         goalHistory,
-        totalHydration: rawTotalHyd ? JSON.parse(rawTotalHyd) : 0,
-        intake: rawTodayIntake ? JSON.parse(rawTodayIntake) : 0,
-        goal: rawGoal ? JSON.parse(rawGoal) : 64,
+        totalHydration: parseOr<number>(rawTotalHyd, 0),
+        intake: parseOr<number>(rawTodayIntake, 0),
+        goal: parseOr<number>(rawGoal, 64),
         categoryBreakdown: breakdown,
-        lifetimeHydrationOz: rawLifeOz ? JSON.parse(rawLifeOz) : 0,
-        lifetimeJackpots: rawLifeJp ? JSON.parse(rawLifeJp) : 0,
-        lifetimeCoffeeLogs: rawLifeCoffee ? JSON.parse(rawLifeCoffee) : 0,
-        lifetimeBeerLogs: rawLifeBeer ? JSON.parse(rawLifeBeer) : 0,
+        lifetimeHydrationOz: parseOr<number>(rawLifeOz, 0),
+        lifetimeJackpots: parseOr<number>(rawLifeJp, 0),
+        lifetimeCoffeeLogs: parseOr<number>(rawLifeCoffee, 0),
+        lifetimeBeerLogs: parseOr<number>(rawLifeBeer, 0),
         firstDrinkTime: rawFirstDrink, // stored as a plain ISO string, not JSON
       });
       setTrigger(Date.now());

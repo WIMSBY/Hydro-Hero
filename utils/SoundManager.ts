@@ -29,6 +29,7 @@ function toSource(sound: RoleSound): { uri: string } | number {
 
 let _enabled = true;
 let _initialized = false;
+let _initPromise: Promise<void> | null = null;
 let _activePack: SoundPack = getPackById(DEFAULT_PACK_ID);
 let _previewSound: Audio.Sound | null = null;
 
@@ -233,15 +234,25 @@ export async function refreshCustomSounds(state?: CustomSoundsState): Promise<vo
 /** Load all sounds for the default (or previously set) pack. */
 export async function initSounds(): Promise<void> {
   if (_initialized) return;
+  // Reuse any in-flight init so concurrent callers (mount effect + loadData)
+  // can't race buildPool and end up double-loading Audio.Sound natives.
+  if (_initPromise) return _initPromise;
+  _initPromise = (async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: false,
+        staysActiveInBackground: false,
+      });
+      await buildPool(_activePack);
+      await refreshCustomSounds().catch(() => {});
+      _initialized = true;
+    } catch {}
+  })();
   try {
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: false,
-      staysActiveInBackground: false,
-    });
-    await buildPool(_activePack);
-    await refreshCustomSounds().catch(() => {});
-    _initialized = true;
-  } catch {}
+    await _initPromise;
+  } finally {
+    _initPromise = null;
+  }
 }
 
 /** Unload all sounds and release native resources. */
@@ -284,6 +295,10 @@ export function setSoundEnabled(enabled: boolean): void {
  * Rebuilds the sound pool immediately — safe to call any time.
  */
 export async function setActivePack(packId: string): Promise<void> {
+  // Wait for any in-flight initSounds() so we don't double-build the pool.
+  if (_initPromise) {
+    try { await _initPromise; } catch {}
+  }
   const pack = getPackById(packId);
   _activePack = pack;
   _initialized = false;
