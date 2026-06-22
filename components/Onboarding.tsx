@@ -534,9 +534,10 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={[screenS.container, { paddingBottom: 40 }]}
+      contentContainerStyle={[screenS.container, { paddingBottom: 12 }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
@@ -663,12 +664,15 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
       <Text style={s.goalSafetyNote}>
         Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
       </Text>
+    </ScrollView>
 
-      <TouchableOpacity style={screenS.primaryBtn} onPress={onNext} activeOpacity={0.8}>
-        <Text style={screenS.primaryBtnText}>SET MY GOAL</Text>
-      </TouchableOpacity>
+    {/* Pinned outside the ScrollView so it's always visible above the progress
+        dots — avoids the bottom of the form scrolling the CTA off-screen. */}
+    <TouchableOpacity style={[screenS.primaryBtn, { marginHorizontal: 28, marginTop: 8 }]} onPress={onNext} activeOpacity={0.8}>
+      <Text style={screenS.primaryBtnText}>SET MY GOAL</Text>
+    </TouchableOpacity>
 
-      <Modal
+    <Modal
         visible={showCustomGoal}
         transparent
         animationType="fade"
@@ -705,7 +709,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
