@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { BevCategory, BevDef, BEVERAGES } from "../../constants/beverages";
+import { BevCategory, BevDef, BEVERAGES, ALCOHOLIC_BEVS } from "../../constants/beverages";
 import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hydration/LastDrinkReveal";
 import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
 import Constants from "expo-constants";
@@ -105,7 +105,7 @@ interface DrinkEntry { oz: number; category: BevCategory; timestamp: number; hyd
 
 const CATEGORIES = BEVERAGES;
 
-const DEFAULT_VISIBLE_BEVS: BevCategory[] = ["water", "coffee", "soda", "juice", "sports", "beer", "cocktail"];
+const DEFAULT_VISIBLE_BEVS: BevCategory[] = ["water", "coffee", "tea", "soda", "juice", "sports", "milk", "beer", "cocktail"];
 
 // Build lookup maps for O(1) access
 const BEV_MAP = new Map<string, BevDef>(CATEGORIES.map((c) => [c.key, c]));
@@ -1219,10 +1219,16 @@ interface ChooseBevsModalProps {
   visible: boolean;
   current: BevCategory[];
   usage: Record<BevCategory, number>;
+  // When false, alcoholic bevs are excluded from the picker entirely.
+  showAlcoholic: boolean;
   onSave: (selection: BevCategory[]) => void;
   onCancel: () => void;
 }
-function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBevsModalProps) {
+function ChooseBevsModal({ visible, current, usage, showAlcoholic, onSave, onCancel }: ChooseBevsModalProps) {
+  const pickerCategories = useMemo(
+    () => (showAlcoholic ? CATEGORIES : CATEGORIES.filter((b) => !ALCOHOLIC_BEVS.has(b.key))),
+    [showAlcoholic],
+  );
   const [selected, setSelected] = useState<BevCategory[]>(current);
   const [hint, setHint] = useState("");
 
@@ -1251,8 +1257,8 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
   );
   const unselectedBevs = useMemo(() => {
     const selSet = new Set(selected);
-    return CATEGORIES.filter((b) => !selSet.has(b.key));
-  }, [selected]);
+    return pickerCategories.filter((b) => !selSet.has(b.key));
+  }, [selected, pickerCategories]);
 
   function sortByMostUsed() {
     // Stable sort: keep current order when usage is equal (0–0 included).
@@ -1321,19 +1327,24 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
           <View style={cbStyles.actionRow}>
             <TouchableOpacity
               style={cbStyles.actionBtn}
-              onPress={() => { setSelected(CATEGORIES.map((b) => b.key)); setHint(""); }}
+              onPress={() => { setSelected(pickerCategories.map((b) => b.key)); setHint(""); }}
             >
               <Text style={cbStyles.actionTxt}>All</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={cbStyles.actionBtn}
-              onPress={() => { setSelected([CATEGORIES[0].key]); setHint(""); }}
+              onPress={() => { setSelected([pickerCategories[0].key]); setHint(""); }}
             >
               <Text style={cbStyles.actionTxt}>Clear</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={cbStyles.actionBtn}
-              onPress={() => { setSelected([...DEFAULT_VISIBLE_BEVS]); setHint(""); }}
+              onPress={() => {
+                const defaults = showAlcoholic
+                  ? DEFAULT_VISIBLE_BEVS
+                  : DEFAULT_VISIBLE_BEVS.filter((k) => !ALCOHOLIC_BEVS.has(k));
+                setSelected([...defaults]); setHint("");
+              }}
             >
               <Text style={cbStyles.actionTxt}>Defaults</Text>
             </TouchableOpacity>
@@ -2548,6 +2559,10 @@ export default function WaterTracker() {
   const [selectedBeverages, setSelectedBeverages] = useState<BevCategory[]>(DEFAULT_VISIBLE_BEVS);
   const [showChooseBevs, setShowChooseBevs] = useState(false);
   const [catPickerShowAll, setCatPickerShowAll] = useState(false);
+  // Hide alcoholic beverages (beer/wine/cocktail/spirits) from drink pickers.
+  // Off by default; toggle in Settings → DRINKS. Filters at render only —
+  // existing logged entries and historical breakdowns still resolve normally.
+  const [showAlcoholicDrinks, setShowAlcoholicDrinks] = useState(false);
 
   // Individual drink log entries with timestamps
   const [drinkLogEntries, setDrinkLogEntries] = useState<DrinkEntry[]>([]);
@@ -3221,6 +3236,7 @@ export default function WaterTracker() {
         'water_log_entries',
         'selected_sound_pack',
         'selected_beverages',
+        'show_alcoholic_drinks',
         'cloud_last_sync',
       ]);
 
@@ -3356,6 +3372,10 @@ export default function WaterTracker() {
           if (Array.isArray(parsed) && parsed.length >= 1) setSelectedBeverages(parsed);
         }
       } catch {}
+
+      // Show alcoholic drinks toggle — defaults to off when unset
+      const savedAlc = get('show_alcoholic_drinks');
+      if (savedAlc !== null) setShowAlcoholicDrinks(savedAlc === "true");
 
       // Last cloud sync time — reserved for future settings UI
       // const savedSyncTime = get('cloud_last_sync');
@@ -4107,7 +4127,9 @@ export default function WaterTracker() {
         <BeverageSelector
           selected={selectedCategory}
           onSelect={setSelectedCategory}
-          visibleBevs={isPro ? selectedBeverages : DEFAULT_VISIBLE_BEVS}
+          visibleBevs={(isPro ? selectedBeverages : DEFAULT_VISIBLE_BEVS).filter(
+            (k) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(k),
+          )}
           isPro={isPro}
           onEditBevs={() => {
             if (!isPro) { openPaywall(); return; }
@@ -4527,7 +4549,9 @@ export default function WaterTracker() {
               <Text style={styles.modalTitle}>What did you drink?</Text>
               <View style={styles.modalDivider} />
               <View style={styles.categoryGrid}>
-                {(catPickerShowAll ? CATEGORIES : selectedBeverages.map(getBev)).map((cat) => (
+                {(catPickerShowAll ? CATEGORIES : selectedBeverages.map(getBev))
+                  .filter((cat) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(cat.key))
+                  .map((cat) => (
                   <TouchableOpacity
                     key={cat.key}
                     style={[styles.categoryBtn, { borderColor: cat.color }]}
@@ -4557,6 +4581,7 @@ export default function WaterTracker() {
         visible={showChooseBevs}
         current={selectedBeverages}
         usage={categoryBreakdown}
+        showAlcoholic={showAlcoholicDrinks}
         onSave={async (bevs) => {
           setSelectedBeverages(bevs);
           setShowChooseBevs(false);
@@ -5093,6 +5118,29 @@ export default function WaterTracker() {
                       </View>
                     </View>
                   ))}
+                </View>
+
+                {/* Drinks section — alcoholic-drinks toggle */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>DRINKS</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flex: 1, marginRight: 16 }}>
+                      <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>Show Alcoholic Drinks</Text>
+                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                        Adds Beer, Wine, Cocktail and Spirits to the drink picker. Existing logs are unaffected.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={showAlcoholicDrinks}
+                      onValueChange={async (val) => {
+                        setShowAlcoholicDrinks(val);
+                        try { await AsyncStorage.setItem("show_alcoholic_drinks", String(val)); } catch {}
+                      }}
+                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      thumbColor="#ffffff"
+                      ios_backgroundColor="#e0e0e0"
+                    />
+                  </View>
                 </View>
 
                 {/* Sound Effects toggle */}

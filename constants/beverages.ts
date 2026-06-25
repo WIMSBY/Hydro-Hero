@@ -74,3 +74,9 @@ export const BEV_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 export const BEV_KEYS: string[] = BEVERAGES.map(b => b.key);
+
+export const ALCOHOLIC_BEVS: ReadonlySet<BevCategory> = new Set<BevCategory>([
+  'beer', 'wine', 'cocktail', 'spirits',
+]);
+
+export const isAlcoholic = (key: BevCategory): boolean => ALCOHOLIC_BEVS.has(key);
