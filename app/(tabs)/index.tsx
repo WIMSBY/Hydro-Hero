@@ -14,6 +14,7 @@ import {
 } from "../../utils/SoundManager";
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
 import { syncWidgetData } from "../../utils/WidgetDataSync";
+import { drainSiriQueue } from "../../utils/SiriQueue";
 import {
   detectPendingBadges,
   loadUnlockedBadgeIds,
@@ -3078,14 +3079,42 @@ export default function WaterTracker() {
     }, msUntilMidnight);
   }
 
+  // Siri / App Intents queue drain. Each entry was appended by a voice
+  // intent ("Hey Siri, log 16 ounces of water in Hydro Hero") that ran in
+  // the background while the app was suspended. We pull all pending
+  // entries and replay them through the normal addWater path so sounds /
+  // badges / Apple Health sync just work. The ref pattern is the same as
+  // setWatchMessageHandler above — addWater reads live state via closure,
+  // so we need the latest version on every drain.
+  const addWaterForSiriRef = useRef<typeof addWater | null>(null);
+  useEffect(() => { addWaterForSiriRef.current = addWater; });
+
+  const processSiriQueue = useCallback(async () => {
+    try {
+      const entries = await drainSiriQueue();
+      for (const entry of entries) {
+        const oz = entry.unit === "ml" ? entry.amount / 29.5735 : entry.amount;
+        const fn = addWaterForSiriRef.current;
+        if (!fn) return;
+        await fn(oz, entry.beverage).catch(() => false);
+        // Yield to React so the next iteration sees the updated state
+        // through a freshly-captured addWater closure on the ref.
+        await new Promise((r) => setTimeout(r, 80));
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     scheduleMidnightTimer();
+    // Drain anything Siri queued while the app was not running.
+    processSiriQueue();
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         checkDateAndMaybeReset();
         setSpinning(false);
         setJackpotSpinning(false);
         reloadSounds();
+        processSiriQueue();
       } else if (state === "background" || state === "inactive") {
         teardownSounds();
       }

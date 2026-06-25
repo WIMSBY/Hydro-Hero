@@ -81,6 +81,7 @@
       ],
       "@bacons/apple-targets",
       "./plugins/withWidgetData",
+      "./plugins/withSiriIntent",
       "expo-updates",
       "expo-secure-store",
       [
