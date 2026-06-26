@@ -90,6 +90,14 @@ struct LogDrinkIntent: AppIntent {
 // AppShortcutsProvider — Apple surfaces these phrases automatically.
 // Users don't have to create a Shortcut manually; "Hey Siri, log water
 // in Hydro Hero" works out of the box.
+//
+// Phrases CANNOT contain parameter bindings for primitive types like
+// Double — Apple only allows AppEntity / AppEnum parameters in spoken
+// phrases. So no "Log \(.$amount) ounces of water" form here. Siri
+// elicits the amount through the intent's normal @Parameter prompt
+// flow: "How many ounces?" → user speaks number → confirm → run.
+// Phase 2 may add a BeverageAppEnum to allow "Log coffee in Hydro Hero"
+// style parametrized phrases (AppEnum IS allowed in phrases).
 const APP_SHORTCUTS_SWIFT = `
 import AppIntents
 
@@ -100,8 +108,8 @@ struct HydroHeroAppShortcuts: AppShortcutsProvider {
       intent: LogDrinkIntent(),
       phrases: [
         "Log water in \\(.applicationName)",
-        "Log \\(\\.$amount) ounces of water in \\(.applicationName)",
         "Log a glass of water in \\(.applicationName)",
+        "Add water to \\(.applicationName)",
       ],
       shortTitle: "Log Water",
       systemImageName: "drop.fill"
