@@ -15,6 +15,7 @@ import {
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
 import { syncWidgetData } from "../../utils/WidgetDataSync";
 import { drainSiriQueue } from "../../utils/SiriQueue";
+import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
 import {
   detectPendingBadges,
   loadUnlockedBadgeIds,
@@ -3091,17 +3092,32 @@ export default function WaterTracker() {
 
   const processSiriQueue = useCallback(async () => {
     try {
+      console.log("[Siri drain] called");
       const entries = await drainSiriQueue();
+      console.log("[Siri drain] got", entries.length, "entries:", JSON.stringify(entries));
       for (const entry of entries) {
         const oz = entry.unit === "ml" ? entry.amount / 29.5735 : entry.amount;
         const fn = addWaterForSiriRef.current;
-        if (!fn) return;
-        await fn(oz, entry.beverage).catch(() => false);
-        // Yield to React so the next iteration sees the updated state
-        // through a freshly-captured addWater closure on the ref.
+        if (!fn) {
+          console.log("[Siri drain] addWaterForSiriRef.current is null — aborting");
+          return;
+        }
+        console.log("[Siri drain] calling addWater", oz, entry.beverage);
+        const result = await fn(oz, entry.beverage).catch((e) => {
+          console.log("[Siri drain] addWater rejected:", String(e));
+          return false;
+        });
+        console.log("[Siri drain] addWater result:", result);
+        // addWater updates totalHydration but not the animated tank value
+        // (displayedHydration) — the dispenser drives that on phone logs.
+        // Siri-originated logs have no dispenser, so bump it directly.
+        // Mirrors the Watch-handler pattern at line ~2633.
+        setDisplayedHydration((prev) => prev + calcHydratedOz(oz, entry.beverage));
         await new Promise((r) => setTimeout(r, 80));
       }
-    } catch {}
+    } catch (e) {
+      console.log("[Siri drain] outer catch:", String(e));
+    }
   }, []);
 
   useEffect(() => {
@@ -3297,7 +3313,13 @@ export default function WaterTracker() {
         setDisplayedHydration(h); // sync immediately on load, no animation
       }
       if (savedGoalHistory) setGoalHistory(JSON.parse(savedGoalHistory));
-      if (savedPresets) setPresets(JSON.parse(savedPresets));
+      if (savedPresets) {
+        const loadedPresets: Preset[] = JSON.parse(savedPresets);
+        setPresets(loadedPresets);
+        syncSiriCatalog(loadedPresets);
+      } else {
+        syncSiriCatalog([]);
+      }
 
       // Lifetime achievement stats
       const savedLifeHyd    = get('lifetime_hydration_oz');
@@ -3425,17 +3447,20 @@ export default function WaterTracker() {
     const updated = [...presets, next];
     setPresets(updated);
     try { await AsyncStorage.setItem("water_presets", JSON.stringify(updated)); } catch {}
+    syncSiriCatalog(updated);
   }
 
   async function deletePreset(id: string) {
     const updated = presets.filter((p) => p.id !== id);
     setPresets(updated);
     await AsyncStorage.setItem("water_presets", JSON.stringify(updated));
+    syncSiriCatalog(updated);
   }
 
   async function reorderPresets(next: Preset[]) {
     setPresets(next);
     try { await AsyncStorage.setItem("water_presets", JSON.stringify(next)); } catch {}
+    syncSiriCatalog(next);
   }
 
   async function saveIntake(newIntake: number, newBreakdown: Record<BevCategory, number>, newHydration: number) {

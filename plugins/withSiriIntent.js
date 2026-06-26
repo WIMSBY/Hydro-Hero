@@ -2,22 +2,35 @@
  * withSiriIntent.js
  *
  * Expo config plugin that injects Swift sources for the Siri / App Intents
- * voice-logging feature into the main iOS app target. Mirrors the
- * withWidgetData.js pattern.
+ * voice-logging feature into the main iOS app target.
  *
- * Adds 4 files to the main app target:
- *   LogDrinkIntent.swift          — AppIntent that appends a log entry to
- *                                    the shared App Group queue.
- *   HydroHeroAppShortcuts.swift   — AppShortcutsProvider declaration so
- *                                    Siri offers built-in phrases.
+ * Phase 2 final architecture: one AppIntent per default beverage. The
+ * beverage choice is encoded in the intent type itself (LogWaterIntent,
+ * LogCoffeeIntent, ...) rather than a parameter on a single LogDrinkIntent.
+ * This is the only reliable way to avoid Siri's voice matcher hijacking
+ * preset names that contain beverage words ("Circa Water" → LogDrink
+ * fuzzy-matches "water" → wrong intent).
+ *
+ * Files added to the main app target:
+ *   HydroHeroSiriHelpers.swift    — Shared App Group queue write + oz
+ *                                    formatting helpers.
+ *   BeverageIntents.swift         — One AppIntent per default beverage
+ *                                    (Water/Coffee/Tea/Soda/Juice/Sports
+ *                                    Drink/Milk).
+ *   PresetAppEntity.swift         — AppEntity + EntityQuery mirroring the
+ *                                    user's custom presets from siri_catalog
+ *                                    in App Group UserDefaults.
+ *   LogPresetIntent.swift         — AppIntent for "Log preset <preset>".
+ *   HydroHeroAppShortcuts.swift   — AppShortcutsProvider with literal phrases
+ *                                    per beverage + preset phrases.
  *   LLSiriQueue.swift             — RN native module exposing readAndClear()
- *                                    so JS can drain the queue on foreground.
+ *                                    (queue drain) + writeCatalog() (push
+ *                                    presets to App Group from JS).
  *   LLSiriQueue.m                 — ObjC bridge for the above.
  *
- * All four are compiled into the MAIN app target. The intent runs in the
- * background (openAppWhenRun = false), writes to App Group UserDefaults
- * under key "siri_queue", and returns. The JS app drains the queue on
- * launch + on AppState transitions to "active".
+ * Intents run in the background (openAppWhenRun = false), write to App
+ * Group UserDefaults under key "siri_queue", and return. JS drains the
+ * queue on launch + on AppState transitions to "active".
  *
  * Like withWidgetData.js, nothing here runs at app runtime — only during
  * `npx expo prebuild`.
@@ -29,97 +42,408 @@ const fs   = require('fs');
 
 const APP_GROUP_ID = 'group.com.wimsby.hydrationstation';
 
-// ─── LogDrinkIntent.swift ─────────────────────────────────────────────────────
-// Phase 1: water-only, oz-only. Phase 2 adds BeverageAppEnum + ml.
-const LOG_DRINK_INTENT_SWIFT = `
+// ─── HydroHeroSiriHelpers.swift ───────────────────────────────────────────────
+// Shared helpers used by every beverage intent — keeps each intent body small.
+const SIRI_HELPERS_SWIFT = `
 import Foundation
-import AppIntents
 
 @available(iOS 16.0, *)
-struct LogDrinkIntent: AppIntent {
-  static var title: LocalizedStringResource = "Log Water"
-  static var description = IntentDescription(
-    "Log a glass of water in Hydro Hero.",
-    categoryName: "Hydration"
-  )
-  // Runs silently in the background — no app launch.
-  static var openAppWhenRun: Bool = false
-
-  @Parameter(
-    title: "Ounces",
-    description: "How many ounces to log",
-    inclusiveRange: (0.5, 200.0)
-  )
-  var amount: Double
-
-  static var parameterSummary: some ParameterSummary {
-    Summary("Log \\(\\.$amount) ounces of water")
-  }
-
-  func perform() async throws -> some IntentResult & ProvidesDialog {
-    let formatted = amount == amount.rounded()
-      ? String(format: "%.0f", amount)
-      : String(format: "%.1f", amount)
-
-    // Confirm verbally before writing the side effect. CarPlay / HomePod
-    // / no-screen surfaces force confirmation here anyway.
-    try await requestConfirmation(
-      result: .result(dialog: "Log \\(formatted) ounces of water?")
-    )
-
-    guard let defaults = UserDefaults(suiteName: "${APP_GROUP_ID}") else {
-      return .result(dialog: "Hydro Hero is not set up correctly.")
-    }
-
+enum HydroHeroSiriHelpers {
+  static func appendQueueEntry(amountOz: Double, beverageKey: String) {
+    guard let defaults = UserDefaults(suiteName: "${APP_GROUP_ID}") else { return }
     var queue = defaults.array(forKey: "siri_queue") as? [[String: Any]] ?? []
     let entry: [String: Any] = [
-      "amount":    amount,
+      "amount":    amountOz,
       "unit":      "oz",
-      "beverage":  "water",
+      "beverage":  beverageKey,
       "timestamp": Date().timeIntervalSince1970,
     ]
     queue.append(entry)
     defaults.set(queue, forKey: "siri_queue")
+  }
 
-    return .result(dialog: "Logged \\(formatted) ounces of water.")
+  // Format a Double-in-ounces for the confirmation dialog. Amount params
+  // are typed as Double (not Measurement<UnitVolume>) so they can appear
+  // in AppShortcut phrases — Apple's voice matcher only allows primitive
+  // Number / String / AppEntity / AppEnum bindings in phrase grammar,
+  // not Measurement. The literal "ounces" / "oz" word in the phrase
+  // tells Siri the unit; the queue always stores ounces.
+  static func formattedOz(_ amountOz: Double) -> (oz: Double, spoken: String) {
+    let formatted = amountOz == amountOz.rounded()
+      ? String(format: "%.0f", amountOz)
+      : String(format: "%.1f", amountOz)
+    return (amountOz, "\\(formatted) ounces")
+  }
+}
+`.trimStart();
+
+// ─── BeverageIntents.swift ────────────────────────────────────────────────────
+// One AppIntent per default beverage. Each intent has the same shape — only
+// the title, beverage key, and speech word vary. The beverage is hardcoded so
+// literal phrases like "Log water in Hydro Hero" don't need a $beverage
+// parameter that Siri would fuzzy-match from preset names.
+const BEVERAGE_INTENTS_SWIFT = `
+import Foundation
+import AppIntents
+
+@available(iOS 16.0, *)
+struct LogWaterIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Water"
+  static var description = IntentDescription("Log water in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of water")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of water?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "water")
+    return .result(dialog: "Logged \\(spoken) of water.")
+  }
+}
+
+@available(iOS 16.0, *)
+struct LogCoffeeIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Coffee"
+  static var description = IntentDescription("Log coffee in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of coffee")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of coffee?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "coffee")
+    return .result(dialog: "Logged \\(spoken) of coffee.")
+  }
+}
+
+@available(iOS 16.0, *)
+struct LogTeaIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Tea"
+  static var description = IntentDescription("Log tea in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of tea")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of tea?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "tea")
+    return .result(dialog: "Logged \\(spoken) of tea.")
+  }
+}
+
+@available(iOS 16.0, *)
+struct LogSodaIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Soda"
+  static var description = IntentDescription("Log soda in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of soda")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of soda?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "soda")
+    return .result(dialog: "Logged \\(spoken) of soda.")
+  }
+}
+
+@available(iOS 16.0, *)
+struct LogJuiceIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Juice"
+  static var description = IntentDescription("Log juice in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of juice")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of juice?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "juice")
+    return .result(dialog: "Logged \\(spoken) of juice.")
+  }
+}
+
+@available(iOS 16.0, *)
+struct LogSportsDrinkIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Sports Drink"
+  static var description = IntentDescription("Log a sports drink in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of sports drink")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of sports drink?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "sports")
+    return .result(dialog: "Logged \\(spoken) of sports drink.")
+  }
+}
+
+@available(iOS 16.0, *)
+struct LogMilkIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Milk"
+  static var description = IntentDescription("Log milk in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of milk")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of milk?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "milk")
+    return .result(dialog: "Logged \\(spoken) of milk.")
+  }
+}
+`.trimStart();
+
+// ─── PresetAppEntity.swift ────────────────────────────────────────────────────
+const PRESET_ENTITY_SWIFT = `
+import AppIntents
+import Foundation
+
+@available(iOS 16.0, *)
+struct PresetAppEntity: AppEntity {
+  let id: String
+  let label: String
+  let oz: Double
+  let beverage: String
+
+  static var typeDisplayRepresentation: TypeDisplayRepresentation = "Preset"
+
+  var displayRepresentation: DisplayRepresentation {
+    DisplayRepresentation(title: "\\(label)", subtitle: "\\(beverageLabel)")
+  }
+
+  private var beverageLabel: String {
+    switch beverage {
+    case "water":  return "Water"
+    case "coffee": return "Coffee"
+    case "tea":    return "Tea"
+    case "soda":   return "Soda"
+    case "juice":  return "Juice"
+    case "sports": return "Sports Drink"
+    case "milk":   return "Milk"
+    case "beer":   return "Beer"
+    case "wine":   return "Wine"
+    case "cocktail": return "Cocktail"
+    default: return beverage.capitalized
+    }
+  }
+
+  static var defaultQuery = PresetEntityQuery()
+}
+
+@available(iOS 16.0, *)
+struct PresetEntityQuery: EntityQuery {
+  func entities(for identifiers: [String]) async throws -> [PresetAppEntity] {
+    loadCatalog().filter { identifiers.contains($0.id) }
+  }
+
+  func suggestedEntities() async throws -> [PresetAppEntity] {
+    loadCatalog()
+  }
+
+  private func loadCatalog() -> [PresetAppEntity] {
+    guard let defaults = UserDefaults(suiteName: "${APP_GROUP_ID}"),
+          let raw = defaults.array(forKey: "siri_catalog") as? [[String: Any]]
+    else { return [] }
+    return raw.compactMap { dict in
+      guard let id = dict["id"] as? String,
+            let label = dict["label"] as? String,
+            let oz = dict["oz"] as? Double,
+            let beverage = dict["beverage"] as? String
+      else { return nil }
+      return PresetAppEntity(id: id, label: label, oz: oz, beverage: beverage)
+    }
+  }
+}
+`.trimStart();
+
+// ─── LogPresetIntent.swift ────────────────────────────────────────────────────
+const LOG_PRESET_INTENT_SWIFT = `
+import Foundation
+import AppIntents
+
+@available(iOS 16.0, *)
+struct LogPresetIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Preset"
+  static var description = IntentDescription(
+    "Log one of your saved presets in Hydro Hero.",
+    categoryName: "Hydration"
+  )
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Preset",
+    description: "Which preset to log",
+    requestValueDialog: "Which preset?"
+  )
+  var preset: PresetAppEntity
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$preset)")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let formatted = preset.oz == preset.oz.rounded()
+      ? String(format: "%.0f", preset.oz)
+      : String(format: "%.1f", preset.oz)
+
+    try await requestConfirmation(
+      result: .result(dialog: "Log \\(preset.label)?")
+    )
+
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: preset.oz, beverageKey: preset.beverage)
+    return .result(dialog: "Logged \\(preset.label) — \\(formatted) ounces.")
   }
 }
 `.trimStart();
 
 // ─── HydroHeroAppShortcuts.swift ──────────────────────────────────────────────
-// AppShortcutsProvider — Apple surfaces these phrases automatically.
-// Users don't have to create a Shortcut manually; "Hey Siri, log water
-// in Hydro Hero" works out of the box.
-//
-// Phrases CANNOT contain parameter bindings for primitive types like
-// Double — Apple only allows AppEntity / AppEnum parameters in spoken
-// phrases. So no "Log \(.$amount) ounces of water" form here. Siri
-// elicits the amount through the intent's normal @Parameter prompt
-// flow: "How many ounces?" → user speaks number → confirm → run.
-// Phase 2 may add a BeverageAppEnum to allow "Log coffee in Hydro Hero"
-// style parametrized phrases (AppEnum IS allowed in phrases).
+// Each beverage gets one AppShortcut with a literal phrase. LogPreset has
+// multiple discriminator-prefixed phrases so it can't be fuzzy-matched away
+// by the beverage AppShortcuts.
 const APP_SHORTCUTS_SWIFT = `
 import AppIntents
 
 @available(iOS 16.0, *)
 struct HydroHeroAppShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
+    // Beverage phrases CANNOT include \\(\\.$amount) — Apple's
+    // AppShortcuts framework only allows AppEntity / AppEnum bindings
+    // in spoken phrases, not Double (or Measurement, see commit a8242da).
+    // One-shot "log 10 oz of water" requires an AppEnum amount type;
+    // for now the amount is elicited via the @Parameter requestValueDialog
+    // ("How many ounces?") in a two-turn flow.
     AppShortcut(
-      intent: LogDrinkIntent(),
+      intent: LogWaterIntent(),
       phrases: [
         "Log water in \\(.applicationName)",
-        "Log a glass of water in \\(.applicationName)",
-        "Add water to \\(.applicationName)",
+        "Add water in \\(.applicationName)",
       ],
       shortTitle: "Log Water",
       systemImageName: "drop.fill"
+    )
+    AppShortcut(
+      intent: LogCoffeeIntent(),
+      phrases: ["Log coffee in \\(.applicationName)"],
+      shortTitle: "Log Coffee",
+      systemImageName: "cup.and.saucer.fill"
+    )
+    AppShortcut(
+      intent: LogTeaIntent(),
+      phrases: ["Log tea in \\(.applicationName)"],
+      shortTitle: "Log Tea",
+      systemImageName: "mug.fill"
+    )
+    AppShortcut(
+      intent: LogSodaIntent(),
+      phrases: ["Log soda in \\(.applicationName)"],
+      shortTitle: "Log Soda",
+      systemImageName: "takeoutbag.and.cup.and.straw.fill"
+    )
+    AppShortcut(
+      intent: LogJuiceIntent(),
+      phrases: ["Log juice in \\(.applicationName)"],
+      shortTitle: "Log Juice",
+      systemImageName: "wineglass.fill"
+    )
+    AppShortcut(
+      intent: LogSportsDrinkIntent(),
+      phrases: [
+        "Log sports drink in \\(.applicationName)",
+        "Log a sports drink in \\(.applicationName)",
+      ],
+      shortTitle: "Log Sports Drink",
+      systemImageName: "figure.run"
+    )
+    AppShortcut(
+      intent: LogMilkIntent(),
+      phrases: ["Log milk in \\(.applicationName)"],
+      shortTitle: "Log Milk",
+      systemImageName: "drop.fill"
+    )
+    // Preset phrases ALL require the literal word "preset" before the
+    // \\(.$preset) binding. Without that anchor, Siri's voice matcher
+    // routes "Log Circa Water in Hydro Hero" to LogWaterIntent because
+    // the simpler "Log [beverage] in [app]" template wins ranking.
+    AppShortcut(
+      intent: LogPresetIntent(),
+      phrases: [
+        "Log a preset in \\(.applicationName)",
+        "Log preset in \\(.applicationName)",
+        "Log preset \\(\\.$preset) in \\(.applicationName)",
+        "Log my preset \\(\\.$preset) in \\(.applicationName)",
+        "Use my preset \\(\\.$preset) in \\(.applicationName)",
+        "Use preset \\(\\.$preset) in \\(.applicationName)",
+      ],
+      shortTitle: "Log Preset",
+      systemImageName: "list.star"
     )
   }
 }
 `.trimStart();
 
 // ─── LLSiriQueue.swift ────────────────────────────────────────────────────────
-// Native module exposing the queue to JS. Reads + clears atomically.
 const SIRI_QUEUE_SWIFT = `
 import Foundation
 
@@ -138,6 +462,28 @@ class LLSiriQueue: NSObject {
     resolve(queue)
   }
 
+  @objc(writeCatalog:resolver:rejecter:)
+  func writeCatalog(_ presets: NSArray,
+                    resolver resolve: @escaping RCTPromiseResolveBlock,
+                    rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard let defaults = UserDefaults(suiteName: "${APP_GROUP_ID}") else {
+      resolve(false)
+      return
+    }
+    defaults.set(presets, forKey: "siri_catalog")
+
+    // Force iOS to re-query PresetEntityQuery.suggestedEntities() so Siri's
+    // phrase grammar picks up newly-added presets. Without this, Siri's
+    // index of LogPreset entities stays at whatever it was at app install
+    // time (often empty) — phrases like "Log preset Circa Water" can't
+    // bind and fall through to LogDrink.
+    if #available(iOS 16.0, *) {
+      HydroHeroAppShortcuts.updateAppShortcutParameters()
+    }
+
+    resolve(true)
+  }
+
   @objc static func requiresMainQueueSetup() -> Bool { return false }
 }
 `.trimStart();
@@ -149,11 +495,17 @@ const SIRI_QUEUE_OBJC = `
 @interface RCT_EXTERN_MODULE(LLSiriQueue, NSObject)
 RCT_EXTERN_METHOD(readAndClear:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(writeCatalog:(NSArray *)presets
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 @end
 `.trimStart();
 
 const FILES = [
-  ['LogDrinkIntent.swift',        LOG_DRINK_INTENT_SWIFT],
+  ['HydroHeroSiriHelpers.swift',  SIRI_HELPERS_SWIFT],
+  ['BeverageIntents.swift',       BEVERAGE_INTENTS_SWIFT],
+  ['PresetAppEntity.swift',       PRESET_ENTITY_SWIFT],
+  ['LogPresetIntent.swift',       LOG_PRESET_INTENT_SWIFT],
   ['HydroHeroAppShortcuts.swift', APP_SHORTCUTS_SWIFT],
   ['LLSiriQueue.swift',           SIRI_QUEUE_SWIFT],
   ['LLSiriQueue.m',               SIRI_QUEUE_OBJC],
