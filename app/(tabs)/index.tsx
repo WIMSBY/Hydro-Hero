@@ -2470,6 +2470,7 @@ export default function WaterTracker() {
   const skipNextSplashRef = useRef(false);
   const [reelConfettiVisible, setReelConfettiVisible] = useState(false);
   const [reelFrameY, setReelFrameY] = useState(300);
+  const [quickAddFrameY, setQuickAddFrameY] = useState(0);
   const screenShakeAnim = useRef(new Animated.Value(0)).current;
   const mainScrollRef = useRef<any>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
@@ -4180,7 +4181,15 @@ export default function WaterTracker() {
         {/* Beverage Selector */}
         <BeverageSelector
           selected={selectedCategory}
-          onSelect={setSelectedCategory}
+          onSelect={(cat) => {
+            setSelectedCategory(cat);
+            // Scroll Quick Add into view so user doesn't have to swipe down
+            // for the most common next tap. -24 leaves a little headroom so
+            // the "QUICK ADD" label is fully visible above the buttons.
+            if (quickAddFrameY > 0) {
+              mainScrollRef.current?.scrollTo({ y: Math.max(0, quickAddFrameY - 24), animated: true });
+            }
+          }}
           visibleBevs={(isPro ? selectedBeverages : DEFAULT_VISIBLE_BEVS).filter(
             (k) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(k),
           )}
@@ -4192,7 +4201,10 @@ export default function WaterTracker() {
         />
 
         {/* Quick Bet Buttons */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}>
+        <View
+          onLayout={(e) => setQuickAddFrameY(e.nativeEvent.layout.y)}
+          style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}
+        >
           <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
           {isPro && (
             <TouchableOpacity
