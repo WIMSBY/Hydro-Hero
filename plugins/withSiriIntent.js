@@ -253,6 +253,54 @@ struct LogMilkIntent: AppIntent {
     return .result(dialog: "Logged \\(spoken) of milk.")
   }
 }
+
+@available(iOS 16.0, *)
+struct LogBeerIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Beer"
+  static var description = IntentDescription("Log beer in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of beer")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of beer?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "beer")
+    return .result(dialog: "Logged \\(spoken) of beer.")
+  }
+}
+
+@available(iOS 16.0, *)
+struct LogCocktailIntent: AppIntent {
+  static var title: LocalizedStringResource = "Log Cocktail"
+  static var description = IntentDescription("Log a cocktail in Hydro Hero.", categoryName: "Hydration")
+  static var openAppWhenRun: Bool = false
+
+  @Parameter(
+    title: "Amount",
+    requestValueDialog: "How many ounces?"
+  )
+  var amount: Double
+
+  static var parameterSummary: some ParameterSummary {
+    Summary("Log \\(\\.$amount) of cocktail")
+  }
+
+  func perform() async throws -> some IntentResult & ProvidesDialog {
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of cocktail?"))
+    HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "cocktail")
+    return .result(dialog: "Logged \\(spoken) of cocktail.")
+  }
+}
 `.trimStart();
 
 // ─── PresetAppEntity.swift ────────────────────────────────────────────────────
@@ -421,6 +469,21 @@ struct HydroHeroAppShortcuts: AppShortcutsProvider {
       phrases: ["Log milk in \\(.applicationName)"],
       shortTitle: "Log Milk",
       systemImageName: "drop.fill"
+    )
+    AppShortcut(
+      intent: LogBeerIntent(),
+      phrases: ["Log beer in \\(.applicationName)"],
+      shortTitle: "Log Beer",
+      systemImageName: "mug.fill"
+    )
+    AppShortcut(
+      intent: LogCocktailIntent(),
+      phrases: [
+        "Log cocktail in \\(.applicationName)",
+        "Log a cocktail in \\(.applicationName)",
+      ],
+      shortTitle: "Log Cocktail",
+      systemImageName: "wineglass.fill"
     )
     // Preset phrases ALL require the literal word "preset" before the
     // \\(.$preset) binding. Without that anchor, Siri's voice matcher
