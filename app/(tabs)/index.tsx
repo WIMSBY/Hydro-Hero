@@ -2571,6 +2571,25 @@ export default function WaterTracker() {
   // Individual drink log entries with timestamps
   const [drinkLogEntries, setDrinkLogEntries] = useState<DrinkEntry[]>([]);
 
+  // Live Activity (tank droplet on Lock Screen / Dynamic Island).
+  // tankActivityOn is opt-in per day — never auto-starts. Auto-ends at goal
+  // hit, midnight rollover, or 4 hours since the last logged drink.
+  // showLiveActivityOption is the Settings master switch — when false, the
+  // opt-in chip on Home is hidden entirely (for users who don't want even
+  // the offer).
+  const [tankActivityOn, setTankActivityOn] = useState(false);
+  const [showLiveActivityOption, setShowLiveActivityOption] = useState(true);
+  // Ref mirrors so the closed-over AppState idle listener sees fresh values
+  // without re-subscribing. addWater bumps lastLogTsRef directly; the effect
+  // below keeps it correct after undo / hydrate-from-storage.
+  const tankActivityOnRef = useRef(false);
+  useEffect(() => { tankActivityOnRef.current = tankActivityOn; }, [tankActivityOn]);
+  const lastLogTsRef = useRef<number | null>(null);
+  useEffect(() => {
+    const last = drinkLogEntries[drinkLogEntries.length - 1];
+    lastLogTsRef.current = last ? last.timestamp : null;
+  }, [drinkLogEntries]);
+
   // Streak milestone confetti card
   const [streakMilestone, setStreakMilestone] = useState<number | null>(null);
 
@@ -2957,6 +2976,12 @@ export default function WaterTracker() {
   }
 
   async function performDailyReset(showToast: boolean) {
+    // End any active Live Activity at the day boundary — tomorrow's tank is
+    // a fresh ask, opt-in again.
+    if (tankActivityOnRef.current) {
+      endTankActivity().then(() => setTankActivityOn(false));
+    }
+
     // Snapshot yesterday before clearing
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
@@ -3133,6 +3158,13 @@ export default function WaterTracker() {
         setJackpotSpinning(false);
         reloadSounds();
         processSiriQueue();
+        // Live Activity 4-hour idle auto-end. If the user opted in but then
+        // put the phone down for the afternoon, kill the activity rather
+        // than leave a stale tank percentage on their Lock Screen.
+        if (tankActivityOnRef.current && lastLogTsRef.current !== null
+            && Date.now() - lastLogTsRef.current > 4 * 60 * 60 * 1000) {
+          endTankActivity().then(() => setTankActivityOn(false));
+        }
       } else if (state === "background" || state === "inactive") {
         teardownSounds();
       }
@@ -3430,6 +3462,10 @@ export default function WaterTracker() {
       const savedAlc = get('show_alcoholic_drinks');
       if (savedAlc !== null) setShowAlcoholicDrinks(savedAlc === "true");
 
+      // Live Activity option toggle — defaults to on (chip visible) when unset
+      const savedShowLA = get('show_live_activity_option');
+      if (savedShowLA !== null) setShowLiveActivityOption(savedShowLA !== "false");
+
       // Last cloud sync time — reserved for future settings UI
       // const savedSyncTime = get('cloud_last_sync');
 
@@ -3646,6 +3682,17 @@ export default function WaterTracker() {
       streak: streakNow,
       selectedBeverages,
     }).catch(() => {});
+
+    // Live Activity sync — update the on-screen droplet, or end it if the
+    // goal just landed (the activity stops being useful once you're at 100%).
+    lastLogTsRef.current = Date.now();
+    if (tankActivityOn) {
+      if (isJackpot) {
+        endTankActivity().then(() => setTankActivityOn(false));
+      } else {
+        updateTankActivity(newHydration, goal).catch(() => {});
+      }
+    }
 
     // Do NOT call setShowCelebration here — handleBet runs the pour + shake first
     return isJackpot;
@@ -4310,39 +4357,50 @@ export default function WaterTracker() {
           </Text>
         </TouchableOpacity>
 
-        {/* DEV-only Live Activity debug row — verifies start/update/end paths
-            on Chanda's iPhone 15 Pro before we wire real triggers. Strip
-            before submit. */}
-        {__DEV__ && liveActivityAvailable() && (
-          <View style={{ flexDirection: "row", gap: 8, marginHorizontal: 12, marginTop: 10 }}>
-            <TouchableOpacity
-              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,200,255,0.5)", backgroundColor: "rgba(0,200,255,0.08)", alignItems: "center" }}
-              onPress={async () => {
-                const id = await startTankActivity(totalHydration, goal);
-                console.log("[LA] start →", id);
-              }}
-            >
-              <Text style={{ color: "#7fd0ff", fontSize: 12, fontWeight: "700" }}>▶ Start LA</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,200,255,0.5)", backgroundColor: "rgba(0,200,255,0.08)", alignItems: "center" }}
-              onPress={async () => {
-                const ok = await updateTankActivity(totalHydration, goal);
-                console.log("[LA] update →", ok);
-              }}
-            >
-              <Text style={{ color: "#7fd0ff", fontSize: 12, fontWeight: "700" }}>⤴ Update LA</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,120,120,0.5)", backgroundColor: "rgba(255,120,120,0.08)", alignItems: "center" }}
-              onPress={async () => {
-                const ok = await endTankActivity();
-                console.log("[LA] end →", ok);
-              }}
-            >
-              <Text style={{ color: "#ff9b9b", fontSize: 12, fontWeight: "700" }}>⏹ End LA</Text>
-            </TouchableOpacity>
-          </View>
+        {/* Live Activity opt-in chip — user explicitly turns the Lock-Screen
+            droplet on for today. Auto-ends at goal hit, midnight, or 4h of
+            no logging (see addWater + performDailyReset + AppState listener).
+            Hidden when the Settings master toggle is off or the device can't
+            host Live Activities (Expo Go, Android, iOS < 16.2). */}
+        {showLiveActivityOption && liveActivityAvailable() && (
+          <TouchableOpacity
+            style={{
+              marginHorizontal: 12,
+              marginTop: 10,
+              paddingVertical: 11,
+              paddingHorizontal: 16,
+              borderRadius: 10,
+              borderWidth: 1.5,
+              borderColor: tankActivityOn ? GOLD : "rgba(255,215,0,0.45)",
+              backgroundColor: tankActivityOn ? "rgba(255,215,0,0.18)" : "rgba(255,215,0,0.06)",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+            activeOpacity={0.75}
+            onPress={async () => {
+              if (tankActivityOn) {
+                await endTankActivity();
+                setTankActivityOn(false);
+                return;
+              }
+              const id = await startTankActivity(totalHydration, goal);
+              if (id) {
+                setTankActivityOn(true);
+              } else {
+                Alert.alert(
+                  "Live Activities are off",
+                  "Turn on Live Activities for Hydro Hero in Settings → Hydro Hero → Live Activities, then tap again.",
+                );
+              }
+            }}
+          >
+            <Text style={{ fontSize: 14 }}>📍</Text>
+            <Text style={{ color: GOLD, fontSize: 13, fontWeight: "700", letterSpacing: 0.3 }}>
+              {tankActivityOn ? "Showing on Lock Screen · tap to hide" : "Show today on Lock Screen"}
+            </Text>
+          </TouchableOpacity>
         )}
 
         {/* Stats Bar */}
@@ -5251,6 +5309,36 @@ export default function WaterTracker() {
                     />
                   </View>
                 </View>
+
+                {/* Live Activity master toggle — hides the opt-in chip on Home
+                    for users who don't want the option at all. iOS 16.2+ only. */}
+                {liveActivityAvailable() && (
+                  <View style={{ marginTop: 24 }}>
+                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>LIVE ACTIVITY</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <View style={{ flex: 1, marginRight: 16 }}>
+                        <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>Show option on Home</Text>
+                        <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                          Adds a "Show today on Lock Screen" button under Quick Add. Tapping it puts a live tank on your Lock Screen and Dynamic Island until you hit your goal, midnight rolls over, or 4 hours pass without logging.
+                        </Text>
+                      </View>
+                      <Switch
+                        value={showLiveActivityOption}
+                        onValueChange={async (val) => {
+                          setShowLiveActivityOption(val);
+                          try { await AsyncStorage.setItem("show_live_activity_option", String(val)); } catch {}
+                          if (!val && tankActivityOn) {
+                            await endTankActivity();
+                            setTankActivityOn(false);
+                          }
+                        }}
+                        trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                        thumbColor="#ffffff"
+                        ios_backgroundColor="#e0e0e0"
+                      />
+                    </View>
+                  </View>
+                )}
 
                 {/* Sound Effects toggle */}
                 <View style={{ marginTop: 24 }}>

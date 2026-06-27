@@ -47,10 +47,11 @@ struct HydrationActivityAttributes: ActivityAttributes {
 @objc(LLLiveActivity)
 class LLLiveActivity: NSObject {
 
-  // Track the most recent activity so JS can update/end without juggling IDs.
-  // Typed as Any because Activity<…> is iOS 16.2+ and this property's type
-  // is evaluated unconditionally.
-  private static var current: Any?
+  // All three methods operate on Activity<HydrationActivityAttributes>.activities
+  // — the live snapshot iOS maintains across app launches. We don't track our
+  // own pointer because (a) it goes stale across hot reloads and process
+  // restarts, and (b) prior debug sessions / interrupted starts can leave
+  // orphan activities that we still need to update or end.
 
   @objc(startActivity:goalOz:resolver:rejecter:)
   func startActivity(hydrationOz: Double,
@@ -66,20 +67,26 @@ class LLLiveActivity: NSObject {
       reject("DISABLED", "Live Activities are disabled in system settings", nil)
       return
     }
-    do {
-      let pct   = goalOz > 0 ? hydrationOz / goalOz : 0
-      let attrs = HydrationActivityAttributes(startedAt: Date())
-      let state = HydrationActivityAttributes.ContentState(
-        hydrationOz: hydrationOz, goalOz: goalOz, pct: pct
-      )
-      let activity = try Activity<HydrationActivityAttributes>.request(
-        attributes: attrs,
-        content: .init(state: state, staleDate: nil)
-      )
-      LLLiveActivity.current = activity
-      resolve(activity.id)
-    } catch {
-      reject("START_FAILED", error.localizedDescription, error)
+    let pct   = goalOz > 0 ? hydrationOz / goalOz : 0
+    let attrs = HydrationActivityAttributes(startedAt: Date())
+    let state = HydrationActivityAttributes.ContentState(
+      hydrationOz: hydrationOz, goalOz: goalOz, pct: pct
+    )
+    Task {
+      // End any existing activities first so we don't pile up duplicates
+      // (orphans from prior debug starts, hot reloads, interrupted ends).
+      for activity in Activity<HydrationActivityAttributes>.activities {
+        await activity.end(nil, dismissalPolicy: .immediate)
+      }
+      do {
+        let activity = try Activity<HydrationActivityAttributes>.request(
+          attributes: attrs,
+          content: .init(state: state, staleDate: nil)
+        )
+        resolve(activity.id)
+      } catch {
+        reject("START_FAILED", error.localizedDescription, error)
+      }
     }
   }
 
@@ -88,31 +95,30 @@ class LLLiveActivity: NSObject {
                       goalOz: Double,
                       resolver resolve: @escaping RCTPromiseResolveBlock,
                       rejecter reject:  @escaping RCTPromiseRejectBlock) {
-    guard #available(iOS 16.2, *),
-          let activity = LLLiveActivity.current as? Activity<HydrationActivityAttributes> else {
-      resolve(false); return
-    }
+    guard #available(iOS 16.2, *) else { resolve(false); return }
     let pct = goalOz > 0 ? hydrationOz / goalOz : 0
     let state = HydrationActivityAttributes.ContentState(
       hydrationOz: hydrationOz, goalOz: goalOz, pct: pct
     )
     Task {
-      await activity.update(.init(state: state, staleDate: nil))
-      resolve(true)
+      let activities = Activity<HydrationActivityAttributes>.activities
+      for activity in activities {
+        await activity.update(.init(state: state, staleDate: nil))
+      }
+      resolve(!activities.isEmpty)
     }
   }
 
   @objc(endActivity:rejecter:)
   func endActivity(_ resolve: @escaping RCTPromiseResolveBlock,
                    rejecter reject: @escaping RCTPromiseRejectBlock) {
-    guard #available(iOS 16.2, *),
-          let activity = LLLiveActivity.current as? Activity<HydrationActivityAttributes> else {
-      resolve(false); return
-    }
+    guard #available(iOS 16.2, *) else { resolve(false); return }
     Task {
-      await activity.end(nil, dismissalPolicy: .immediate)
-      LLLiveActivity.current = nil
-      resolve(true)
+      let activities = Activity<HydrationActivityAttributes>.activities
+      for activity in activities {
+        await activity.end(nil, dismissalPolicy: .immediate)
+      }
+      resolve(!activities.isEmpty)
     }
   }
 
