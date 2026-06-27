@@ -2470,7 +2470,7 @@ export default function WaterTracker() {
   const skipNextSplashRef = useRef(false);
   const [reelConfettiVisible, setReelConfettiVisible] = useState(false);
   const [reelFrameY, setReelFrameY] = useState(300);
-  const [quickAddFrameY, setQuickAddFrameY] = useState(0);
+  const [bevSelectorFrameY, setBevSelectorFrameY] = useState(0);
   const screenShakeAnim = useRef(new Animated.Value(0)).current;
   const mainScrollRef = useRef<any>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
@@ -3754,6 +3754,11 @@ export default function WaterTracker() {
             }
             setLastEntry(null);
             setLastEntryHydratedOz(null);
+            // Also clear the LAST DRINK reveal panel inside the tank and the
+            // hydration reveal banner below Quick Add — without these, both
+            // surfaces keep showing the just-undone drink.
+            setLastReelOz(0);
+            setResultMessage(null);
             // Remove last drink log entry
             const newEntries = drinkLogEntries.slice(0, -1);
             setDrinkLogEntries(newEntries);
@@ -4179,30 +4184,32 @@ export default function WaterTracker() {
         )}
 
         {/* Beverage Selector */}
-        <BeverageSelector
-          selected={selectedCategory}
-          onSelect={(cat) => {
-            setSelectedCategory(cat);
-            // Scroll Quick Add into view so user doesn't have to swipe down
-            // for the most common next tap. -24 leaves a little headroom so
-            // the "QUICK ADD" label is fully visible above the buttons.
-            if (quickAddFrameY > 0) {
-              mainScrollRef.current?.scrollTo({ y: Math.max(0, quickAddFrameY - 24), animated: true });
-            }
-          }}
-          visibleBevs={(isPro ? selectedBeverages : DEFAULT_VISIBLE_BEVS).filter(
-            (k) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(k),
-          )}
-          isPro={isPro}
-          onEditBevs={() => {
-            if (!isPro) { openPaywall(); return; }
-            setShowChooseBevs(true);
-          }}
-        />
+        <View onLayout={(e) => setBevSelectorFrameY(e.nativeEvent.layout.y)}>
+          <BeverageSelector
+            selected={selectedCategory}
+            onSelect={(cat) => {
+              setSelectedCategory(cat);
+              // Leave enough headroom that the tank's LAST DRINK gold header
+              // band peeks at the top of the viewport — scrolling flush with
+              // the safe-area top hid SELECT A BEVERAGE behind the status bar
+              // and felt jarring.
+              if (bevSelectorFrameY > 0) {
+                mainScrollRef.current?.scrollTo({ y: Math.max(0, bevSelectorFrameY - 180), animated: true });
+              }
+            }}
+            visibleBevs={(isPro ? selectedBeverages : DEFAULT_VISIBLE_BEVS).filter(
+              (k) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(k),
+            )}
+            isPro={isPro}
+            onEditBevs={() => {
+              if (!isPro) { openPaywall(); return; }
+              setShowChooseBevs(true);
+            }}
+          />
+        </View>
 
         {/* Quick Bet Buttons */}
         <View
-          onLayout={(e) => setQuickAddFrameY(e.nativeEvent.layout.y)}
           style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}
         >
           <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
