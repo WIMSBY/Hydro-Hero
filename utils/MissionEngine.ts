@@ -19,12 +19,13 @@
  * still satisfy later in the day.
  *
  * Rule support (caffeine cut killed dailyMax):
- *   ✔ dailyGoalMet  — used by Hero's Journey
- *   ✔ abstain       — used by Dry Spell
- *   ✔ dailyMin      — used by Tea Time
- *   ⚠ logCount      — pass-through (no per-day log-count history surface yet)
- *   ⚠ multiBevDay   — pass-through (no multi-bev flag in storage yet)
- *   ⚠ weatherBonus  — pass-through (no temperature history)
+ *   ✔ dailyGoalMet   — used by Hero's Journey
+ *   ✔ abstain        — used by Dry Spell
+ *   ✔ dailyMin       — used by Tea Time
+ *   ✔ hourlyMinimum  — used by Hourly Hydration (single-day pacing missions)
+ *   ⚠ logCount       — pass-through (no per-day log-count history surface yet)
+ *   ⚠ multiBevDay    — pass-through (no multi-bev flag in storage yet)
+ *   ⚠ weatherBonus   — pass-through (no temperature history)
  *
  * The pass-through cases skip evaluation rather than fail, so future
  * seasonal missions using those rules don't false-fail in the field while
@@ -47,6 +48,11 @@ export type DayData = {
   date: string;       // getDateKey result
   goalHit: boolean;   // goalHistory[date] >= 1
   breakdown: Partial<Record<BevCategory, number>>;
+  // Per-hour oz totals (key = 0-23). Optional because the engine pre-dates
+  // entry snapshots and old water_history records won't have them. Missing
+  // entries means the hourlyMinimum rule pass-throughs (treat as success)
+  // rather than false-failing missions on historic days that never tracked.
+  hourBuckets?: Record<number, number>;
 };
 
 // ─── Rule evaluation ─────────────────────────────────────────────────────────
@@ -59,6 +65,23 @@ export function evaluateRule(rule: MissionRule, day: DayData): boolean {
       return rule.beverageIds.every((id) => (day.breakdown[id] ?? 0) === 0);
     case "dailyMin":
       return (day.breakdown[rule.beverageId] ?? 0) >= rule.amountOz;
+    case "hourlyMinimum": {
+      // Walk the 24 hour buckets and find the longest consecutive run where
+      // each hour has at least amountOz logged. Pass if that run ≥ hours.
+      // No bucket data (historic days) → pass-through.
+      if (!day.hourBuckets) return true;
+      let best = 0;
+      let run  = 0;
+      for (let h = 0; h < 24; h++) {
+        if ((day.hourBuckets[h] ?? 0) >= rule.amountOz) {
+          run++;
+          if (run > best) best = run;
+        } else {
+          run = 0;
+        }
+      }
+      return best >= rule.hours;
+    }
     case "logCount":
     case "multiBevDay":
     case "weatherBonus":

@@ -51,7 +51,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="badges"
         options={{
-          title: 'Badges',
+          title: 'Missions',
           tabBarIcon: ({ color }) => <MaterialIcons name="emoji-events" size={22} color={color} />,
           tabBarBadge: pendingBadges > 0 ? pendingBadges : undefined,
           tabBarBadgeStyle: { backgroundColor: '#FFD700', color: '#0a0520', fontSize: 11, fontWeight: '800' },

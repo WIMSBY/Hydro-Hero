@@ -20,12 +20,10 @@ import {
   loadProgresses,
   saveProgresses,
   startMission,
-  abandonMission,
   type ProgressMap,
   type DayData,
 } from "../../utils/MissionEngine";
-import { MISSIONS, getMission } from "../../constants/missions";
-import { Hero, freshHero, getEmblem } from "../../constants/hero";
+import { Hero } from "../../constants/hero";
 import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/HeroStore";
 import { HeroSetupModal } from "../../components/HeroSetupModal";
 import { drainSiriQueue } from "../../utils/SiriQueue";
@@ -2413,162 +2411,6 @@ const factStyles = StyleSheet.create({
   hint: { fontSize: 11, color: "rgba(255,255,255,0.4)" },
 });
 
-// ─── Missions ──────────────────────────────────────────────────────────────
-//
-// Build 34 Day 1 deliverable. Surfaces existing goal_history data as a tier
-// progression card so the Missions Hero's Journey chain (Bronze 7d → Silver
-// 14d → Gold 30d) is visible from day one. No interaction yet — Day 4 wires
-// tap-to-Missions screen.
-
-const MISSION_TIERS: { days: number; label: string }[] = [
-  { days: 7,  label: "Bronze" },
-  { days: 14, label: "Silver" },
-  { days: 30, label: "Gold"   },
-];
-
-function StreakCard({
-  streak,
-  goalHistory,
-}: {
-  streak: number;
-  goalHistory: Record<string, number>;
-}) {
-  // `streak` resets to 0 the moment the day rolls over and today isn't yet
-  // at goal — that's correct for the Watch sync but demotivating in the UI.
-  // Surface the at-risk streak so the user sees what they're about to break.
-  let atRiskStreak = 0;
-  if (streak === 0) {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    while ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) {
-      atRiskStreak++;
-      d.setDate(d.getDate() - 1);
-    }
-  }
-  const displayStreak = streak > 0 ? streak : atRiskStreak;
-  const todayCompleted = streak > 0;
-
-  const earned = MISSION_TIERS.filter((t) => displayStreak >= t.days).pop() ?? null;
-  const nextTier = MISSION_TIERS.find((t) => displayStreak < t.days) ?? null;
-
-  if (displayStreak === 0) {
-    return (
-      <View style={streakStyles.wrap}>
-        <Text style={streakStyles.flame}>🔥</Text>
-        <View style={streakStyles.body}>
-          <Text style={streakStyles.headline}>Start your streak</Text>
-          <Text style={streakStyles.sub}>Hit today's goal to begin Origin Story · Bronze at 7 days</Text>
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View style={streakStyles.wrap}>
-      <Text style={streakStyles.flame}>🔥</Text>
-      <View style={streakStyles.body}>
-        <View style={streakStyles.headlineRow}>
-          <Text style={streakStyles.headline}>
-            {displayStreak} day streak
-          </Text>
-          {!todayCompleted && <Text style={streakStyles.atRisk}>· at risk</Text>}
-        </View>
-        <Text style={streakStyles.sub}>
-          {!todayCompleted ? "Finish today to keep it · " : ""}
-          {earned ? `${earned.label.toUpperCase()} ✓` : ""}
-          {earned && nextTier ? "  ·  " : ""}
-          {nextTier ? `${nextTier.days - displayStreak} to ${nextTier.label}` : earned ? "  ·  Gold tier earned" : ""}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-const heroBadgeStyles = StyleSheet.create({
-  // Compact hero strip when a hero exists — emblem + name + rank + edit.
-  wrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 12,
-    marginTop: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "rgba(255,215,0,0.30)",
-    backgroundColor: "rgba(255,215,0,0.04)",
-    gap: 10,
-  },
-  emblem: { fontSize: 22 },
-  name: {
-    flex: 1,
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-  },
-  rank: {
-    color: GOLD,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 1.4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 5,
-    backgroundColor: "rgba(255,215,0,0.12)",
-  },
-  edit: { color: "rgba(255,255,255,0.45)", fontSize: 14, marginLeft: 6 },
-
-  // Tall CTA when no hero exists — opens HeroSetupModal in start mode.
-  cta: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 12,
-    marginTop: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: GOLD,
-    backgroundColor: "rgba(255,215,0,0.10)",
-  },
-  ctaEmblem: { fontSize: 32 },
-  ctaTitle: {
-    color: GOLD,
-    fontSize: 15,
-    fontWeight: "900",
-    letterSpacing: 0.4,
-  },
-  ctaSub: {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  ctaArrow: { color: GOLD, fontSize: 28, fontWeight: "300", marginLeft: 6 },
-});
-
-const streakStyles = StyleSheet.create({
-  wrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 12,
-    marginTop: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,215,0,0.35)",
-    backgroundColor: "rgba(255,215,0,0.05)",
-  },
-  flame:    { fontSize: 28 },
-  body:     { flex: 1, marginLeft: 12 },
-  headlineRow: { flexDirection: "row", alignItems: "baseline", gap: 8 },
-  headline: { color: GOLD, fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
-  atRisk:   { color: "#ff8888", fontSize: 11, fontWeight: "700", letterSpacing: 0.4 },
-  sub:      { color: "rgba(255,255,255,0.6)", fontSize: 11, fontWeight: "600", marginTop: 3, letterSpacing: 0.2 },
-});
-
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
@@ -2791,14 +2633,33 @@ export default function WaterTracker() {
   const [missionProgresses, setMissionProgresses] = useState<ProgressMap>({});
   useEffect(() => { loadProgresses().then(setMissionProgresses); }, []);
 
-  // Day 2 lookupDay only sources goalHistory — enough for dailyGoalMet
-  // (Hero's Journey). abstain / dailyMin need per-day breakdowns from
-  // water_history; that comes Day 3 alongside Hero onboarding.
-  const lookupDay = useCallback((dateKey: string): DayData => ({
-    date: dateKey,
-    goalHit: (goalHistory[dateKey] ?? 0) >= 1.0,
-    breakdown: {},
-  }), [goalHistory]);
+  // water_history snapshots are the source of truth for past-day breakdowns
+  // and hourBuckets (used by abstain / dailyMin / hourlyMinimum rules). Live
+  // here as state so lookupDay is a sync callback the engine can call freely.
+  type HistEntry = {
+    date: string;
+    oz: number;
+    goal: number;
+    breakdown?: Partial<Record<BevCategory, number>>;
+    hourBuckets?: Record<number, number>;
+  };
+  const [waterHistoryForEngine, setWaterHistoryForEngine] = useState<HistEntry[]>([]);
+  useEffect(() => {
+    AsyncStorage.getItem("water_history").then((raw) => {
+      if (!raw) return;
+      try { setWaterHistoryForEngine(JSON.parse(raw)); } catch {}
+    });
+  }, []);
+
+  const lookupDay = useCallback((dateKey: string): DayData => {
+    const histEntry = waterHistoryForEngine.find((h) => h.date === dateKey);
+    return {
+      date: dateKey,
+      goalHit: (goalHistory[dateKey] ?? 0) >= 1.0,
+      breakdown: histEntry?.breakdown ?? {},
+      hourBuckets: histEntry?.hourBuckets,
+    };
+  }, [goalHistory, waterHistoryForEngine]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3210,28 +3071,41 @@ export default function WaterTracker() {
     const yesterdayKey = getDateKey(yesterday);
 
     // Read current values directly from storage so we have accurate data even if state hasn't synced
-    const [rawIntake, rawHydration, rawBreakdown, rawGoal, rawHistory, rawGoalHistory] = await Promise.all([
+    const [rawIntake, rawHydration, rawBreakdown, rawGoal, rawHistory, rawGoalHistory, rawEntries] = await Promise.all([
       AsyncStorage.getItem(yesterdayKey),
       AsyncStorage.getItem("water_total_hydration"),
       AsyncStorage.getItem("water_category_breakdown"),
       AsyncStorage.getItem("water_goal"),
       AsyncStorage.getItem("water_history"),
       AsyncStorage.getItem("goal_history"),
+      AsyncStorage.getItem("water_log_entries"),
     ]);
 
     const prevIntake   = rawIntake    ? JSON.parse(rawIntake)    : intake;
     const prevHyd      = rawHydration ? JSON.parse(rawHydration) : totalHydration;
     const prevBreakdown= rawBreakdown ? JSON.parse(rawBreakdown) : categoryBreakdown;
     const prevGoal     = rawGoal      ? JSON.parse(rawGoal)      : goal;
-    const prevHistory: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[]
+    const prevHistory: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number>; hourBuckets?: Record<number, number> }[]
                        = rawHistory   ? JSON.parse(rawHistory)   : [];
     const prevGoalHist: Record<string, number>
                        = rawGoalHistory ? JSON.parse(rawGoalHistory) : {};
 
     const prevPct = prevGoal > 0 ? Math.min(prevHyd / prevGoal, 1) : 0;
 
+    // Build per-hour oz buckets from the just-completed day's drink log so
+    // hourlyMinimum-rule missions (Hourly Hydration chain) can evaluate at
+    // midnight rollover. The water_log_entries key gets cleared below, so
+    // this is the only chance to snapshot the timestamped data.
+    const prevEntries: { oz: number; timestamp: number }[]
+                       = rawEntries ? (() => { try { return JSON.parse(rawEntries); } catch { return []; } })() : [];
+    const hourBuckets: Record<number, number> = {};
+    for (const e of prevEntries) {
+      const h = new Date(e.timestamp).getHours();
+      hourBuckets[h] = (hourBuckets[h] ?? 0) + (e.oz ?? 0);
+    }
+
     // Save yesterday snapshot to history
-    const yesterdayEntry = { date: yesterdayKey, oz: prevIntake, goal: prevGoal, breakdown: prevBreakdown };
+    const yesterdayEntry = { date: yesterdayKey, oz: prevIntake, goal: prevGoal, breakdown: prevBreakdown, hourBuckets };
     const updatedHistory = [yesterdayEntry, ...prevHistory.filter((h) => h.date !== yesterdayKey)].slice(0, 30);
     // Build updated goal history and trim to 30 days
     const updatedGoalHistFull = { ...prevGoalHist, [yesterdayKey]: prevPct };
@@ -3251,6 +3125,11 @@ export default function WaterTracker() {
     // Write reset lock before touching storage — if the app is killed mid-reset, next
     // launch will detect this key in checkDateAndMaybeReset and re-run performDailyReset.
     try { await AsyncStorage.setItem('reset_in_progress', yesterdayKey); } catch {}
+
+    // Mirror the updated history into engine state so the next
+    // evaluateAllActive picks up yesterday's hourBuckets without waiting
+    // for the AsyncStorage read on next mount.
+    setWaterHistoryForEngine(updatedHistory);
 
     try {
       await Promise.all([
@@ -4437,87 +4316,11 @@ export default function WaterTracker() {
           />
         </View>
 
-        {/* Heroic Journey CTA (no hero saved yet) or compact Hero badge.
-            Day 3 of the Missions feature. The CTA opens HeroSetupModal which
-            auto-starts Origin Story on confirm. The badge taps into edit mode. */}
-        {hero ? (
-          <TouchableOpacity
-            style={heroBadgeStyles.wrap}
-            activeOpacity={0.7}
-            onPress={() => { setHeroSetupEditing(true); setShowHeroSetup(true); }}
-          >
-            <Text style={heroBadgeStyles.emblem}>{getEmblem(hero.emblemId).emoji}</Text>
-            <Text style={heroBadgeStyles.name} numberOfLines={1}>{hero.name}</Text>
-            <Text style={heroBadgeStyles.rank}>{hero.rank.toUpperCase()}</Text>
-            <Text style={heroBadgeStyles.edit}>✏</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={heroBadgeStyles.cta}
-            activeOpacity={0.85}
-            onPress={() => { setHeroSetupEditing(false); setShowHeroSetup(true); }}
-          >
-            <Text style={heroBadgeStyles.ctaEmblem}>🦸</Text>
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={heroBadgeStyles.ctaTitle}>Begin Your Heroic Journey</Text>
-              <Text style={heroBadgeStyles.ctaSub}>Origin Story · hit your goal 7 days in a row</Text>
-            </View>
-            <Text style={heroBadgeStyles.ctaArrow}>›</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Streak card — Hero's Journey tier progress (Bronze 7d / Silver 14d / Gold 30d).
-            Day 1 of the Missions feature. Read-only until Day 4 wires the Missions screen. */}
-        <StreakCard streak={streak} goalHistory={goalHistory} />
-
-        {/* DEV-only mission engine inspector — Day 2 verification. Strip before
-            submit; real Mission Detail screen lands Day 4. */}
-        {__DEV__ && (
-          <View style={{ marginHorizontal: 12, marginTop: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: "rgba(0,200,255,0.4)", backgroundColor: "rgba(0,200,255,0.06)" }}>
-            <Text style={{ color: "#7fd0ff", fontSize: 10, fontWeight: "800", letterSpacing: 1, marginBottom: 6 }}>DEV · MISSION ENGINE</Text>
-            {Object.values(missionProgresses).length === 0 ? (
-              <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, marginBottom: 6 }}>No active missions.</Text>
-            ) : (
-              Object.values(missionProgresses).map((p) => {
-                const m = getMission(p.missionId);
-                if (!m) return null;
-                return (
-                  <View key={p.missionId} style={{ marginBottom: 6 }}>
-                    <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "700" }}>
-                      {m.emblem} {m.name} · {p.status}
-                    </Text>
-                    <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11 }}>
-                      Day {p.daysCompleted}/{m.durationDays} · 🛡 {p.shieldsRemaining} · used {p.shieldsUsedOn.length}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
-            <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-              {MISSIONS.filter((m) => m.chain?.tierIndex === 0 && m.id !== "heros-journey-bronze").map((m) => {
-                const existing = missionProgresses[m.id];
-                const isLive = existing && existing.status === "active";
-                return (
-                  <TouchableOpacity
-                    key={m.id}
-                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: isLive ? "#ff9b9b" : "rgba(0,200,255,0.5)" }}
-                    onPress={async () => {
-                      const next: ProgressMap = isLive
-                        ? { ...missionProgresses, [m.id]: abandonMission(existing) }
-                        : { ...missionProgresses, [m.id]: startMission(m.id) };
-                      setMissionProgresses(next);
-                      await saveProgresses(next);
-                    }}
-                  >
-                    <Text style={{ color: isLive ? "#ff9b9b" : "#7fd0ff", fontSize: 10, fontWeight: "700" }}>
-                      {isLive ? "Abandon" : "Start"} {m.name}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        )}
+        {/* Mission entry surfaces — Hero CTA/badge, streak card, mission cards,
+            DEV inspector — all live on the Missions tab now (formerly Trophies).
+            Home stays focused on logging drinks. The HeroSetupModal auto-trigger
+            for first-launch onboarding is still wired below; users can also reach
+            it from the Missions tab. */}
 
         {/* Presets Row — placed above the beverage picker so one-tap repeats stay visible without scrolling */}
         {presets.length > 0 && (

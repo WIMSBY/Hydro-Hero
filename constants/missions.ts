@@ -22,7 +22,12 @@ export type MissionRule =
   | { kind: "dailyMin"; beverageId: BevCategory; amountOz: number }
   | { kind: "logCount"; beverageId: BevCategory; count: number }
   | { kind: "multiBevDay"; count: number }
-  | { kind: "weatherBonus"; tempFThreshold: number };
+  | { kind: "weatherBonus"; tempFThreshold: number }
+  // Pacing: log >= amountOz of any beverage in each of `hours` consecutive
+  // hourly buckets within a single day. Used by single-day Hourly Hydration
+  // missions; durationDays must be 1 for the engine to bypass the multi-day
+  // streak logic and evaluate the one finalized day as the whole mission.
+  | { kind: "hourlyMinimum"; amountOz: number; hours: number };
 
 // ─── Mission + Progress ──────────────────────────────────────────────────────
 
@@ -99,6 +104,12 @@ export const MISSION_CHAINS: MissionChain[] = [
     name: "Tea Time",
     tagline: "A daily cup of tea.",
     tierIds: ["tea-time-bronze", "tea-time-silver", "tea-time-gold"],
+  },
+  {
+    id: "hourly-hydration",
+    name: "Hourly Hydration",
+    tagline: "Drink 8 oz every hour. Hard to do alone — easy with reminders.",
+    tierIds: ["hourly-hydration-bronze", "hourly-hydration-silver", "hourly-hydration-gold"],
   },
 ];
 
@@ -266,6 +277,62 @@ export const MISSIONS: Mission[] = [
       { kind: "sigil", id: "sigil-tea-gold", name: "Tea Gold Sigil" },
     ],
     chain: { chainId: "tea-time", tierIndex: 2 },
+    difficulty: "Gold",
+    shieldsGranted: 0,
+    category: "evergreen",
+  },
+
+  // ── Hourly Hydration ─────────────────────────────────────────────────────
+  // Single-day pacing challenges. durationDays = 1 means the engine checks
+  // the one finalized day (yesterday at midnight rollover) — pass = complete,
+  // fail = failed. No shields by design; the mission is repeatable, so a
+  // miss just means "try again tomorrow."
+  {
+    id: "hourly-hydration-bronze",
+    name: "Steady Sip",
+    emblem: "💧",
+    tagline: "8 oz every hour for 5 hours straight.",
+    ruleText: "Log at least 8 oz in each of 5 consecutive hours today.",
+    durationDays: 1,
+    rule: { kind: "hourlyMinimum", amountOz: 8, hours: 5 },
+    rewards: [
+      { kind: "sigil", id: "sigil-steady-sip", name: "Steady Sip Sigil" },
+    ],
+    chain: { chainId: "hourly-hydration", tierIndex: 0 },
+    difficulty: "Bronze",
+    shieldsGranted: 0,
+    category: "evergreen",
+  },
+  {
+    id: "hourly-hydration-silver",
+    name: "Hourly Hero",
+    emblem: "🏃",
+    tagline: "8 oz every hour for 8 hours straight.",
+    ruleText: "Log at least 8 oz in each of 8 consecutive hours today.",
+    durationDays: 1,
+    rule: { kind: "hourlyMinimum", amountOz: 8, hours: 8 },
+    rewards: [
+      { kind: "sigil", id: "sigil-hourly-hero", name: "Hourly Hero Sigil" },
+      { kind: "cosmetic", id: "sound-hourly-pack", name: "Hourly Chime Sound Pack" },
+    ],
+    chain: { chainId: "hourly-hydration", tierIndex: 1 },
+    difficulty: "Silver",
+    shieldsGranted: 0,
+    category: "evergreen",
+  },
+  {
+    id: "hourly-hydration-gold",
+    name: "All-Day Pace",
+    emblem: "🏆",
+    tagline: "8 oz every hour for 10 hours — 80 oz of pure pacing.",
+    ruleText: "Log at least 8 oz in each of 10 consecutive hours today.",
+    durationDays: 1,
+    rule: { kind: "hourlyMinimum", amountOz: 8, hours: 10 },
+    rewards: [
+      { kind: "sigil", id: "sigil-all-day-pace", name: "All-Day Pace Sigil" },
+      { kind: "power", id: "power-pace-keeper",   name: "Pace Keeper (hourly nudges customizable)" },
+    ],
+    chain: { chainId: "hourly-hydration", tierIndex: 2 },
     difficulty: "Gold",
     shieldsGranted: 0,
     category: "evergreen",
