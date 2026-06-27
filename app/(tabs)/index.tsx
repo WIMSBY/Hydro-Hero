@@ -15,6 +15,16 @@ import {
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
 import { syncWidgetData } from "../../utils/WidgetDataSync";
 import { startTankActivity, updateTankActivity, endTankActivity, liveActivityAvailable } from "../../utils/LiveActivitySync";
+import {
+  evaluateAllActive,
+  loadProgresses,
+  saveProgresses,
+  startMission,
+  abandonMission,
+  type ProgressMap,
+  type DayData,
+} from "../../utils/MissionEngine";
+import { MISSIONS, getMission } from "../../constants/missions";
 import { drainSiriQueue } from "../../utils/SiriQueue";
 import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
 import {
@@ -2682,6 +2692,39 @@ export default function WaterTracker() {
     lastLogTsRef.current = last ? last.timestamp : null;
   }, [drinkLogEntries]);
 
+  // ─── Missions: progress + engine wiring ────────────────────────────────────
+  // Day 2 of the Missions feature. Active progresses live in AsyncStorage
+  // under a single key (see MissionEngine). The engine catches up any
+  // active missions whenever inputs change — covers mount, midnight
+  // rollover (goalHistory updates), and AppState foreground (which also
+  // updates goalHistory via checkDateAndMaybeReset).
+  //
+  // Today is intentionally NOT evaluated — only finalized past days flow
+  // through the engine. See MissionEngine.ts header.
+  const [missionProgresses, setMissionProgresses] = useState<ProgressMap>({});
+  useEffect(() => { loadProgresses().then(setMissionProgresses); }, []);
+
+  // Day 2 lookupDay only sources goalHistory — enough for dailyGoalMet
+  // (Hero's Journey). abstain / dailyMin need per-day breakdowns from
+  // water_history; that comes Day 3 alongside Hero onboarding.
+  const lookupDay = useCallback((dateKey: string): DayData => ({
+    date: dateKey,
+    goalHit: (goalHistory[dateKey] ?? 0) >= 1.0,
+    breakdown: {},
+  }), [goalHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+    evaluateAllActive(new Date(), lookupDay).then(({ map, changed }) => {
+      if (cancelled || changed.length === 0) return;
+      setMissionProgresses(map);
+    });
+    return () => { cancelled = true; };
+    // Intentionally omit missionProgresses from deps: the engine already
+    // skips no-op missions, and re-running on its own output would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookupDay]);
+
   // Streak milestone confetti card
   const [streakMilestone, setStreakMilestone] = useState<number | null>(null);
 
@@ -4310,6 +4353,55 @@ export default function WaterTracker() {
         {/* Streak card — Hero's Journey tier progress (Bronze 7d / Silver 14d / Gold 30d).
             Day 1 of the Missions feature. Read-only until Day 4 wires the Missions screen. */}
         <StreakCard streak={streak} goalHistory={goalHistory} />
+
+        {/* DEV-only mission engine inspector — Day 2 verification. Strip before
+            submit; real Mission Detail screen lands Day 4. */}
+        {__DEV__ && (
+          <View style={{ marginHorizontal: 12, marginTop: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: "rgba(0,200,255,0.4)", backgroundColor: "rgba(0,200,255,0.06)" }}>
+            <Text style={{ color: "#7fd0ff", fontSize: 10, fontWeight: "800", letterSpacing: 1, marginBottom: 6 }}>DEV · MISSION ENGINE</Text>
+            {Object.values(missionProgresses).length === 0 ? (
+              <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, marginBottom: 6 }}>No active missions.</Text>
+            ) : (
+              Object.values(missionProgresses).map((p) => {
+                const m = getMission(p.missionId);
+                if (!m) return null;
+                return (
+                  <View key={p.missionId} style={{ marginBottom: 6 }}>
+                    <Text style={{ color: "#ffffff", fontSize: 12, fontWeight: "700" }}>
+                      {m.emblem} {m.name} · {p.status}
+                    </Text>
+                    <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 11 }}>
+                      Day {p.daysCompleted}/{m.durationDays} · 🛡 {p.shieldsRemaining} · used {p.shieldsUsedOn.length}
+                    </Text>
+                  </View>
+                );
+              })
+            )}
+            <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
+              {MISSIONS.filter((m) => m.chain?.tierIndex === 0).map((m) => {
+                const existing = missionProgresses[m.id];
+                const isLive = existing && existing.status === "active";
+                return (
+                  <TouchableOpacity
+                    key={m.id}
+                    style={{ paddingVertical: 6, paddingHorizontal: 10, borderRadius: 6, borderWidth: 1, borderColor: isLive ? "#ff9b9b" : "rgba(0,200,255,0.5)" }}
+                    onPress={async () => {
+                      const next: ProgressMap = isLive
+                        ? { ...missionProgresses, [m.id]: abandonMission(existing) }
+                        : { ...missionProgresses, [m.id]: startMission(m.id) };
+                      setMissionProgresses(next);
+                      await saveProgresses(next);
+                    }}
+                  >
+                    <Text style={{ color: isLive ? "#ff9b9b" : "#7fd0ff", fontSize: 10, fontWeight: "700" }}>
+                      {isLive ? "Abandon" : "Start"} {m.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         {/* Presets Row — placed above the beverage picker so one-tap repeats stay visible without scrolling */}
         {presets.length > 0 && (
