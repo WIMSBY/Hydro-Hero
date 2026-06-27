@@ -2400,6 +2400,98 @@ const factStyles = StyleSheet.create({
   hint: { fontSize: 11, color: "rgba(255,255,255,0.4)" },
 });
 
+// ─── Missions ──────────────────────────────────────────────────────────────
+//
+// Build 34 Day 1 deliverable. Surfaces existing goal_history data as a tier
+// progression card so the Missions Hero's Journey chain (Bronze 7d → Silver
+// 14d → Gold 30d) is visible from day one. No interaction yet — Day 4 wires
+// tap-to-Missions screen.
+
+const MISSION_TIERS: { days: number; label: string }[] = [
+  { days: 7,  label: "Bronze" },
+  { days: 14, label: "Silver" },
+  { days: 30, label: "Gold"   },
+];
+
+function StreakCard({
+  streak,
+  goalHistory,
+}: {
+  streak: number;
+  goalHistory: Record<string, number>;
+}) {
+  // `streak` resets to 0 the moment the day rolls over and today isn't yet
+  // at goal — that's correct for the Watch sync but demotivating in the UI.
+  // Surface the at-risk streak so the user sees what they're about to break.
+  let atRiskStreak = 0;
+  if (streak === 0) {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    while ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) {
+      atRiskStreak++;
+      d.setDate(d.getDate() - 1);
+    }
+  }
+  const displayStreak = streak > 0 ? streak : atRiskStreak;
+  const todayCompleted = streak > 0;
+
+  const earned = MISSION_TIERS.filter((t) => displayStreak >= t.days).pop() ?? null;
+  const nextTier = MISSION_TIERS.find((t) => displayStreak < t.days) ?? null;
+
+  if (displayStreak === 0) {
+    return (
+      <View style={streakStyles.wrap}>
+        <Text style={streakStyles.flame}>🔥</Text>
+        <View style={streakStyles.body}>
+          <Text style={streakStyles.headline}>Start your streak</Text>
+          <Text style={streakStyles.sub}>Hit today's goal to begin Origin Story · Bronze at 7 days</Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={streakStyles.wrap}>
+      <Text style={streakStyles.flame}>🔥</Text>
+      <View style={streakStyles.body}>
+        <View style={streakStyles.headlineRow}>
+          <Text style={streakStyles.headline}>
+            {displayStreak} day streak
+          </Text>
+          {!todayCompleted && <Text style={streakStyles.atRisk}>· at risk</Text>}
+        </View>
+        <Text style={streakStyles.sub}>
+          {!todayCompleted ? "Finish today to keep it · " : ""}
+          {earned ? `${earned.label.toUpperCase()} ✓` : ""}
+          {earned && nextTier ? "  ·  " : ""}
+          {nextTier ? `${nextTier.days - displayStreak} to ${nextTier.label}` : earned ? "  ·  Gold tier earned" : ""}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const streakStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: "rgba(255,215,0,0.35)",
+    backgroundColor: "rgba(255,215,0,0.05)",
+  },
+  flame:    { fontSize: 28 },
+  body:     { flex: 1, marginLeft: 12 },
+  headlineRow: { flexDirection: "row", alignItems: "baseline", gap: 8 },
+  headline: { color: GOLD, fontSize: 16, fontWeight: "800", letterSpacing: 0.3 },
+  atRisk:   { color: "#ff8888", fontSize: 11, fontWeight: "700", letterSpacing: 0.4 },
+  sub:      { color: "rgba(255,255,255,0.6)", fontSize: 11, fontWeight: "600", marginTop: 3, letterSpacing: 0.2 },
+});
+
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
@@ -4214,6 +4306,10 @@ export default function WaterTracker() {
             preferredUnit={preferredUnit}
           />
         </View>
+
+        {/* Streak card — Hero's Journey tier progress (Bronze 7d / Silver 14d / Gold 30d).
+            Day 1 of the Missions feature. Read-only until Day 4 wires the Missions screen. */}
+        <StreakCard streak={streak} goalHistory={goalHistory} />
 
         {/* Presets Row — placed above the beverage picker so one-tap repeats stay visible without scrolling */}
         {presets.length > 0 && (
