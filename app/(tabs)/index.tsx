@@ -14,6 +14,7 @@ import {
 } from "../../utils/SoundManager";
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
 import { syncWidgetData } from "../../utils/WidgetDataSync";
+import { startTankActivity, updateTankActivity, endTankActivity, liveActivityAvailable } from "../../utils/LiveActivitySync";
 import { drainSiriQueue } from "../../utils/SiriQueue";
 import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
 import {
@@ -4308,6 +4309,41 @@ export default function WaterTracker() {
               : "↩ No entry to undo"}
           </Text>
         </TouchableOpacity>
+
+        {/* DEV-only Live Activity debug row — verifies start/update/end paths
+            on Chanda's iPhone 15 Pro before we wire real triggers. Strip
+            before submit. */}
+        {__DEV__ && liveActivityAvailable() && (
+          <View style={{ flexDirection: "row", gap: 8, marginHorizontal: 12, marginTop: 10 }}>
+            <TouchableOpacity
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,200,255,0.5)", backgroundColor: "rgba(0,200,255,0.08)", alignItems: "center" }}
+              onPress={async () => {
+                const id = await startTankActivity(totalHydration, goal);
+                console.log("[LA] start →", id);
+              }}
+            >
+              <Text style={{ color: "#7fd0ff", fontSize: 12, fontWeight: "700" }}>▶ Start LA</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,200,255,0.5)", backgroundColor: "rgba(0,200,255,0.08)", alignItems: "center" }}
+              onPress={async () => {
+                const ok = await updateTankActivity(totalHydration, goal);
+                console.log("[LA] update →", ok);
+              }}
+            >
+              <Text style={{ color: "#7fd0ff", fontSize: 12, fontWeight: "700" }}>⤴ Update LA</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ flex: 1, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,120,120,0.5)", backgroundColor: "rgba(255,120,120,0.08)", alignItems: "center" }}
+              onPress={async () => {
+                const ok = await endTankActivity();
+                console.log("[LA] end →", ok);
+              }}
+            >
+              <Text style={{ color: "#ff9b9b", fontSize: 12, fontWeight: "700" }}>⏹ End LA</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Stats Bar */}
         <StatsBar

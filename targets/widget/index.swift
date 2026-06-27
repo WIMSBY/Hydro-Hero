@@ -63,9 +63,10 @@ struct HydrationProvider: TimelineProvider {
 }
 
 // MARK: - Design Tokens
-private let appBg    = Color(red: 10/255,  green: 5/255,   blue: 32/255)
-private let gold     = Color(red: 255/255, green: 215/255, blue: 0/255)
-private let waterBlue = Color(red: 0/255,  green: 136/255, blue: 255/255)
+// Internal (not private) so LiveActivity.swift in the same target can reuse them.
+let appBg    = Color(red: 10/255,  green: 5/255,   blue: 32/255)
+let gold     = Color(red: 255/255, green: 215/255, blue: 0/255)
+let waterBlue = Color(red: 0/255,  green: 136/255, blue: 255/255)
 
 // MARK: - Water Drop Shape
 struct WaterDropShape: Shape {
@@ -322,5 +323,8 @@ struct LiquidLuckWidget: Widget {
 struct LiquidLuckWidgetBundle: WidgetBundle {
     var body: some Widget {
         LiquidLuckWidget()
+        if #available(iOS 16.2, *) {
+            HydrationLiveActivity()
+        }
     }
 }
