@@ -25,6 +25,9 @@ import {
   type DayData,
 } from "../../utils/MissionEngine";
 import { MISSIONS, getMission } from "../../constants/missions";
+import { Hero, freshHero, getEmblem } from "../../constants/hero";
+import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/HeroStore";
+import { HeroSetupModal } from "../../components/HeroSetupModal";
 import { drainSiriQueue } from "../../utils/SiriQueue";
 import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
 import {
@@ -2481,6 +2484,70 @@ function StreakCard({
   );
 }
 
+const heroBadgeStyles = StyleSheet.create({
+  // Compact hero strip when a hero exists — emblem + name + rank + edit.
+  wrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,215,0,0.30)",
+    backgroundColor: "rgba(255,215,0,0.04)",
+    gap: 10,
+  },
+  emblem: { fontSize: 22 },
+  name: {
+    flex: 1,
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  rank: {
+    color: GOLD,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 1.4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
+    backgroundColor: "rgba(255,215,0,0.12)",
+  },
+  edit: { color: "rgba(255,255,255,0.45)", fontSize: 14, marginLeft: 6 },
+
+  // Tall CTA when no hero exists — opens HeroSetupModal in start mode.
+  cta: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 12,
+    marginTop: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: GOLD,
+    backgroundColor: "rgba(255,215,0,0.10)",
+  },
+  ctaEmblem: { fontSize: 32 },
+  ctaTitle: {
+    color: GOLD,
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+  },
+  ctaSub: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  ctaArrow: { color: GOLD, fontSize: 28, fontWeight: "300", marginLeft: 6 },
+});
+
 const streakStyles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
@@ -2691,6 +2758,26 @@ export default function WaterTracker() {
     const last = drinkLogEntries[drinkLogEntries.length - 1];
     lastLogTsRef.current = last ? last.timestamp : null;
   }, [drinkLogEntries]);
+
+  // ─── Hero: persistence + first-launch onboarding ───────────────────────────
+  // Day 3 of the Missions feature. On mount, load the hero. If there's no
+  // hero saved AND the user has never seen the setup sheet this install,
+  // auto-open it once. After they cancel or confirm, mark the setup seen so
+  // it doesn't reopen mid-session — they can always reopen it from Settings
+  // (Day 5) or the Home CTA below the streak card.
+  const [hero, setHero] = useState<Hero | null>(null);
+  const [showHeroSetup, setShowHeroSetup] = useState(false);
+  const [heroSetupEditing, setHeroSetupEditing] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [h, seen] = await Promise.all([loadHero(), wasSetupSeen()]);
+      if (cancelled) return;
+      setHero(h);
+      if (!h && !seen) setShowHeroSetup(true);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ─── Missions: progress + engine wiring ────────────────────────────────────
   // Day 2 of the Missions feature. Active progresses live in AsyncStorage
@@ -4350,6 +4437,35 @@ export default function WaterTracker() {
           />
         </View>
 
+        {/* Heroic Journey CTA (no hero saved yet) or compact Hero badge.
+            Day 3 of the Missions feature. The CTA opens HeroSetupModal which
+            auto-starts Origin Story on confirm. The badge taps into edit mode. */}
+        {hero ? (
+          <TouchableOpacity
+            style={heroBadgeStyles.wrap}
+            activeOpacity={0.7}
+            onPress={() => { setHeroSetupEditing(true); setShowHeroSetup(true); }}
+          >
+            <Text style={heroBadgeStyles.emblem}>{getEmblem(hero.emblemId).emoji}</Text>
+            <Text style={heroBadgeStyles.name} numberOfLines={1}>{hero.name}</Text>
+            <Text style={heroBadgeStyles.rank}>{hero.rank.toUpperCase()}</Text>
+            <Text style={heroBadgeStyles.edit}>✏</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={heroBadgeStyles.cta}
+            activeOpacity={0.85}
+            onPress={() => { setHeroSetupEditing(false); setShowHeroSetup(true); }}
+          >
+            <Text style={heroBadgeStyles.ctaEmblem}>🦸</Text>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={heroBadgeStyles.ctaTitle}>Begin Your Heroic Journey</Text>
+              <Text style={heroBadgeStyles.ctaSub}>Origin Story · hit your goal 7 days in a row</Text>
+            </View>
+            <Text style={heroBadgeStyles.ctaArrow}>›</Text>
+          </TouchableOpacity>
+        )}
+
         {/* Streak card — Hero's Journey tier progress (Bronze 7d / Silver 14d / Gold 30d).
             Day 1 of the Missions feature. Read-only until Day 4 wires the Missions screen. */}
         <StreakCard streak={streak} goalHistory={goalHistory} />
@@ -4378,7 +4494,7 @@ export default function WaterTracker() {
               })
             )}
             <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-              {MISSIONS.filter((m) => m.chain?.tierIndex === 0).map((m) => {
+              {MISSIONS.filter((m) => m.chain?.tierIndex === 0 && m.id !== "heros-journey-bronze").map((m) => {
                 const existing = missionProgresses[m.id];
                 const isLive = existing && existing.status === "active";
                 return (
@@ -5976,6 +6092,37 @@ export default function WaterTracker() {
           setTimeout(() => setShowSettingsModal(true), 350);
         }}
         activePackName={ALL_SOUND_PACKS.find((p) => p.id === selectedSoundPack)?.name ?? "your pack"}
+      />
+
+      {/* Hero setup / edit — Day 3 of Missions. Auto-opens on first launch when
+          no hero is saved; reopens from the Home Hero badge in edit mode. */}
+      <HeroSetupModal
+        visible={showHeroSetup}
+        initialHero={heroSetupEditing ? hero : null}
+        onClose={() => {
+          setShowHeroSetup(false);
+          markSetupSeen().catch(() => {});
+        }}
+        onConfirm={async (nextHero, startedFromSetup) => {
+          setHero(nextHero);
+          setShowHeroSetup(false);
+          await saveHero(nextHero);
+          markSetupSeen().catch(() => {});
+          // First-time setup auto-starts Origin Story. Skip if there's already
+          // an active Origin Story so we don't reset progress.
+          if (startedFromSetup) {
+            const existing = missionProgresses["heros-journey-bronze"];
+            const isLive = existing && existing.status === "active";
+            if (!isLive) {
+              const next: ProgressMap = {
+                ...missionProgresses,
+                "heros-journey-bronze": startMission("heros-journey-bronze"),
+              };
+              setMissionProgresses(next);
+              await saveProgresses(next);
+            }
+          }
+        }}
       />
 
       {/* Morning toast notification */}
