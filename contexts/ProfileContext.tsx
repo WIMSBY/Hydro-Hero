@@ -34,6 +34,7 @@ import {
   loadActiveProfileId,
 } from '../utils/ProfileStore';
 import { useProContext } from './ProContext';
+import { endTankActivity } from '../utils/LiveActivitySync';
 import { ProfileSwitcherSheet } from '../components/family/ProfileSwitcherSheet';
 import { ProfileEditorModal } from '../components/family/ProfileEditorModal';
 import { FamilyWelcomeModal } from '../components/family/FamilyWelcomeModal';
@@ -139,8 +140,17 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     if (id === activeProfile?.id) return;
     const target = profiles.find((p) => p.id === id);
     if (!target) return;
+    // End any Live Activity from the previous profile — the tank percentage
+    // on the Lock Screen is for the profile that opted in, not the one we're
+    // switching to. New profile starts with LA opt-in defaulted to off; the
+    // user re-taps the chip on Home if they want it on for this profile.
+    endTankActivity().catch(() => {});
     await setActiveProfileIdStore(id);
     setActiveProfile(target);
+    // Bumping profileVersion remounts the Stack, which re-runs Home's
+    // sendHydrationUpdate / syncSiriCatalog / syncSiriUnit effects against
+    // the new profile's namespaced storage. That's the Watch + Siri sync
+    // path on profile switch — no explicit push needed here.
     setProfileVersion((v) => v + 1);
   }, [activeProfile?.id, profiles]);
 

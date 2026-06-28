@@ -30,6 +30,7 @@ import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/Her
 import { HeroSetupModal } from "../../components/HeroSetupModal";
 import { AvatarPill } from "../../components/family/AvatarPill";
 import { useProfile } from "../../contexts/ProfileContext";
+import { evaluateInactiveProfiles } from "../../utils/MultiProfileEngine";
 import { drainSiriQueue } from "../../utils/SiriQueue";
 import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
 import { syncSiriUnit } from "../../utils/SiriUnitSync";
@@ -2528,7 +2529,7 @@ const missionCompleteStyles = StyleSheet.create({
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
-  const { syncActiveProfileName } = useProfile();
+  const { activeProfile, syncActiveProfileName } = useProfile();
   const [intake, setIntake] = useState(0);
   const [goal, setGoal] = useState(DEFAULT_GOAL);
   const [history, setHistory] = useState<
@@ -3392,9 +3393,15 @@ export default function WaterTracker() {
     scheduleMidnightTimer();
     // Drain anything Siri queued while the app was not running.
     processSiriQueue();
+    // Family Mode: catch up missed midnight rollovers + mission progress on
+    // every inactive profile so streaks stay honest while a parent is using
+    // their own profile and a kid's profile sits idle. Storage-only — no
+    // React state, no sounds, no watch sync.
+    evaluateInactiveProfiles(activeProfile?.id ?? null).catch(() => {});
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         checkDateAndMaybeReset();
+        evaluateInactiveProfiles(activeProfile?.id ?? null).catch(() => {});
         setSpinning(false);
         setJackpotSpinning(false);
         reloadSounds();

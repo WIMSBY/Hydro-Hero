@@ -25,7 +25,9 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { pGetItem, pSetItem } from '../../utils/profileStorage';
+import { pGetItem, pSetItem, pRemoveItem } from '../../utils/profileStorage';
+import { loadHero, saveHero } from '../../utils/HeroStore';
+import { freshHero, STARTER_EMBLEMS } from '../../constants/hero';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
 import QRCode from 'react-native-qrcode-svg';
@@ -847,9 +849,10 @@ export default function PartnersScreen() {
   async function loadAll() {
     try {
       const [
-        rawUsername, rawAvatar, rawMembers,
+        hero, rawLegacyUsername, rawAvatar, rawMembers,
         rawHyd, rawGoal, rawGoalHist, rawBreakdown, rawJackpots,
       ] = await Promise.all([
+        loadHero(),
         pGetItem('partner_username'),
         pGetItem('partner_avatar'),
         pGetItem('squad_members'),
@@ -860,7 +863,27 @@ export default function PartnersScreen() {
         pGetItem('lifetime_jackpots'),
       ]);
 
-      if (rawUsername) setUsername(rawUsername);
+      // Build 33 Family Mode: Hero name is the single source of truth for
+      // Squad identity. Migration paths:
+      //   • Hero exists → use it. The legacy partner_username (if any) is
+      //     stale; clear it so the codebase has one name surface.
+      //   • Hero missing + legacy partner_username present → one-shot
+      //     promote the legacy name into a Hero so future reads work.
+      //   • Neither → username stays empty; the user is nudged to set a
+      //     Hero name on Home before they can share a Squad code.
+      let displayName = '';
+      if (hero?.name) {
+        displayName = hero.name;
+        if (rawLegacyUsername) {
+          pRemoveItem('partner_username').catch(() => {});
+        }
+      } else if (rawLegacyUsername && rawLegacyUsername.trim()) {
+        displayName = rawLegacyUsername.trim();
+        const migrated = freshHero(displayName, STARTER_EMBLEMS[0].id);
+        saveHero(migrated).catch(() => {});
+        pRemoveItem('partner_username').catch(() => {});
+      }
+      setUsername(displayName);
       if (rawAvatar)   setAvatar(rawAvatar);
       if (rawMembers)  setMembers(JSON.parse(rawMembers));
 
@@ -903,12 +926,14 @@ export default function PartnersScreen() {
 
   function generateCode() {
     if (!username.trim()) {
+      // Squad name = Hero name now (Family Mode Day 3). Push the user back
+      // to Home where the HeroSetupModal owns the name field.
       Alert.alert(
-        'Share as Anonymous?',
-        'You haven\'t set a display name yet. Your squad will see you as "Anonymous". Set a name first so they know it\'s you.',
+        'Set your Hero name first',
+        'Your Squad code uses your Hero name. Set one on the Home tab, then come back here to share.',
         [
-          { text: 'Edit Name', style: 'cancel' },
-          { text: 'Share Anyway', onPress: buildAndShowCode },
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Go to Home', onPress: () => router.push('/(tabs)') },
         ],
       );
       return;
@@ -916,11 +941,7 @@ export default function PartnersScreen() {
     buildAndShowCode();
   }
 
-  // ── Save username / avatar ───────────────────────────────────────────────────
-  async function saveUsername(val: string) {
-    setUsername(val);
-    try { await pSetItem('partner_username', val); } catch {}
-  }
+  // ── Save avatar ──────────────────────────────────────────────────────────────
   async function pickAvatar(e: string) {
     setAvatar(e);
     setShowEmoji(false);
@@ -1017,18 +1038,11 @@ export default function PartnersScreen() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <AvatarCircle value={avatar} size={58} onPress={() => setShowEmoji(true)} />
             <View style={{ flex: 1 }}>
-              <TextInput
-                value={username}
-                onChangeText={saveUsername}
-                placeholder="Set your display name..."
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                style={s.usernameInput}
-                maxLength={24}
-                returnKeyType="done"
-                onSubmitEditing={Keyboard.dismiss}
-              />
+              <Text style={s.usernameDisplay} numberOfLines={1}>
+                {username || 'No Hero name set'}
+              </Text>
               <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 2 }}>
-                Tap avatar to change • Tap name to edit
+                Tap avatar to change • Name comes from your Hero
               </Text>
             </View>
           </View>
@@ -1187,9 +1201,8 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
-  usernameInput: {
+  usernameDisplay: {
     color: '#fff', fontSize: 17, fontWeight: '700',
-    borderBottomWidth: 1, borderBottomColor: 'rgba(255,215,0,0.3)',
     paddingVertical: 4,
   },
 

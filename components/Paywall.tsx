@@ -52,6 +52,7 @@ const REEL_FEATURES = [
   'Record Your Own Sounds',
   'Custom Quick Add',
   'Custom Quick Presets',
+  'Family of 5 Profiles',
 ];
 
 // Each bullet must reflect an actually PRO-gated feature. The audit on
@@ -65,6 +66,7 @@ const PRO_BENEFITS = [
   'Unlimited Squad members',
   'Sound effects, haptics & record your own',
   'Customize Quick Add & save unlimited presets',
+  'Family Mode — up to 5 profiles',
 ];
 
 interface PaywallProps {
