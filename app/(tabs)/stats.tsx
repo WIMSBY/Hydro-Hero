@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pGetItem } from '../../utils/profileStorage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, G, Line, Rect, Text as SvgText } from 'react-native-svg';
 import * as Sentry from '@sentry/react-native';
@@ -215,13 +215,13 @@ export default function StatsScreen() {
         rawHistory, rawGoalHist, rawGoal,
         rawTodayHyd, rawBreakdown, rawLifetime, rawUnit,
       ] = await Promise.all([
-        AsyncStorage.getItem('water_history'),
-        AsyncStorage.getItem('goal_history'),
-        AsyncStorage.getItem('water_goal'),
-        AsyncStorage.getItem('water_total_hydration'),
-        AsyncStorage.getItem('water_category_breakdown'),
-        AsyncStorage.getItem('lifetime_hydration_oz'),
-        AsyncStorage.getItem('preferred_unit'),
+        pGetItem('water_history'),
+        pGetItem('goal_history'),
+        pGetItem('water_goal'),
+        pGetItem('water_total_hydration'),
+        pGetItem('water_category_breakdown'),
+        pGetItem('lifetime_hydration_oz'),
+        pGetItem('preferred_unit'),
       ]);
       if (rawUnit === 'ml' || rawUnit === 'oz') setPreferredUnit(rawUnit);
 

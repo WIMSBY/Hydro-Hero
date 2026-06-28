@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pGetItem } from './profileStorage';
 import { File as FSFile, Paths as FSPaths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
@@ -43,8 +43,8 @@ const BEV_EXPORT_KEYS: [string, string][] = [
  */
 export async function buildHydrationCSV(maxDays: number): Promise<HydrationExportSummary | null> {
   const [rawHistory, rawGoalHist] = await Promise.all([
-    AsyncStorage.getItem('water_history'),
-    AsyncStorage.getItem('goal_history'),
+    pGetItem('water_history'),
+    pGetItem('goal_history'),
   ]);
 
   const historyArr: HistoryRow[] = rawHistory ? JSON.parse(rawHistory) : [];

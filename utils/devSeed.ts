@@ -11,6 +11,8 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DevSettings } from "react-native";
+import { ensureBootstrap } from "./ProfileStore";
+import { prefixKey } from "./profileStorage";
 
 const GOAL = 64; // daily goal in oz used for the demo profile
 const DAYS = 30; // how many days of history to fabricate
@@ -205,11 +207,16 @@ export async function seedDemoData(mode: SeedMode = "full"): Promise<void> {
   if (mode === "full") {
     writes.push([`goal_celebrated_${todayKey}`, "1"]);
   } else {
-    await AsyncStorage.removeItem(`goal_celebrated_${todayKey}`);
+    await AsyncStorage.removeItem(prefixKey(`goal_celebrated_${todayKey}`));
   }
 
-  await AsyncStorage.multiSet(writes);
-  await AsyncStorage.removeItem("reset_in_progress");
+  // Family Mode: every demo write targets the active profile. ensureBootstrap
+  // is idempotent — boot will already have run, but DEV reloads can fire seed
+  // before any other code path so we re-await to guarantee a profile ID.
+  await ensureBootstrap();
+  const namespacedWrites: [string, string][] = writes.map(([k, v]) => [prefixKey(k), v]);
+  await AsyncStorage.multiSet(namespacedWrites);
+  await AsyncStorage.removeItem(prefixKey("reset_in_progress"));
 
   try {
     DevSettings.reload();
@@ -227,7 +234,8 @@ export async function clearDemoData(): Promise<void> {
     celebKeys.push(`goal_celebrated_${k}`);
   }
 
-  await AsyncStorage.multiRemove([
+  await ensureBootstrap();
+  const allKeys = [
     ...dayKeys,
     ...celebKeys,
     "water_history",
@@ -246,7 +254,8 @@ export async function clearDemoData(): Promise<void> {
     "unlocked_badges",
     "last_active_date",
     "reset_in_progress",
-  ]);
+  ].map((k) => prefixKey(k));
+  await AsyncStorage.multiRemove(allKeys);
 
   try {
     DevSettings.reload();

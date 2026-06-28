@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pGetItem } from '../../utils/profileStorage';
 import { useFocusEffect } from '@react-navigation/native';
 import Achievements from '../../components/Achievements';
 import TrophyCase from '../../components/TrophyCase';
@@ -69,18 +69,18 @@ export default function BadgesScreen() {
         rawLifeOz, rawLifeJp, rawLifeCoffee, rawLifeBeer, rawFirstDrink,
         progresses, rawAlc, loadedHero,
       ] = await Promise.all([
-        AsyncStorage.getItem('goal_history'),
-        AsyncStorage.getItem('water_total_hydration'),
-        AsyncStorage.getItem(todayKey()),
-        AsyncStorage.getItem('water_goal'),
-        AsyncStorage.getItem('water_category_breakdown'),
-        AsyncStorage.getItem('lifetime_hydration_oz'),
-        AsyncStorage.getItem('lifetime_jackpots'),
-        AsyncStorage.getItem('lifetime_coffee_logs'),
-        AsyncStorage.getItem('lifetime_beer_logs'),
-        AsyncStorage.getItem('first_drink_time'),
+        pGetItem('goal_history'),
+        pGetItem('water_total_hydration'),
+        pGetItem(todayKey()),
+        pGetItem('water_goal'),
+        pGetItem('water_category_breakdown'),
+        pGetItem('lifetime_hydration_oz'),
+        pGetItem('lifetime_jackpots'),
+        pGetItem('lifetime_coffee_logs'),
+        pGetItem('lifetime_beer_logs'),
+        pGetItem('first_drink_time'),
         loadProgresses(),
-        AsyncStorage.getItem('show_alcoholic_drinks'),
+        pGetItem('show_alcoholic_drinks'),
         loadHero(),
       ]);
       setMissionProgresses(progresses);

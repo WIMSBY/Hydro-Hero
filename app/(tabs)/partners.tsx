@@ -25,7 +25,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pGetItem, pSetItem } from '../../utils/profileStorage';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
 import QRCode from 'react-native-qrcode-svg';
@@ -203,14 +203,14 @@ function getLast7Days(goalHist: Record<string, number>): WeekDay[] {
 
 async function fireJackpotNotif(username: string) {
   const flag = `squad_jackpot_notif_${username}_${dateKey(new Date())}`;
-  const already = await AsyncStorage.getItem(flag);
+  const already = await pGetItem(flag);
   if (already) return;
   try {
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') return;
     // Write dedup flag BEFORE scheduling so a crash between write and schedule
     // never causes a second attempt to fire the same notification.
-    await AsyncStorage.setItem(flag, '1');
+    await pSetItem(flag, '1');
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `${username} hit their goal! 🎯`,
@@ -850,14 +850,14 @@ export default function PartnersScreen() {
         rawUsername, rawAvatar, rawMembers,
         rawHyd, rawGoal, rawGoalHist, rawBreakdown, rawJackpots,
       ] = await Promise.all([
-        AsyncStorage.getItem('partner_username'),
-        AsyncStorage.getItem('partner_avatar'),
-        AsyncStorage.getItem('squad_members'),
-        AsyncStorage.getItem('water_total_hydration'),
-        AsyncStorage.getItem('water_goal'),
-        AsyncStorage.getItem('goal_history'),
-        AsyncStorage.getItem('water_category_breakdown'),
-        AsyncStorage.getItem('lifetime_jackpots'),
+        pGetItem('partner_username'),
+        pGetItem('partner_avatar'),
+        pGetItem('squad_members'),
+        pGetItem('water_total_hydration'),
+        pGetItem('water_goal'),
+        pGetItem('goal_history'),
+        pGetItem('water_category_breakdown'),
+        pGetItem('lifetime_jackpots'),
       ]);
 
       if (rawUsername) setUsername(rawUsername);
@@ -919,12 +919,12 @@ export default function PartnersScreen() {
   // ── Save username / avatar ───────────────────────────────────────────────────
   async function saveUsername(val: string) {
     setUsername(val);
-    try { await AsyncStorage.setItem('partner_username', val); } catch {}
+    try { await pSetItem('partner_username', val); } catch {}
   }
   async function pickAvatar(e: string) {
     setAvatar(e);
     setShowEmoji(false);
-    try { await AsyncStorage.setItem('partner_avatar', e); } catch {}
+    try { await pSetItem('partner_avatar', e); } catch {}
   }
 
   // ── Decode an incoming code ──────────────────────────────────────────────────
@@ -978,7 +978,7 @@ export default function PartnersScreen() {
     }
 
     setMembers(updated);
-    try { await AsyncStorage.setItem('squad_members', JSON.stringify(updated)); } catch {}
+    try { await pSetItem('squad_members', JSON.stringify(updated)); } catch {}
 
     // Fire jackpot notification if partner hit goal today
     if (previewPayload.hydrationPct >= 1.0) {
@@ -994,7 +994,7 @@ export default function PartnersScreen() {
   async function removeMember(uname: string) {
     const updated = members.filter(m => m.username !== uname);
     setMembers(updated);
-    try { await AsyncStorage.setItem('squad_members', JSON.stringify(updated)); } catch {}
+    try { await pSetItem('squad_members', JSON.stringify(updated)); } catch {}
   }
 
   const myTotalBev = Object.values(myBreakdown).reduce((a, b) => a + b, 0);

@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { pGetItem, pSetItem } from "../utils/profileStorage";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -375,15 +375,15 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   async function finish() {
     const goal = selectedGoal ?? 64;
     try {
-      await AsyncStorage.setItem("water_goal", JSON.stringify(goal));
-      await AsyncStorage.setItem("onboarding_complete", "1");
+      await pSetItem("water_goal", JSON.stringify(goal));
+      await pSetItem("onboarding_complete", "1");
     } catch {}
     onComplete(goal);
   }
 
   async function skip() {
     try {
-      await AsyncStorage.setItem("onboarding_complete", "1");
+      await pSetItem("onboarding_complete", "1");
     } catch {}
     onComplete(selectedGoal ?? 64);
   }
@@ -478,7 +478,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
   const [customGoalDraft, setCustomGoalDraft] = useState("");
 
   useEffect(() => {
-    AsyncStorage.getItem('body_unit').then((val) => {
+    pGetItem('body_unit').then((val) => {
       if (val === 'metric' || val === 'imperial') setBodyUnit(val);
     }).catch(() => {});
   }, []);
@@ -497,7 +497,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
 
   async function changeBodyUnit(u: 'imperial' | 'metric') {
     setBodyUnit(u);
-    try { await AsyncStorage.setItem('body_unit', u); } catch {}
+    try { await pSetItem('body_unit', u); } catch {}
   }
 
   function bumpWeight(direction: 1 | -1) {

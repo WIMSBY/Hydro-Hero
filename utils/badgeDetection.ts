@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pGetItem, pSetItem } from './profileStorage';
 import { ALL_BADGES, type BadgeCheckData, type BadgeDef } from '../components/Achievements';
 
 const PENDING_KEY = 'pending_badges_count';
@@ -22,7 +22,7 @@ export function detectPendingBadges(
 
 export async function loadUnlockedBadgeIds(): Promise<Set<string>> {
   try {
-    const raw = await AsyncStorage.getItem('unlocked_badges');
+    const raw = await pGetItem('unlocked_badges');
     if (!raw) return new Set();
     const parsed: { id: string }[] = JSON.parse(raw);
     return new Set(parsed.map((b) => b.id));
@@ -32,12 +32,12 @@ export async function loadUnlockedBadgeIds(): Promise<Set<string>> {
 }
 
 export async function setPendingBadgeCount(count: number): Promise<void> {
-  try { await AsyncStorage.setItem(PENDING_KEY, JSON.stringify(count)); } catch {}
+  try { await pSetItem(PENDING_KEY, JSON.stringify(count)); } catch {}
 }
 
 export async function getPendingBadgeCount(): Promise<number> {
   try {
-    const raw = await AsyncStorage.getItem(PENDING_KEY);
+    const raw = await pGetItem(PENDING_KEY);
     return raw ? JSON.parse(raw) : 0;
   } catch {
     return 0;

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { pGetItem, pSetItem, pRemoveItem, pMultiGet } from "../../utils/profileStorage";
 import { BevCategory, BevDef, BEVERAGES, ALCOHOLIC_BEVS } from "../../constants/beverages";
 import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hydration/LastDrinkReveal";
 import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
@@ -2756,7 +2757,7 @@ export default function WaterTracker() {
   };
   const [waterHistoryForEngine, setWaterHistoryForEngine] = useState<HistEntry[]>([]);
   useEffect(() => {
-    AsyncStorage.getItem("water_history").then((raw) => {
+    pGetItem("water_history").then((raw) => {
       if (!raw) return;
       try { setWaterHistoryForEngine(JSON.parse(raw)); } catch {}
     });
@@ -2895,7 +2896,7 @@ export default function WaterTracker() {
 
   async function checkOnboarding() {
     try {
-      const done = await AsyncStorage.getItem("onboarding_complete");
+      const done = await pGetItem("onboarding_complete");
       setShowOnboarding(done !== "1");
       // Returning user — onboarding already complete. Defer the OS permission
       // dialog so it doesn't compete with the Home tree's first render
@@ -3152,12 +3153,12 @@ export default function WaterTracker() {
     try {
       const { status } = await Notifications.getPermissionsAsync();
       if (status !== "granted") return;
-      const already = await AsyncStorage.getItem(flagKey);
+      const already = await pGetItem(flagKey);
       if (already === "1") return;
     } catch { return; }
     // Write the dedup flag FIRST — outside the schedule try/catch so that
     // if schedule fails or the app crashes, we never fire this twice in one day.
-    await AsyncStorage.setItem(flagKey, "1");
+    await pSetItem(flagKey, "1");
     try {
       await Notifications.scheduleNotificationAsync({
         content: { title, body },
@@ -3208,13 +3209,13 @@ export default function WaterTracker() {
 
     // Read current values directly from storage so we have accurate data even if state hasn't synced
     const [rawIntake, rawHydration, rawBreakdown, rawGoal, rawHistory, rawGoalHistory, rawEntries] = await Promise.all([
-      AsyncStorage.getItem(yesterdayKey),
-      AsyncStorage.getItem("water_total_hydration"),
-      AsyncStorage.getItem("water_category_breakdown"),
-      AsyncStorage.getItem("water_goal"),
-      AsyncStorage.getItem("water_history"),
-      AsyncStorage.getItem("goal_history"),
-      AsyncStorage.getItem("water_log_entries"),
+      pGetItem(yesterdayKey),
+      pGetItem("water_total_hydration"),
+      pGetItem("water_category_breakdown"),
+      pGetItem("water_goal"),
+      pGetItem("water_history"),
+      pGetItem("goal_history"),
+      pGetItem("water_log_entries"),
     ]);
 
     const prevIntake   = rawIntake    ? JSON.parse(rawIntake)    : intake;
@@ -3260,7 +3261,7 @@ export default function WaterTracker() {
 
     // Write reset lock before touching storage — if the app is killed mid-reset, next
     // launch will detect this key in checkDateAndMaybeReset and re-run performDailyReset.
-    try { await AsyncStorage.setItem('reset_in_progress', yesterdayKey); } catch {}
+    try { await pSetItem('reset_in_progress', yesterdayKey); } catch {}
 
     // Mirror the updated history into engine state so the next
     // evaluateAllActive picks up yesterday's hourBuckets without waiting
@@ -3269,15 +3270,15 @@ export default function WaterTracker() {
 
     try {
       await Promise.all([
-        AsyncStorage.setItem("water_history",          JSON.stringify(updatedHistory)),
-        AsyncStorage.setItem("goal_history",           JSON.stringify(updatedGoalHist)),
-        AsyncStorage.setItem("water_total_hydration",  JSON.stringify(0)),
-        AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN)),
-        AsyncStorage.setItem("water_last_entry",       JSON.stringify(null)),
-        AsyncStorage.removeItem(`goal_celebrated_${yesterdayKey}`),
-        AsyncStorage.setItem("last_active_date",       todayKey),
-        AsyncStorage.setItem(todayKey,                 JSON.stringify(0)),
-        AsyncStorage.removeItem("water_log_entries"),
+        pSetItem("water_history",          JSON.stringify(updatedHistory)),
+        pSetItem("goal_history",           JSON.stringify(updatedGoalHist)),
+        pSetItem("water_total_hydration",  JSON.stringify(0)),
+        pSetItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN)),
+        pSetItem("water_last_entry",       JSON.stringify(null)),
+        pRemoveItem(`goal_celebrated_${yesterdayKey}`),
+        pSetItem("last_active_date",       todayKey),
+        pSetItem(todayKey,                 JSON.stringify(0)),
+        pRemoveItem("water_log_entries"),
       ]);
     } catch {
       // Keep the lock in place — next launch will retry the full reset.
@@ -3285,7 +3286,7 @@ export default function WaterTracker() {
     }
 
     // All writes succeeded — release the lock.
-    try { await AsyncStorage.removeItem('reset_in_progress'); } catch {}
+    try { await pRemoveItem('reset_in_progress'); } catch {}
 
     // Reset all state
     setHistory(updatedHistory);
@@ -3318,18 +3319,18 @@ export default function WaterTracker() {
 
     // Resume any reset that was interrupted by a force-close.
     try {
-      const lockVal = await AsyncStorage.getItem('reset_in_progress');
+      const lockVal = await pGetItem('reset_in_progress');
       if (lockVal) {
         await performDailyReset(false);
         return;
       }
     } catch {}
 
-    const saved = await AsyncStorage.getItem("last_active_date");
+    const saved = await pGetItem("last_active_date");
     if (saved && saved !== todayKey) {
       await performDailyReset(true);
     } else {
-      await AsyncStorage.setItem("last_active_date", todayKey);
+      await pSetItem("last_active_date", todayKey);
     }
   }
 
@@ -3432,7 +3433,7 @@ export default function WaterTracker() {
       const todayKey = getTodayKey();
       const celebKey = `goal_celebrated_${todayKey}`;
       setJackpotFiredToday(true);
-      (async () => { try { await AsyncStorage.setItem(celebKey, "1"); } catch {} })();
+      (async () => { try { await pSetItem(celebKey, "1"); } catch {} })();
       setShowCelebration(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3528,7 +3529,7 @@ export default function WaterTracker() {
       const celebKey = `goal_celebrated_${todayKey}`;
 
       // Single batched read for all startup keys (Issues 7 & 8)
-      const results = await AsyncStorage.multiGet([
+      const results = await pMultiGet([
         todayKey,
         'water_goal',
         'water_history',
@@ -3734,39 +3735,39 @@ export default function WaterTracker() {
     const next: Preset = { id: `p_${Date.now()}`, label: trimmed.slice(0, 24), oz, category };
     const updated = [...presets, next];
     setPresets(updated);
-    try { await AsyncStorage.setItem("water_presets", JSON.stringify(updated)); } catch {}
+    try { await pSetItem("water_presets", JSON.stringify(updated)); } catch {}
     syncSiriCatalog(updated);
   }
 
   async function deletePreset(id: string) {
     const updated = presets.filter((p) => p.id !== id);
     setPresets(updated);
-    await AsyncStorage.setItem("water_presets", JSON.stringify(updated));
+    await pSetItem("water_presets", JSON.stringify(updated));
     syncSiriCatalog(updated);
   }
 
   async function reorderPresets(next: Preset[]) {
     setPresets(next);
-    try { await AsyncStorage.setItem("water_presets", JSON.stringify(next)); } catch {}
+    try { await pSetItem("water_presets", JSON.stringify(next)); } catch {}
     syncSiriCatalog(next);
   }
 
   async function saveIntake(newIntake: number, newBreakdown: Record<BevCategory, number>, newHydration: number) {
     const todayKey = getTodayKey();
     const currentGoal = goal;
-    await AsyncStorage.setItem(todayKey, JSON.stringify(newIntake));
-    await AsyncStorage.setItem("water_total_hydration", JSON.stringify(newHydration));
+    await pSetItem(todayKey, JSON.stringify(newIntake));
+    await pSetItem("water_total_hydration", JSON.stringify(newHydration));
     const todayEntry = { date: todayKey, oz: newIntake, goal: currentGoal, breakdown: newBreakdown };
     const updatedHistory = [
       todayEntry,
       ...history.filter((h) => h.date !== todayKey),
     ].slice(0, 30);
     setHistory(updatedHistory);
-    await AsyncStorage.setItem("water_history", JSON.stringify(updatedHistory));
+    await pSetItem("water_history", JSON.stringify(updatedHistory));
     // Update goal_history with today's hydration pct
     const newGoalHistory = { ...goalHistory, [todayKey]: Math.min(newHydration / currentGoal, 1) };
     setGoalHistory(newGoalHistory);
-    await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
+    await pSetItem("goal_history", JSON.stringify(newGoalHistory));
     // Push updated values to the home-screen widget (no-op in Expo Go / Android)
     syncWidgetData(newHydration, currentGoal);
   }
@@ -3796,19 +3797,19 @@ export default function WaterTracker() {
     setDrinkLogEntries(newEntries);
 
     const saves: Promise<void>[] = [
-      AsyncStorage.setItem("water_category_breakdown", JSON.stringify(newBreakdown)),
+      pSetItem("water_category_breakdown", JSON.stringify(newBreakdown)),
       saveIntake(newIntake, newBreakdown, newHydration),
-      AsyncStorage.setItem("water_last_entry", JSON.stringify(oz)),
-      AsyncStorage.setItem("water_last_hydrated", JSON.stringify(hydratedOz)),
-      AsyncStorage.setItem("water_last_category", JSON.stringify(category)),
-      AsyncStorage.setItem("water_log_entries", JSON.stringify(newEntries)),
+      pSetItem("water_last_entry", JSON.stringify(oz)),
+      pSetItem("water_last_hydrated", JSON.stringify(hydratedOz)),
+      pSetItem("water_last_category", JSON.stringify(category)),
+      pSetItem("water_log_entries", JSON.stringify(newEntries)),
       isJackpot
-        ? AsyncStorage.setItem("water_last_was_jackpot", "1")
-        : AsyncStorage.removeItem("water_last_was_jackpot"),
+        ? pSetItem("water_last_was_jackpot", "1")
+        : pRemoveItem("water_last_was_jackpot"),
     ];
     if (isJackpot) {
       const celebKey = `goal_celebrated_${getTodayKey()}`;
-      saves.push(AsyncStorage.setItem(celebKey, "1"));
+      saves.push(pSetItem(celebKey, "1"));
     }
     try {
       await Promise.all(saves);
@@ -3848,10 +3849,10 @@ export default function WaterTracker() {
       setLifetimeCoffeeLogs(newLifeCoffee);
       setLifetimeBeerLogs(newLifeBeer);
       const lifeSaves: Promise<void>[] = [
-        AsyncStorage.setItem("lifetime_hydration_oz",  JSON.stringify(newLifeHyd)),
-        AsyncStorage.setItem("lifetime_jackpots",      JSON.stringify(newLifeJack)),
-        AsyncStorage.setItem("lifetime_coffee_logs",   JSON.stringify(newLifeCoffee)),
-        AsyncStorage.setItem("lifetime_beer_logs",     JSON.stringify(newLifeBeer)),
+        pSetItem("lifetime_hydration_oz",  JSON.stringify(newLifeHyd)),
+        pSetItem("lifetime_jackpots",      JSON.stringify(newLifeJack)),
+        pSetItem("lifetime_coffee_logs",   JSON.stringify(newLifeCoffee)),
+        pSetItem("lifetime_beer_logs",     JSON.stringify(newLifeBeer)),
       ];
       // Record first drink time once, never overwrite
       let firstDrinkTimeAfter = firstDrinkTime;
@@ -3859,7 +3860,7 @@ export default function WaterTracker() {
         const ts = new Date().toISOString();
         setFirstDrinkTime(ts);
         firstDrinkTimeAfter = ts;
-        lifeSaves.push(AsyncStorage.setItem("first_drink_time", ts));
+        lifeSaves.push(pSetItem("first_drink_time", ts));
       }
       await Promise.all(lifeSaves);
 
@@ -4038,7 +4039,7 @@ export default function WaterTracker() {
             haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
             const undoneHydratedOz = lastEntryHydratedOz ?? 0;
             const undoneCategory = lastEntryCategory;
-            const wasJackpot = (await AsyncStorage.getItem("water_last_was_jackpot")) === "1";
+            const wasJackpot = (await pGetItem("water_last_was_jackpot")) === "1";
             const newIntake = Math.max(0, intake - lastEntry);
             const newHydration = Math.max(0, Math.round((totalHydration - undoneHydratedOz) * 10) / 10);
             setIntake(newIntake);
@@ -4060,7 +4061,7 @@ export default function WaterTracker() {
             // Remove last drink log entry
             const newEntries = drinkLogEntries.slice(0, -1);
             setDrinkLogEntries(newEntries);
-            await AsyncStorage.setItem("water_log_entries", JSON.stringify(newEntries));
+            await pSetItem("water_log_entries", JSON.stringify(newEntries));
             // Attempt to delete the matching Health sample (silent failure is fine)
             if (lastHealthSampleTime) {
               deleteWaterSample(lastHealthSampleTime).catch(() => {});
@@ -4082,21 +4083,21 @@ export default function WaterTracker() {
 
             const todayKey = getTodayKey();
             const baseRemovals = [
-              AsyncStorage.setItem("water_category_breakdown", JSON.stringify(newBreakdown)),
+              pSetItem("water_category_breakdown", JSON.stringify(newBreakdown)),
               saveIntake(newIntake, newBreakdown, newHydration),
-              AsyncStorage.removeItem("water_last_entry"),
-              AsyncStorage.removeItem("water_last_hydrated"),
-              AsyncStorage.removeItem("water_last_category"),
+              pRemoveItem("water_last_entry"),
+              pRemoveItem("water_last_hydrated"),
+              pRemoveItem("water_last_category"),
               AsyncStorage.removeItem("water_last_health_sample"),
-              AsyncStorage.removeItem("water_last_was_jackpot"),
-              AsyncStorage.setItem("lifetime_hydration_oz", JSON.stringify(newLifeHyd)),
-              AsyncStorage.setItem("lifetime_coffee_logs", JSON.stringify(newLifeCoffee)),
-              AsyncStorage.setItem("lifetime_beer_logs", JSON.stringify(newLifeBeer)),
+              pRemoveItem("water_last_was_jackpot"),
+              pSetItem("lifetime_hydration_oz", JSON.stringify(newLifeHyd)),
+              pSetItem("lifetime_coffee_logs", JSON.stringify(newLifeCoffee)),
+              pSetItem("lifetime_beer_logs", JSON.stringify(newLifeBeer)),
             ];
             if (wasJackpot) {
               baseRemovals.push(
-                AsyncStorage.removeItem(`goal_celebrated_${todayKey}`),
-                AsyncStorage.setItem("lifetime_jackpots", JSON.stringify(newLifeJack)),
+                pRemoveItem(`goal_celebrated_${todayKey}`),
+                pSetItem("lifetime_jackpots", JSON.stringify(newLifeJack)),
               );
             }
             // Clear stale streak-milestone "shown" flags for milestones above the new streak,
@@ -4105,7 +4106,7 @@ export default function WaterTracker() {
             let newStreak = 0;
             { const d = new Date(); while ((newGoalHist[getDateKey(d)] ?? 0) >= 1.0) { newStreak++; d.setDate(d.getDate() - 1); } }
             for (const m of [3, 7, 14, 30]) {
-              if (newStreak < m) baseRemovals.push(AsyncStorage.removeItem(`streak_milestone_${m}_shown`));
+              if (newStreak < m) baseRemovals.push(pRemoveItem(`streak_milestone_${m}_shown`));
             }
 
             await Promise.all(baseRemovals);
@@ -4159,7 +4160,7 @@ export default function WaterTracker() {
     const g = preferredUnit === 'ml' ? Math.round((raw / 29.5735) * 10) / 10 : raw;
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setGoal(g);
-    await AsyncStorage.setItem("water_goal", JSON.stringify(g));
+    await pSetItem("water_goal", JSON.stringify(g));
     closeGoalModal();
     sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: g, pct: g > 0 ? totalHydration / g : 0, streak: 0, selectedBeverages }).catch(() => {});
     rescheduleAfterGoalChange(g);
@@ -4168,7 +4169,7 @@ export default function WaterTracker() {
   async function handleSetGallonGoal(oz: number) {
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setGoal(oz);
-    await AsyncStorage.setItem("water_goal", JSON.stringify(oz));
+    await pSetItem("water_goal", JSON.stringify(oz));
     closeGoalModal();
     sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: oz, pct: oz > 0 ? totalHydration / oz : 0, streak: 0, selectedBeverages }).catch(() => {});
     rescheduleAfterGoalChange(oz);
@@ -4269,7 +4270,7 @@ export default function WaterTracker() {
     const oz = calcSuggestedOz();
     if (oz === null) return;
     setGoal(oz);
-    await AsyncStorage.setItem("water_goal", JSON.stringify(oz));
+    await pSetItem("water_goal", JSON.stringify(oz));
     closeGoalModal();
     rescheduleAfterGoalChange(oz);
   }
@@ -4317,19 +4318,19 @@ export default function WaterTracker() {
             setLastReelOz(0);
             setJackpotFiredToday(false);
             setResultMessage(null);
-            await AsyncStorage.setItem(getTodayKey(), JSON.stringify(0));
-            await AsyncStorage.setItem("water_total_hydration", JSON.stringify(0));
-            await AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
-            await AsyncStorage.removeItem("water_last_entry");
-            await AsyncStorage.removeItem("water_last_hydrated");
-            await AsyncStorage.removeItem("water_last_category");
-            await AsyncStorage.removeItem("water_log_entries");
-            await AsyncStorage.removeItem("first_drink_time");
+            await pSetItem(getTodayKey(), JSON.stringify(0));
+            await pSetItem("water_total_hydration", JSON.stringify(0));
+            await pSetItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
+            await pRemoveItem("water_last_entry");
+            await pRemoveItem("water_last_hydrated");
+            await pRemoveItem("water_last_category");
+            await pRemoveItem("water_log_entries");
+            await pRemoveItem("first_drink_time");
             const todayKey = getTodayKey();
             const newGoalHistory = { ...goalHistory };
             delete newGoalHistory[todayKey];
             setGoalHistory(newGoalHistory);
-            await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
+            await pSetItem("goal_history", JSON.stringify(newGoalHistory));
           },
         },
       ],
@@ -4377,9 +4378,9 @@ export default function WaterTracker() {
         const milestoneKey = `streak_milestone_${streak}_shown`;
         (async () => {
           try {
-            const shown = await AsyncStorage.getItem(milestoneKey);
+            const shown = await pGetItem(milestoneKey);
             if (!shown) {
-              await AsyncStorage.setItem(milestoneKey, "1");
+              await pSetItem(milestoneKey, "1");
               setStreakMilestone(streak);
             }
           } catch {}
@@ -4682,7 +4683,7 @@ export default function WaterTracker() {
             onApply={() => {
               const newG = goal + weatherBannerOz!;
               setGoal(newG);
-              AsyncStorage.setItem("water_goal", JSON.stringify(newG));
+              pSetItem("water_goal", JSON.stringify(newG));
               setWeatherBannerDismissed(true);
             }}
             onDismiss={() => setWeatherBannerDismissed(true)}
@@ -5009,7 +5010,7 @@ export default function WaterTracker() {
           setSelectedBeverages(bevs);
           setShowChooseBevs(false);
           try {
-            await AsyncStorage.setItem("selected_beverages", JSON.stringify(bevs));
+            await pSetItem("selected_beverages", JSON.stringify(bevs));
           } catch {}
         }}
         onCancel={() => setShowChooseBevs(false)}
@@ -5517,7 +5518,7 @@ export default function WaterTracker() {
                           disabled={i > 0 && !notifMasterEnabled}
                           onValueChange={async (v) => {
                             row.set(v);
-                            try { await AsyncStorage.setItem(row.key, String(v)); } catch {}
+                            try { await pSetItem(row.key, String(v)); } catch {}
                             // Use refs (not closed-over state) so we always read the
                             // latest hydration values. Pass the new toggle value as an
                             // explicit override so the reschedule sees it immediately —
@@ -5561,7 +5562,7 @@ export default function WaterTracker() {
                       value={showAlcoholicDrinks}
                       onValueChange={async (val) => {
                         setShowAlcoholicDrinks(val);
-                        try { await AsyncStorage.setItem("show_alcoholic_drinks", String(val)); } catch {}
+                        try { await pSetItem("show_alcoholic_drinks", String(val)); } catch {}
                       }}
                       trackColor={{ false: "#cccccc", true: "#c8a000" }}
                       thumbColor="#ffffff"
@@ -5790,7 +5791,7 @@ export default function WaterTracker() {
                           }}
                           onPress={async () => {
                             setPreferredUnit(u);
-                            try { await AsyncStorage.setItem("preferred_unit", u); } catch {}
+                            try { await pSetItem("preferred_unit", u); } catch {}
                             syncSiriUnit(u);
                           }}
                         >
@@ -5829,7 +5830,7 @@ export default function WaterTracker() {
                           }}
                           onPress={async () => {
                             setBodyUnit(key);
-                            try { await AsyncStorage.setItem("body_unit", key); } catch {}
+                            try { await pSetItem("body_unit", key); } catch {}
                           }}
                         >
                           <Text style={{
@@ -6033,7 +6034,7 @@ export default function WaterTracker() {
         onSave={async (amounts) => {
           setQuickAddAmounts(amounts);
           setShowQuickAddModal(false);
-          try { await AsyncStorage.setItem("custom_quick_add_amounts", JSON.stringify(amounts)); } catch {}
+          try { await pSetItem("custom_quick_add_amounts", JSON.stringify(amounts)); } catch {}
         }}
         onCancel={() => setShowQuickAddModal(false)}
       />
