@@ -91,6 +91,7 @@ const ACCOUNT_LEVEL_KEYS: ReadonlySet<string> = new Set([
   // Family Mode internal
   'profiles_v1',
   'active_profile_v1',
+  'family_welcome_seen_v1',
 ]);
 
 export function isProfileScoped(key: string): boolean {
