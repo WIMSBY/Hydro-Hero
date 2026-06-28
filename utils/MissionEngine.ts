@@ -32,7 +32,6 @@
  * we wait on the underlying history surfaces.
  */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BevCategory } from "../constants/beverages";
 import {
   Mission,
@@ -41,6 +40,7 @@ import {
   getMission,
 } from "../constants/missions";
 import { addDays, getDateKey } from "./dateKey";
+import { pGetItem, pSetItem } from "./profileStorage";
 
 // ─── Per-day input ───────────────────────────────────────────────────────────
 
@@ -176,7 +176,7 @@ export type ProgressMap = Record<string, MissionProgress>;
 
 export async function loadProgresses(): Promise<ProgressMap> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const raw = await pGetItem(STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
     return typeof parsed === "object" && parsed !== null ? parsed : {};
@@ -187,7 +187,7 @@ export async function loadProgresses(): Promise<ProgressMap> {
 
 export async function saveProgresses(map: ProgressMap): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    await pSetItem(STORAGE_KEY, JSON.stringify(map));
   } catch {
     // swallow — engine failures must never crash the main app
   }

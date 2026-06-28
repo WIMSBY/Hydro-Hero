@@ -14,6 +14,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { ProProvider } from "../contexts/ProContext";
 import { LLThemeProvider } from "../contexts/ThemeContext";
 import { configureRevenueCat } from "../utils/revenueCat";
+import { ensureBootstrap } from "../utils/ProfileStore";
 import * as Sentry from '@sentry/react-native';
 
 function handleDeepLink(url: string) {
@@ -48,6 +49,11 @@ export const unstable_settings = {
 };
 
 configureRevenueCat();
+
+// Kick off Family Mode bootstrap as early as possible so the active profile
+// ID is resolved before screen-level useEffects start reading from storage.
+// profileStorage.pGetItem awaits this same promise as a safety net.
+ensureBootstrap();
 
 export default Sentry.wrap(function RootLayout() {
   const colorScheme = useColorScheme();

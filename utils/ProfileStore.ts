@@ -123,19 +123,29 @@ export async function deleteProfile(id: string): Promise<void> {
 
 const DEFAULT_AVATAR = '🦊';
 
-export async function ensureBootstrap(): Promise<{ profile: Profile; created: boolean }> {
-  const existing = await loadProfiles();
-  if (existing.length > 0) {
-    const activeId = await loadActiveProfileId();
-    const active = existing.find((p) => p.id === activeId) ?? existing[0];
-    if (active.id !== activeId) {
-      await setActiveProfileId(active.id);
+// Cached promise so concurrent callers from boot + first-render share one
+// bootstrap pass. profileStorage.pGetItem awaits this before namespacing so
+// the very first storage read of the app session is correct even if it
+// races boot.
+let bootstrapPromise: Promise<{ profile: Profile; created: boolean }> | null = null;
+
+export function ensureBootstrap(): Promise<{ profile: Profile; created: boolean }> {
+  if (bootstrapPromise) return bootstrapPromise;
+  bootstrapPromise = (async () => {
+    const existing = await loadProfiles();
+    if (existing.length > 0) {
+      const activeId = await loadActiveProfileId();
+      const active = existing.find((p) => p.id === activeId) ?? existing[0];
+      if (active.id !== activeId) {
+        await setActiveProfileId(active.id);
+      }
+      return { profile: active, created: false };
     }
-    return { profile: active, created: false };
-  }
-  const profile = await addProfile({ name: 'Me', avatarKey: DEFAULT_AVATAR });
-  await setActiveProfileId(profile.id);
-  return { profile, created: true };
+    const profile = await addProfile({ name: 'Me', avatarKey: DEFAULT_AVATAR });
+    await setActiveProfileId(profile.id);
+    return { profile, created: true };
+  })();
+  return bootstrapPromise;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

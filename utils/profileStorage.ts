@@ -16,14 +16,18 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getActiveProfileId } from './ProfileStore';
+import { ensureBootstrap, getActiveProfileId } from './ProfileStore';
 
 export function prefixKey(key: string, profileId?: string | null): string {
   const id = profileId ?? getActiveProfileId();
   return id ? `${id}:${key}` : key;
 }
 
+// Every wrapper awaits ensureBootstrap() — idempotent, cached promise. This
+// guarantees a profile ID is resolved before we attempt to namespace, even
+// if a component reads from storage on its first useEffect tick.
 export async function pGetItem(key: string): Promise<string | null> {
+  await ensureBootstrap();
   const id = getActiveProfileId();
   if (!id) return AsyncStorage.getItem(key);
   const namespaced = `${id}:${key}`;
@@ -41,10 +45,12 @@ export async function pGetItem(key: string): Promise<string | null> {
 }
 
 export async function pSetItem(key: string, value: string): Promise<void> {
+  await ensureBootstrap();
   await AsyncStorage.setItem(prefixKey(key), value);
 }
 
 export async function pRemoveItem(key: string): Promise<void> {
+  await ensureBootstrap();
   await AsyncStorage.removeItem(prefixKey(key));
 }
 
