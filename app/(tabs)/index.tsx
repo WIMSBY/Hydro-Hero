@@ -25,7 +25,7 @@ import {
 } from "../../utils/MissionEngine";
 import { startMissionWithPowers } from "../../utils/Rewards";
 import { getMission, type Reward } from "../../constants/missions";
-import { Hero } from "../../constants/hero";
+import { Hero, freshHero, STARTER_EMBLEMS } from "../../constants/hero";
 import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/HeroStore";
 import { HeroSetupModal } from "../../components/HeroSetupModal";
 import { AvatarPill } from "../../components/family/AvatarPill";
@@ -544,7 +544,7 @@ function MarqueeHeader({ goal, hydration, preferredUnit }: { goal: number; hydra
   );
 }
 const mqStyles = StyleSheet.create({
-  wrapper: { backgroundColor: "#12063A", borderWidth: 2, borderColor: GOLD, borderRadius: 16, marginHorizontal: 12, marginTop: 50, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" },
+  wrapper: { backgroundColor: "#12063A", borderWidth: 2, borderColor: GOLD, borderRadius: 16, marginHorizontal: 12, marginTop: 100, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" },
   lightsRow: { flexDirection: "row", justifyContent: "space-around", width: "100%", marginVertical: 4 },
   light: { width: 11, height: 11, borderRadius: 6, backgroundColor: GOLD },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 },
@@ -2529,7 +2529,7 @@ const missionCompleteStyles = StyleSheet.create({
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
-  const { activeProfile, syncActiveProfileName } = useProfile();
+  const { activeProfile, syncActiveProfileName, profileVersion } = useProfile();
   const [intake, setIntake] = useState(0);
   const [goal, setGoal] = useState(DEFAULT_GOAL);
   const [history, setHistory] = useState<
@@ -2718,21 +2718,45 @@ export default function WaterTracker() {
   }, [drinkLogEntries]);
 
   // ─── Hero: persistence + first-launch onboarding ───────────────────────────
-  // Day 3 of the Missions feature. On mount, load the hero. If there's no
-  // hero saved AND the user has never seen the setup sheet this install,
-  // auto-open it once. After they cancel or confirm, mark the setup seen so
-  // it doesn't reopen mid-session — they can always reopen it from Settings
-  // (Day 5) or the Home CTA below the streak card.
+  // Three paths converge here:
+  //   (1) Fresh install on the bootstrap profile → show the Hero modal so
+  //       Dylan's welcome moment fires.
+  //   (2) Existing pre-1.1.0 user (any goal_history) → silently mark seen,
+  //       never auto-open. They can engage from the Missions tab.
+  //   (3) User switched to a freshly-created sub-profile (profileVersion>0)
+  //       → silently lazy-create a Hero from the profile name the parent
+  //       (or user) typed at creation. No second prompt for the kid.
   const [hero, setHero] = useState<Hero | null>(null);
   const [showHeroSetup, setShowHeroSetup] = useState(false);
   const [heroSetupEditing, setHeroSetupEditing] = useState(false);
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const [h, seen] = await Promise.all([loadHero(), wasSetupSeen()]);
+      const [h, seen, goalHistRaw] = await Promise.all([
+        loadHero(),
+        wasSetupSeen(),
+        pGetItem("goal_history"),
+      ]);
       if (cancelled) return;
       setHero(h);
-      if (!h && !seen) setShowHeroSetup(true);
+      if (!h && !seen) {
+        let hasPriorData = false;
+        try {
+          const parsed = goalHistRaw ? JSON.parse(goalHistRaw) : null;
+          hasPriorData = !!parsed && Object.keys(parsed).length > 0;
+        } catch {}
+        const isSubProfileSwitch = profileVersion > 0;
+        if (hasPriorData) {
+          await markSetupSeen();
+        } else if (isSubProfileSwitch && activeProfile?.name) {
+          const newHero = freshHero(activeProfile.name, STARTER_EMBLEMS[0].id);
+          await saveHero(newHero);
+          if (!cancelled) setHero(newHero);
+          await markSetupSeen();
+        } else {
+          setShowHeroSetup(true);
+        }
+      }
     })();
     return () => { cancelled = true; };
   }, []);

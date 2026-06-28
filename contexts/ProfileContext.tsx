@@ -35,6 +35,7 @@ import {
 } from '../utils/ProfileStore';
 import { useProContext } from './ProContext';
 import { endTankActivity } from '../utils/LiveActivitySync';
+import { loadHero, saveHero } from '../utils/HeroStore';
 import { ProfileSwitcherSheet } from '../components/family/ProfileSwitcherSheet';
 import { ProfileEditorModal } from '../components/family/ProfileEditorModal';
 import { FamilyWelcomeModal } from '../components/family/FamilyWelcomeModal';
@@ -168,7 +169,19 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     await updateProfileStore(id, patch);
     setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
     setActiveProfile((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
-  }, []);
+    // Profile name is the single source of truth for identity. Mirror it onto
+    // the Hero so the Missions badge + Squad share card show the new name
+    // without forcing the user to re-edit the Hero separately. Only when the
+    // edited profile is the active one (Hero is profile-namespaced storage).
+    if (patch.name && id === activeProfile?.id) {
+      try {
+        const existing = await loadHero();
+        if (existing && existing.name !== patch.name) {
+          await saveHero({ ...existing, name: patch.name });
+        }
+      } catch {}
+    }
+  }, [activeProfile?.id]);
 
   const deleteProfile = useCallback(async (id: string) => {
     await deleteProfileStore(id);
@@ -197,6 +210,12 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const closeSwitcher = useCallback(() => setSwitcherVisible(false), []);
   const openEditor = useCallback((state: Exclude<EditorState, null>) => setEditor(state), []);
   const closeEditor = useCallback(() => setEditor(null), []);
+
+  // iOS RN can't render two <Modal>s back-to-back: opening the editor while
+  // the switcher is still on-screen leaves the touch responder stuck and the
+  // app appears frozen. Close one, wait past the slide-out animation, then
+  // open the next. See [[feedback-ios-modal-stacking]].
+  const MODAL_HANDOFF_MS = 350;
 
   const dismissWelcome = useCallback(async () => {
     setWelcomeVisible(false);
@@ -245,14 +264,21 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
               return;
             }
           }
-          setEditor({ mode: 'add' });
+          setSwitcherVisible(false);
+          setTimeout(() => setEditor({ mode: 'add' }), MODAL_HANDOFF_MS);
         }}
-        onEdit={(profile) => setEditor({ mode: 'edit', profile })}
+        onEdit={(profile) => {
+          setSwitcherVisible(false);
+          setTimeout(() => setEditor({ mode: 'edit', profile }), MODAL_HANDOFF_MS);
+        }}
       />
       <ProfileEditorModal
         state={editor}
         canDelete={profiles.length > 1}
-        onClose={closeEditor}
+        onClose={() => {
+          setEditor(null);
+          setTimeout(() => setSwitcherVisible(true), MODAL_HANDOFF_MS);
+        }}
         onSave={async (patch) => {
           if (!editor) return;
           if (editor.mode === 'add') {
@@ -262,16 +288,22 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
               // Don't auto-switch — let the user pick from the sheet so the
               // switch is intentional (avoids accidental data-context blip
               // right after the editor closes).
+              setTimeout(() => setSwitcherVisible(true), MODAL_HANDOFF_MS);
             }
           } else {
             await updateProfile(editor.profile.id, patch);
             setEditor(null);
+            // Edit-save is a committed action — land the user on Home where
+            // the avatar pill already reflects the change. No switcher reopen.
           }
         }}
         onDelete={async () => {
           if (!editor || editor.mode !== 'edit') return;
           await deleteProfile(editor.profile.id);
           setEditor(null);
+          // Delete is a committed action — land the user on Home instead of
+          // reopening the switcher. They can tap the avatar pill if they
+          // want to keep managing.
         }}
       />
       <FamilyWelcomeModal

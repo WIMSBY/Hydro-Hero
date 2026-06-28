@@ -34,6 +34,8 @@ import QRCode from 'react-native-qrcode-svg';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useProContext } from '../../contexts/ProContext';
+import { useProfile } from '../../contexts/ProfileContext';
+import { resolveAvatar } from '../../components/family/avatars';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const BG        = '#0a0520';
@@ -61,11 +63,6 @@ const CHEERS = [
   "Your streak is on fire — don't break it now! 🔥",
   "Just a few more oz to your goal — you've got this!",
   "Hydration hero! You're an inspiration! 💧",
-];
-
-const AVATAR_EMOJIS = [
-  '💧','🌊','🏆','🥤','⭐','🔥','💪','🦁','🐯','🐻',
-  '🦊','🐺','🦅','🌟','✨','🎯','🏅','🍶','🧋','🎪',
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -325,33 +322,6 @@ function ShareCodeModal({
               <TouchableOpacity style={s.actionBtn} onPress={emailShare}>
                 <Text style={s.actionBtnTxt}>✉️ Send via Email</Text>
               </TouchableOpacity>
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
-    </Modal>
-  );
-}
-
-// ─── Emoji Picker Modal ───────────────────────────────────────────────────────
-function EmojiPickerModal({
-  visible, current, onPick, onClose,
-}: { visible: boolean; current: string; onPick: (e: string) => void; onClose: () => void }) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={s.overlay}>
-          <TouchableWithoutFeedback onPress={() => {}}>
-            <View style={[s.modalBox, { paddingVertical: 20 }]}>
-              <Text style={s.modalTitle}>Choose Your Avatar</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 8 }}>
-                {AVATAR_EMOJIS.map(e => (
-                  <TouchableOpacity key={e} onPress={() => onPick(e)}
-                    style={[s.emojiBtn, current === e && s.emojiBtnActive]}>
-                    <Text style={{ fontSize: 26 }}>{e}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
             </View>
           </TouchableWithoutFeedback>
         </View>
@@ -796,10 +766,15 @@ function SquadStats({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function PartnersScreen() {
   const { isPro, openPaywall } = useProContext();
+  const { activeProfile } = useProfile();
+
+  // Squad identity is sourced entirely from the active profile in Family
+  // Mode — one place to edit (the avatar pill on Home), one place that
+  // shows everywhere. The legacy partner_avatar storage is ignored.
+  const avatar = resolveAvatar(activeProfile?.avatarKey);
 
   // My profile state
   const [username, setUsername]       = useState('');
-  const [avatar, setAvatar]           = useState('💧');
   const [myHydration, setMyHydration] = useState(0);
   const [myGoal, setMyGoal]           = useState(64);
   const [myPct, setMyPct]             = useState(0);
@@ -813,7 +788,6 @@ export default function PartnersScreen() {
 
   // Modal visibility
   const [showShare, setShowShare]     = useState(false);
-  const [showEmoji, setShowEmoji]     = useState(false);
   const [showAdd, setShowAdd]         = useState(false);
   const [showScan, setShowScan]       = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -849,12 +823,11 @@ export default function PartnersScreen() {
   async function loadAll() {
     try {
       const [
-        hero, rawLegacyUsername, rawAvatar, rawMembers,
+        hero, rawLegacyUsername, rawMembers,
         rawHyd, rawGoal, rawGoalHist, rawBreakdown, rawJackpots,
       ] = await Promise.all([
         loadHero(),
         pGetItem('partner_username'),
-        pGetItem('partner_avatar'),
         pGetItem('squad_members'),
         pGetItem('water_total_hydration'),
         pGetItem('water_goal'),
@@ -884,7 +857,6 @@ export default function PartnersScreen() {
         pRemoveItem('partner_username').catch(() => {});
       }
       setUsername(displayName);
-      if (rawAvatar)   setAvatar(rawAvatar);
       if (rawMembers)  setMembers(JSON.parse(rawMembers));
 
       const hyd       = rawHyd ? JSON.parse(rawHyd) : 0;
@@ -939,13 +911,6 @@ export default function PartnersScreen() {
       return;
     }
     buildAndShowCode();
-  }
-
-  // ── Save avatar ──────────────────────────────────────────────────────────────
-  async function pickAvatar(e: string) {
-    setAvatar(e);
-    setShowEmoji(false);
-    try { await pSetItem('partner_avatar', e); } catch {}
   }
 
   // ── Decode an incoming code ──────────────────────────────────────────────────
@@ -1036,13 +1001,13 @@ export default function PartnersScreen() {
         {/* My Profile Card */}
         <View style={s.card}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <AvatarCircle value={avatar} size={58} onPress={() => setShowEmoji(true)} />
+            <AvatarCircle value={avatar} size={58} />
             <View style={{ flex: 1 }}>
               <Text style={s.usernameDisplay} numberOfLines={1}>
                 {username || 'No Hero name set'}
               </Text>
               <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 2 }}>
-                Tap avatar to change • Name comes from your Hero
+                Name & avatar come from your profile
               </Text>
             </View>
           </View>
@@ -1128,11 +1093,6 @@ export default function PartnersScreen() {
 
       {/* Modals */}
       <ShareCodeModal visible={showShare} code={myCode} onClose={() => setShowShare(false)} />
-
-      <EmojiPickerModal
-        visible={showEmoji} current={avatar}
-        onPick={pickAvatar} onClose={() => setShowEmoji(false)}
-      />
 
       <PasteCodeModal
         visible={showAdd}
@@ -1270,15 +1230,6 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   cancelBtnTxt: { color: 'rgba(255,255,255,0.55)', fontSize: 15 },
-
-  emojiBtn: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center',
-  },
-  emojiBtnActive: {
-    backgroundColor: 'rgba(255,215,0,0.15)', borderColor: GOLD,
-  },
 
   previewCard: {
     backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 14,

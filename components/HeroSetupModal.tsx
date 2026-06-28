@@ -38,15 +38,11 @@ type Props = {
 
 export function HeroSetupModal({ visible, initialHero, onClose, onConfirm }: Props) {
   const [name, setName] = useState(initialHero?.name ?? "");
-  const [emblemId, setEmblemId] = useState<string>(
-    initialHero?.emblemId ?? STARTER_EMBLEMS[0].id,
-  );
 
   // Re-seed when the modal opens with a different hero (edit-mode case).
   React.useEffect(() => {
     if (visible) {
       setName(initialHero?.name ?? "");
-      setEmblemId(initialHero?.emblemId ?? STARTER_EMBLEMS[0].id);
     }
   }, [visible, initialHero]);
 
@@ -60,12 +56,6 @@ export function HeroSetupModal({ visible, initialHero, onClose, onConfirm }: Pro
           <Text style={styles.title}>
             {editing ? "Update your Hero" : "Name your Hero"}
           </Text>
-          {!editing && (
-            <Text style={styles.subhead}>
-              Your first mission is <Text style={styles.subheadAccent}>Origin Story</Text> — hit your hydration goal 7 days in a row to earn the Bronze Sigil.
-            </Text>
-          )}
-
           <Text style={styles.fieldLabel}>HERO NAME</Text>
           <TextInput
             style={styles.input}
@@ -77,41 +67,26 @@ export function HeroSetupModal({ visible, initialHero, onClose, onConfirm }: Pro
             returnKeyType="done"
           />
 
-          <Text style={styles.fieldLabel}>STARTER EMBLEM</Text>
-          <View style={styles.emblemGrid}>
-            {STARTER_EMBLEMS.map((e) => {
-              const selected = e.id === emblemId;
-              return (
-                <TouchableOpacity
-                  key={e.id}
-                  style={[styles.emblemChip, selected && styles.emblemChipSelected]}
-                  onPress={() => setEmblemId(e.id)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.emblemEmoji}>{e.emoji}</Text>
-                  <Text style={[styles.emblemLabel, selected && styles.emblemLabelSelected]}>
-                    {e.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
           <TouchableOpacity
             style={styles.cta}
             onPress={() => {
-              const hero = freshHero(name, emblemId);
-              // Preserve rank + cape + mask when editing — only the name +
-              // emblem are user-editable in this v1 sheet.
+              // emblemId defaults to STARTER_EMBLEMS[0] silently — the picker
+              // was cut after Build 33 testing because emblems are purely
+              // decorative and the Family Mode avatar palette already covers
+              // visual identity. Keeping the field in the Hero schema means
+              // no migration risk; rendering paths still resolve a glyph.
+              const hero = freshHero(name, STARTER_EMBLEMS[0].id);
+              // Preserve rank + cape + mask + emblem when editing — only the
+              // name is user-editable in this sheet.
               const merged: Hero = initialHero
-                ? { ...initialHero, name: hero.name, emblemId: hero.emblemId }
+                ? { ...initialHero, name: hero.name }
                 : hero;
               onConfirm(merged, !editing);
             }}
             activeOpacity={0.85}
           >
             <Text style={styles.ctaText}>
-              {editing ? "Save Changes" : "Start Origin Story"}
+              {editing ? "Save Changes" : "Start Your Hydro Journey"}
             </Text>
           </TouchableOpacity>
 
@@ -153,13 +128,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginBottom: 8,
   },
-  subhead: {
-    color: "rgba(255,255,255,0.65)",
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 18,
-  },
-  subheadAccent: { color: GOLD, fontWeight: "700" },
   fieldLabel: {
     color: "rgba(255,255,255,0.55)",
     fontSize: 10,
@@ -178,33 +146,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  emblemGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  emblemChip: {
-    width: 90,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.18)",
-    backgroundColor: "rgba(255,255,255,0.04)",
-    alignItems: "center",
-    gap: 4,
-  },
-  emblemChipSelected: {
-    borderColor: GOLD,
-    backgroundColor: "rgba(255,215,0,0.12)",
-  },
-  emblemEmoji: { fontSize: 28 },
-  emblemLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.55)",
-    letterSpacing: 0.3,
-  },
-  emblemLabelSelected: { color: GOLD },
   cta: {
     marginTop: 20,
     backgroundColor: GOLD,

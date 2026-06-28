@@ -141,7 +141,7 @@ export default function BadgesScreen() {
               onPress={() => { setHeroEditing(true); setShowHeroSetup(true); }}
             >
               <Text style={s.heroEmblem}>{getEmblem(hero.emblemId).emoji}</Text>
-              <Text style={s.heroName} numberOfLines={1}>{hero.name}</Text>
+              <View style={{ flex: 1 }} />
               <Text style={s.heroRank}>{hero.rank.toUpperCase()}</Text>
               <Text style={s.heroEdit}>✏</Text>
             </TouchableOpacity>
@@ -244,7 +244,6 @@ const s = StyleSheet.create({
     gap: 10,
   },
   heroEmblem: { fontSize: 22 },
-  heroName: { flex: 1, color: '#ffffff', fontSize: 14, fontWeight: '800', letterSpacing: 0.3 },
   heroRank: {
     color: GOLD,
     fontSize: 10,
