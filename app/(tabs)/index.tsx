@@ -19,10 +19,11 @@ import {
   evaluateAllActive,
   loadProgresses,
   saveProgresses,
-  startMission,
   type ProgressMap,
   type DayData,
 } from "../../utils/MissionEngine";
+import { startMissionWithPowers } from "../../utils/Rewards";
+import { getMission, type Reward } from "../../constants/missions";
 import { Hero } from "../../constants/hero";
 import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/HeroStore";
 import { HeroSetupModal } from "../../components/HeroSetupModal";
@@ -2411,6 +2412,115 @@ const factStyles = StyleSheet.create({
   hint: { fontSize: 11, color: "rgba(255,255,255,0.4)" },
 });
 
+// ─── Mission Complete Card ────────────────────────────────────────────────────
+// Build 33 Day 5. Fires when the engine flips a mission to "completed" — usually
+// at the first app foreground after midnight on the qualifying day. Reuses the
+// jackpot sound for the unlock punch; the visual is calmer than GoalCelebration
+// so the two don't fight when both happen near each other.
+
+type MissionCompletion = {
+  missionId: string;
+  missionName: string;
+  emblem: string;
+  rewards: Reward[];
+};
+
+const REWARD_KIND_LABEL: Record<Reward["kind"], string> = {
+  sigil: "SIGIL",
+  power: "POWER",
+  cosmetic: "COSMETIC",
+};
+
+function MissionCompleteCard({
+  completion,
+  onDismiss,
+}: {
+  completion: MissionCompletion | null;
+  onDismiss: () => void;
+}) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const emblemScale = useRef(new Animated.Value(0.3)).current;
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!completion) {
+      setVisible(false);
+      return;
+    }
+    setVisible(true);
+    fadeAnim.setValue(0);
+    emblemScale.setValue(0.3);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+      Animated.spring(emblemScale, { toValue: 1, friction: 5, tension: 80, useNativeDriver: true }),
+    ]).start();
+    try { playJackpotSound(); } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completion?.missionId]);
+
+  if (!visible || !completion) return null;
+
+  function handleDismiss() {
+    Animated.timing(fadeAnim, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+      setVisible(false);
+      onDismiss();
+    });
+  }
+
+  return (
+    <Animated.View style={[missionCompleteStyles.overlay, { opacity: fadeAnim }]} pointerEvents="box-none">
+      <View style={missionCompleteStyles.card}>
+        <Animated.Text style={[missionCompleteStyles.emblem, { transform: [{ scale: emblemScale }] }]}>
+          {completion.emblem}
+        </Animated.Text>
+        <Text style={missionCompleteStyles.label}>MISSION COMPLETE</Text>
+        <Text style={missionCompleteStyles.missionName}>{completion.missionName}</Text>
+
+        <View style={missionCompleteStyles.rewardList}>
+          {completion.rewards.map((r) => (
+            <View key={r.id} style={missionCompleteStyles.rewardRow}>
+              <Text style={missionCompleteStyles.rewardKind}>{REWARD_KIND_LABEL[r.kind]}</Text>
+              <Text style={missionCompleteStyles.rewardName} numberOfLines={2}>{r.name}</Text>
+            </View>
+          ))}
+        </View>
+
+        <TouchableOpacity style={missionCompleteStyles.dismissBtn} onPress={handleDismiss} activeOpacity={0.85}>
+          <Text style={missionCompleteStyles.dismissText}>Claim Reward</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+const missionCompleteStyles = StyleSheet.create({
+  overlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,10,0.78)", zIndex: 9991,
+    alignItems: "center", justifyContent: "center",
+  },
+  card: {
+    backgroundColor: "#0d0030",
+    borderWidth: 2.5, borderColor: GOLD,
+    borderRadius: 24, padding: 28, alignItems: "center", width: "84%",
+    shadowColor: GOLD, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 20,
+  },
+  emblem: { fontSize: 72, marginBottom: 8 },
+  label: { color: GOLD, fontSize: 11, fontWeight: "900", letterSpacing: 2.4, marginBottom: 6 },
+  missionName: { color: "#ffffff", fontSize: 22, fontWeight: "900", textAlign: "center", marginBottom: 18 },
+  rewardList: { width: "100%", gap: 8, marginBottom: 22 },
+  rewardRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "rgba(255,215,0,0.10)",
+    borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12,
+    borderWidth: 1, borderColor: "rgba(255,215,0,0.25)",
+  },
+  rewardKind: { color: GOLD, fontSize: 9, fontWeight: "900", letterSpacing: 1.2, width: 64 },
+  rewardName: { color: "#ffffff", fontSize: 13, fontWeight: "600", flex: 1 },
+  dismissBtn: { backgroundColor: GOLD, borderRadius: 14, paddingHorizontal: 32, paddingVertical: 13 },
+  dismissText: { color: "#000000", fontSize: 16, fontWeight: "800", letterSpacing: 0.5 },
+});
+
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
@@ -2666,6 +2776,25 @@ export default function WaterTracker() {
     evaluateAllActive(new Date(), lookupDay).then(({ map, changed }) => {
       if (cancelled || changed.length === 0) return;
       setMissionProgresses(map);
+      // Day 5: queue completion cards for any missions that just flipped to
+      // "completed" status. `changed` only ever contains missions that were
+      // "active" before the eval (engine skips non-active early), so a
+      // status of "completed" here means it just unlocked.
+      const justCompleted: MissionCompletion[] = [];
+      for (const p of changed) {
+        if (p.status !== "completed") continue;
+        const m = getMission(p.missionId);
+        if (!m) continue;
+        justCompleted.push({
+          missionId: p.missionId,
+          missionName: m.name,
+          emblem: m.emblem,
+          rewards: m.rewards,
+        });
+      }
+      if (justCompleted.length > 0) {
+        setMissionCompletionQueue((q) => [...q, ...justCompleted]);
+      }
     });
     return () => { cancelled = true; };
     // Intentionally omit missionProgresses from deps: the engine already
@@ -2675,6 +2804,12 @@ export default function WaterTracker() {
 
   // Streak milestone confetti card
   const [streakMilestone, setStreakMilestone] = useState<number | null>(null);
+
+  // Mission completion celebration queue. Multiple missions can complete in a
+  // single engine eval (e.g., midnight rollover finishes both Origin Story and
+  // Tea Time on the same night) — we show one card at a time and pop the head
+  // when the user dismisses.
+  const [missionCompletionQueue, setMissionCompletionQueue] = useState<MissionCompletion[]>([]);
 
   // Post-jackpot fact/joke card
   const [showFactCard, setShowFactCard] = useState(false);
@@ -3343,8 +3478,16 @@ export default function WaterTracker() {
     try {
       const Purchases = getRevenueCatPurchases();
       // logOut generates a fresh anonymous RC user ID, so any entitlement on
-      // the previous customer record stops applying to this device.
-      if (Purchases) await (Purchases as any).logOut?.();
+      // the previous customer record stops applying to this device. Skip the
+      // call when we're already anonymous — RC logs a noisy LogBox error
+      // ("LogOut was called but the current user is anonymous") that surfaces
+      // as a redbox in dev. Anonymous RC user IDs are prefixed "$RCAnonymousID:".
+      if (Purchases) {
+        const appUserId: string | undefined = await (Purchases as any).getAppUserID?.();
+        if (appUserId && !appUserId.startsWith('$RCAnonymousID:')) {
+          await (Purchases as any).logOut?.();
+        }
+      }
     } catch {}
     await checkProStatus();
   }
@@ -5226,6 +5369,10 @@ export default function WaterTracker() {
       />
       <FactJokeCard visible={showFactCard} onDismiss={() => setShowFactCard(false)} />
       <StreakMilestoneCard milestone={streakMilestone} onDismiss={() => setStreakMilestone(null)} />
+      <MissionCompleteCard
+        completion={missionCompletionQueue[0] ?? null}
+        onDismiss={() => setMissionCompletionQueue((q) => q.slice(1))}
+      />
       <ParticleOverlay particles={sprayParticles} visible={sprayVisible} />
       <HandoffDroplet ref={dropletRef} />
 
@@ -5919,7 +6066,7 @@ export default function WaterTracker() {
             if (!isLive) {
               const next: ProgressMap = {
                 ...missionProgresses,
-                "heros-journey-bronze": startMission("heros-journey-bronze"),
+                "heros-journey-bronze": startMissionWithPowers("heros-journey-bronze", missionProgresses),
               };
               setMissionProgresses(next);
               await saveProgresses(next);

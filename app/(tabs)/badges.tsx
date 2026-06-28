@@ -4,9 +4,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import Achievements from '../../components/Achievements';
 import TrophyCase from '../../components/TrophyCase';
+import SigilCase from '../../components/SigilCase';
 import { MissionsSection } from '../../components/MissionsSection';
 import { HeroSetupModal } from '../../components/HeroSetupModal';
-import { loadProgresses, saveProgresses, startMission, type ProgressMap } from '../../utils/MissionEngine';
+import { loadProgresses, saveProgresses, type ProgressMap } from '../../utils/MissionEngine';
+import { startMissionWithPowers } from '../../utils/Rewards';
 import { loadHero, saveHero, markSetupSeen } from '../../utils/HeroStore';
 import { Hero, getEmblem } from '../../constants/hero';
 import { playBadgeUnlockSound } from '../../utils/SoundManager';
@@ -166,6 +168,7 @@ export default function BadgesScreen() {
             onProgressesChange={setMissionProgresses}
             showAlcoholicDrinks={showAlcoholicDrinks}
           />
+          <SigilCase progresses={missionProgresses} />
           <TrophyCase goalHistory={data.goalHistory} />
           <Achievements
             trigger={trigger}
@@ -204,7 +207,7 @@ export default function BadgesScreen() {
             if (!isLive) {
               const next: ProgressMap = {
                 ...missionProgresses,
-                "heros-journey-bronze": startMission("heros-journey-bronze"),
+                "heros-journey-bronze": startMissionWithPowers("heros-journey-bronze", missionProgresses),
               };
               setMissionProgresses(next);
               await saveProgresses(next);

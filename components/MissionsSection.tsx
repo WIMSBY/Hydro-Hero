@@ -24,9 +24,9 @@ import {
 import {
   abandonMission,
   saveProgresses,
-  startMission,
   type ProgressMap,
 } from "../utils/MissionEngine";
+import { startMissionWithPowers } from "../utils/Rewards";
 import { MissionDetailModal } from "./MissionDetailModal";
 
 const GOLD = "#FFD700";
@@ -70,7 +70,7 @@ export function MissionsSection({ progresses, onProgressesChange, showAlcoholicD
   });
 
   const handleStart = async (id: string) => {
-    const next: ProgressMap = { ...progresses, [id]: startMission(id) };
+    const next: ProgressMap = { ...progresses, [id]: startMissionWithPowers(id, progresses) };
     onProgressesChange(next);
     await saveProgresses(next);
     setOpenMissionId(null);
