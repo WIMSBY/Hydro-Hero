@@ -28,6 +28,8 @@ import { getMission, type Reward } from "../../constants/missions";
 import { Hero } from "../../constants/hero";
 import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/HeroStore";
 import { HeroSetupModal } from "../../components/HeroSetupModal";
+import { AvatarPill } from "../../components/family/AvatarPill";
+import { useProfile } from "../../contexts/ProfileContext";
 import { drainSiriQueue } from "../../utils/SiriQueue";
 import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
 import { syncSiriUnit } from "../../utils/SiriUnitSync";
@@ -2526,6 +2528,7 @@ const missionCompleteStyles = StyleSheet.create({
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
+  const { syncActiveProfileName } = useProfile();
   const [intake, setIntake] = useState(0);
   const [goal, setGoal] = useState(DEFAULT_GOAL);
   const [history, setHistory] = useState<
@@ -4403,6 +4406,15 @@ export default function WaterTracker() {
     <View style={{ flex: 1, backgroundColor: "#0a0520" }}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0520" />
       <StarParticles />
+      {/* Family Mode avatar pill — top-right of Home, above the marquee.
+          Sits inside the safe-area top inset; pointer-events isolated to the
+          pill so it doesn't block taps on the marquee underneath. */}
+      <View
+        pointerEvents="box-none"
+        style={{ position: "absolute", top: 56, right: 16, zIndex: 40 }}
+      >
+        <AvatarPill />
+      </View>
       {badgeToast && (
         <TouchableOpacity
           style={{
@@ -6065,6 +6077,10 @@ export default function WaterTracker() {
           setHero(nextHero);
           setShowHeroSetup(false);
           await saveHero(nextHero);
+          // Family Mode: Hero name is the single source of truth for identity,
+          // so mirror it onto the active profile so the avatar pill + switcher
+          // sheet reflect the user's chosen name immediately.
+          syncActiveProfileName(nextHero.name).catch(() => {});
           markSetupSeen().catch(() => {});
           // First-time setup auto-starts Origin Story. Skip if there's already
           // an active Origin Story so we don't reset progress.
