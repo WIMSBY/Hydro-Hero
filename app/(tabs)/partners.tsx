@@ -53,8 +53,8 @@ const BEV_COLORS: Record<string, string> = {
 };
 const BEV_KEYS = [
   'water','coffee','tea','icedtea','soda','flavored','coconut',
-  'juice','lemonade','fruit','sports','milk','protein',
-  'beer','wine','cocktail','energy','energyshot','hotchoc','spirits',
+  'juice','lemonade','preworkout','sports','milk','protein',
+  'beer','wine','cocktail','energy','kombucha','hotchoc','spirits',
 ];
 
 const CHEERS = [

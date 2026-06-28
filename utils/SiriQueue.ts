@@ -36,8 +36,8 @@ export interface SiriQueueEntry {
 
 const ALL_BEVS: ReadonlySet<string> = new Set([
   'water', 'coffee', 'tea', 'icedtea', 'soda', 'flavored', 'coconut',
-  'juice', 'lemonade', 'fruit', 'sports', 'milk', 'protein',
-  'beer', 'wine', 'cocktail', 'energy', 'energyshot', 'hotchoc', 'spirits',
+  'juice', 'lemonade', 'preworkout', 'sports', 'milk', 'protein',
+  'beer', 'wine', 'cocktail', 'energy', 'kombucha', 'hotchoc', 'spirits',
 ]);
 
 export async function drainSiriQueue(): Promise<SiriQueueEntry[]> {

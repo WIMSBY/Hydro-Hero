@@ -1241,10 +1241,12 @@ interface ChooseBevsModalProps {
   usage: Record<BevCategory, number>;
   // When false, alcoholic bevs are excluded from the picker entirely.
   showAlcoholic: boolean;
+  isPro: boolean;
+  onPaywallTrigger: () => void;
   onSave: (selection: BevCategory[]) => void;
   onCancel: () => void;
 }
-function ChooseBevsModal({ visible, current, usage, showAlcoholic, onSave, onCancel }: ChooseBevsModalProps) {
+function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPaywallTrigger, onSave, onCancel }: ChooseBevsModalProps) {
   const pickerCategories = useMemo(
     () => (showAlcoholic ? CATEGORIES : CATEGORIES.filter((b) => !ALCOHOLIC_BEVS.has(b.key))),
     [showAlcoholic],
@@ -1347,7 +1349,10 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, onSave, onCan
           <View style={cbStyles.actionRow}>
             <TouchableOpacity
               style={cbStyles.actionBtn}
-              onPress={() => { setSelected(pickerCategories.map((b) => b.key)); setHint(""); }}
+              onPress={() => {
+                if (!isPro) { onPaywallTrigger(); return; }
+                setSelected(pickerCategories.map((b) => b.key)); setHint("");
+              }}
             >
               <Text style={cbStyles.actionTxt}>All</Text>
             </TouchableOpacity>
@@ -1394,21 +1399,37 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, onSave, onCan
                 unselectedBevs.length > 0 ? (
                   <>
                     <View style={cbStyles.divider} />
-                    {unselectedBevs.map((bev) => (
-                      <TouchableOpacity
-                        key={bev.key}
-                        style={cbStyles.row}
-                        onPress={() => toggle(bev.key)}
-                        activeOpacity={0.75}
-                      >
-                        <View style={cbStyles.dragHandlePlaceholder} />
-                        <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
-                        <View style={{ flex: 1 }}>
-                          <Text style={cbStyles.rowName}>{bev.label}</Text>
-                          <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
+                    {unselectedBevs.map((bev) => {
+                      // A removed default is re-addable for free; only the 13
+                      // non-default extras are paywalled.
+                      const isLocked = !isPro && !DEFAULT_VISIBLE_BEVS.includes(bev.key);
+                      return (
+                        <TouchableOpacity
+                          key={bev.key}
+                          style={[cbStyles.row, isLocked && { opacity: 0.45 }]}
+                          onPress={() => {
+                            if (isLocked) { onPaywallTrigger(); return; }
+                            toggle(bev.key);
+                          }}
+                          activeOpacity={0.75}
+                        >
+                          <View style={cbStyles.dragHandlePlaceholder} />
+                          <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={cbStyles.rowName}>{bev.label}</Text>
+                            <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
+                          </View>
+                          {isLocked && (
+                            <View style={{
+                              backgroundColor: GOLD, borderRadius: 5,
+                              paddingHorizontal: 6, paddingVertical: 2,
+                            }}>
+                              <Text style={{ color: "#0a0520", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </>
                 ) : null
               }
@@ -1432,7 +1453,7 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, onSave, onCan
 }
 const cbStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#0d0030", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 2, borderColor: GOLD, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "60%" },
+  sheet: { backgroundColor: "#0d0030", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 2, borderColor: GOLD, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%" },
   header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
   title: { color: GOLD, fontSize: 18, fontWeight: "800" },
   subtitle: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 3 },
@@ -1470,13 +1491,12 @@ function getBevSizing(total: number): { emojiSize: number; labelSize: number; pa
 }
 
 function BeverageSelector({
-  selected, onSelect, visibleBevs, onEditBevs, isPro,
+  selected, onSelect, visibleBevs, onEditBevs,
 }: {
   selected: BevCategory;
   onSelect: (c: BevCategory) => void;
   visibleBevs: BevCategory[];
   onEditBevs: () => void;
-  isPro: boolean;
 }) {
   const bevs = visibleBevs.map(getBev);
   // +1 for the Custom button
@@ -1510,15 +1530,6 @@ function BeverageSelector({
         }}
         activeOpacity={0.8}
       >
-        {isCustom && !isPro && (
-          <View style={{
-            position: "absolute", top: -6, right: -6, zIndex: 10,
-            backgroundColor: GOLD, borderRadius: 5,
-            paddingHorizontal: 5, paddingVertical: 2,
-          }}>
-            <Text style={{ color: "#0a0520", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
-          </View>
-        )}
         <Text style={{ fontSize: sizing.emojiSize }}>{emoji}</Text>
         <Text
           style={[bvStyles.name, { fontSize: sizing.labelSize }, isSel && bev ? { color: bev.color } : null]}
@@ -4545,14 +4556,14 @@ export default function WaterTracker() {
                 mainScrollRef.current?.scrollTo({ y: Math.max(0, bevSelectorFrameY - 180), animated: true });
               }
             }}
-            visibleBevs={(isPro ? selectedBeverages : DEFAULT_VISIBLE_BEVS).filter(
-              (k) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(k),
-            )}
-            isPro={isPro}
-            onEditBevs={() => {
-              if (!isPro) { openPaywall(); return; }
-              setShowChooseBevs(true);
-            }}
+            visibleBevs={(isPro
+              ? selectedBeverages
+              // Free: honor the user's reordered defaults but filter out any
+              // non-default beverages (covers a lapsed Pro whose stored list
+              // still has extras).
+              : selectedBeverages.filter((k) => DEFAULT_VISIBLE_BEVS.includes(k))
+            ).filter((k) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(k))}
+            onEditBevs={() => setShowChooseBevs(true)}
           />
         </View>
 
@@ -4561,34 +4572,24 @@ export default function WaterTracker() {
           style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}
         >
           <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
-          {/* Pencil is visible for everyone — Pro tap opens the editor, free
-              tap opens the paywall. The lock badge + dimmed styling on free
-              telegraph that the feature exists but is gated (per
-              feedback-pro-features-tease-dont-hide). */}
-          <TouchableOpacity
-            onPress={() => isPro ? setShowQuickAddModal(true) : openPaywall('quick-add-edit')}
-            activeOpacity={0.7}
-            style={{
-              width: 44, height: 44, borderRadius: 22,
-              backgroundColor: isPro ? "rgba(255,215,0,0.18)" : "rgba(255,215,0,0.08)",
-              borderWidth: 1,
-              borderColor: isPro ? "rgba(255,215,0,0.45)" : "rgba(255,215,0,0.25)",
-              alignItems: "center", justifyContent: "center",
-              opacity: isPro ? 1 : 0.7,
-            }}
-            accessibilityLabel={isPro ? "Edit quick-add amounts" : "Edit quick-add amounts — Pro only"}
-          >
-            <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
-            {!isPro && (
-              <View style={{
-                position: "absolute", top: -4, right: -4,
-                backgroundColor: GOLD, borderRadius: 8,
-                paddingHorizontal: 5, paddingVertical: 1,
-              }}>
-                <Text style={{ color: "#0a0520", fontSize: 8, fontWeight: "900", letterSpacing: 0.4 }}>🔒</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+          {/* Pencil is Pro-only — free users get the bigger "Customize Your
+              Quick Add" upsell card below, which is the better tease. */}
+          {isPro && (
+            <TouchableOpacity
+              onPress={() => setShowQuickAddModal(true)}
+              activeOpacity={0.7}
+              style={{
+                width: 44, height: 44, borderRadius: 22,
+                backgroundColor: "rgba(255,215,0,0.18)",
+                borderWidth: 1,
+                borderColor: "rgba(255,215,0,0.45)",
+                alignItems: "center", justifyContent: "center",
+              }}
+              accessibilityLabel="Edit quick-add amounts"
+            >
+              <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingQty(1); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
 
@@ -5067,6 +5068,13 @@ export default function WaterTracker() {
         current={selectedBeverages}
         usage={categoryBreakdown}
         showAlcoholic={showAlcoholicDrinks}
+        isPro={isPro}
+        onPaywallTrigger={() => {
+          // iOS Modal-over-Modal: close the customize sheet first, wait past
+          // its slide-out, then open the paywall so it actually renders.
+          setShowChooseBevs(false);
+          setTimeout(() => openPaywall(), 350);
+        }}
         onSave={async (bevs) => {
           setSelectedBeverages(bevs);
           setShowChooseBevs(false);

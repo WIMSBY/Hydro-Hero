@@ -44,7 +44,7 @@ const BEV_COLORS: Record<string, string> = {
   coconut:    '#8B6914',
   juice:      '#E8920A',
   lemonade:   '#FFD700',
-  fruit:      '#CC4488',
+  preworkout: '#DC2626',
   sports:     '#2E8B4A',
   milk:       '#AAAAAA',
   protein:    '#8844AA',
@@ -52,22 +52,22 @@ const BEV_COLORS: Record<string, string> = {
   wine:       '#8B1A3A',
   cocktail:   '#7B1A8B',
   energy:     '#AACC00',
-  energyshot: '#CC8800',
+  kombucha:   '#C9851F',
   hotchoc:    '#5C3317',
   spirits:    '#AA6622',
 };
 const BEV_LABELS: Record<string, string> = {
   water: 'Water', coffee: 'Coffee', tea: 'Tea', icedtea: 'Iced Tea',
   soda: 'Soda', flavored: 'Flavored Water', coconut: 'Coconut Water',
-  juice: 'Juice', lemonade: 'Lemonade', fruit: 'Fruit Drinks',
+  juice: 'Juice', lemonade: 'Lemonade', preworkout: 'Preworkout',
   sports: 'Sports Drink', milk: 'Milk', protein: 'Protein Shake',
   beer: 'Beer', wine: 'Wine', cocktail: 'Cocktail',
-  energy: 'Energy Drink', energyshot: 'Energy Shot', hotchoc: 'Hot Chocolate', spirits: 'Spirits',
+  energy: 'Energy Drink', kombucha: 'Kombucha', hotchoc: 'Hot Chocolate', spirits: 'Spirits',
 };
 const BEV_KEYS = [
   'water','coffee','tea','icedtea','soda','flavored','coconut',
-  'juice','lemonade','fruit','sports','milk','protein',
-  'beer','wine','cocktail','energy','energyshot','hotchoc','spirits',
+  'juice','lemonade','preworkout','sports','milk','protein',
+  'beer','wine','cocktail','energy','kombucha','hotchoc','spirits',
 ] as const;
 type BevCat = typeof BEV_KEYS[number];
 
