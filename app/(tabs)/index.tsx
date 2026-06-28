@@ -4537,16 +4537,34 @@ export default function WaterTracker() {
           style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}
         >
           <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
-          {isPro && (
-            <TouchableOpacity
-              onPress={() => setShowQuickAddModal(true)}
-              activeOpacity={0.7}
-              style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" }}
-              accessibilityLabel="Edit quick-add amounts"
-            >
-              <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
-            </TouchableOpacity>
-          )}
+          {/* Pencil is visible for everyone — Pro tap opens the editor, free
+              tap opens the paywall. The lock badge + dimmed styling on free
+              telegraph that the feature exists but is gated (per
+              feedback-pro-features-tease-dont-hide). */}
+          <TouchableOpacity
+            onPress={() => isPro ? setShowQuickAddModal(true) : openPaywall('quick-add-edit')}
+            activeOpacity={0.7}
+            style={{
+              width: 44, height: 44, borderRadius: 22,
+              backgroundColor: isPro ? "rgba(255,215,0,0.18)" : "rgba(255,215,0,0.08)",
+              borderWidth: 1,
+              borderColor: isPro ? "rgba(255,215,0,0.45)" : "rgba(255,215,0,0.25)",
+              alignItems: "center", justifyContent: "center",
+              opacity: isPro ? 1 : 0.7,
+            }}
+            accessibilityLabel={isPro ? "Edit quick-add amounts" : "Edit quick-add amounts — Pro only"}
+          >
+            <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
+            {!isPro && (
+              <View style={{
+                position: "absolute", top: -4, right: -4,
+                backgroundColor: GOLD, borderRadius: 8,
+                paddingHorizontal: 5, paddingVertical: 1,
+              }}>
+                <Text style={{ color: "#0a0520", fontSize: 8, fontWeight: "900", letterSpacing: 0.4 }}>🔒</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
         <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingQty(1); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
 
