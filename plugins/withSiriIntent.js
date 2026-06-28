@@ -78,9 +78,10 @@ enum HydroHeroSiriHelpers {
   // Spoken prompt Siri reads back when the amount is missing from the
   // user's utterance. Resolved per-invocation: AppIntent structs are
   // re-instantiated each time, so this expression evaluates fresh.
-  // iOS 16's @Parameter wrapper takes a LocalizedStringResource here
-  // (IntentDialog only landed in iOS 17), so we return the simpler type.
-  static func amountPromptDialog() -> LocalizedStringResource {
+  // Returns IntentDialog (not LocalizedStringResource) because @Parameter's
+  // requestValueDialog: argument is typed as IntentDialog since iOS 16 and
+  // newer Xcode releases stopped implicitly bridging LocalizedStringResource.
+  static func amountPromptDialog() -> IntentDialog {
     return currentUnit() == "ml"
       ? "How many milliliters?"
       : "How many ounces?"
