@@ -46,9 +46,22 @@ const APP_GROUP_ID = 'group.com.wimsby.hydrationstation';
 // Shared helpers used by every beverage intent — keeps each intent body small.
 const SIRI_HELPERS_SWIFT = `
 import Foundation
+import AppIntents
 
 @available(iOS 16.0, *)
 enum HydroHeroSiriHelpers {
+  static let mlPerOz: Double = 29.5735
+
+  // Read the user's preferred display unit from the shared App Group.
+  // RN mirrors this on app start + every toggle via syncSiriUnit().
+  static func currentUnit() -> String {
+    guard let defaults = UserDefaults(suiteName: "${APP_GROUP_ID}"),
+          let raw = defaults.string(forKey: "preferred_unit"),
+          raw == "ml" || raw == "oz"
+    else { return "oz" }
+    return raw
+  }
+
   static func appendQueueEntry(amountOz: Double, beverageKey: String) {
     guard let defaults = UserDefaults(suiteName: "${APP_GROUP_ID}") else { return }
     var queue = defaults.array(forKey: "siri_queue") as? [[String: Any]] ?? []
@@ -62,12 +75,37 @@ enum HydroHeroSiriHelpers {
     defaults.set(queue, forKey: "siri_queue")
   }
 
-  // Format a Double-in-ounces for the confirmation dialog. Amount params
-  // are typed as Double (not Measurement<UnitVolume>) so they can appear
-  // in AppShortcut phrases — Apple's voice matcher only allows primitive
-  // Number / String / AppEntity / AppEnum bindings in phrase grammar,
-  // not Measurement. The literal "ounces" / "oz" word in the phrase
-  // tells Siri the unit; the queue always stores ounces.
+  // Spoken prompt Siri reads back when the amount is missing from the
+  // user's utterance. Resolved per-invocation: AppIntent structs are
+  // re-instantiated each time, so this expression evaluates fresh.
+  // iOS 16's @Parameter wrapper takes a LocalizedStringResource here
+  // (IntentDialog only landed in iOS 17), so we return the simpler type.
+  static func amountPromptDialog() -> LocalizedStringResource {
+    return currentUnit() == "ml"
+      ? "How many milliliters?"
+      : "How many ounces?"
+  }
+
+  // Take the user-spoken Double, treat it as the preferred unit, and return
+  // (oz: the canonical value to queue, spoken: the confirmation phrase).
+  // Amount params are typed as Double (not Measurement<UnitVolume>) so they
+  // can appear in AppShortcut phrases — Apple's voice matcher only allows
+  // primitive Number / String / AppEntity / AppEnum bindings in phrase
+  // grammar, not Measurement. The queue always stores ounces.
+  static func formattedAmount(_ amountInPreferredUnit: Double) -> (oz: Double, spoken: String) {
+    let unit = currentUnit()
+    let oz = unit == "ml" ? amountInPreferredUnit / mlPerOz : amountInPreferredUnit
+    let formatted = amountInPreferredUnit == amountInPreferredUnit.rounded()
+      ? String(format: "%.0f", amountInPreferredUnit)
+      : String(format: "%.1f", amountInPreferredUnit)
+    let label = unit == "ml" ? "milliliters" : "ounces"
+    return (oz, "\\(formatted) \\(label)")
+  }
+
+  // Legacy oz-only formatter — kept for LogPresetIntent (presets store oz
+  // and the spoken confirmation should always say "X ounces of <preset>"
+  // regardless of preferred display unit, since the preset itself is a
+  // fixed-oz entity).
   static func formattedOz(_ amountOz: Double) -> (oz: Double, spoken: String) {
     let formatted = amountOz == amountOz.rounded()
       ? String(format: "%.0f", amountOz)
@@ -94,7 +132,7 @@ struct LogWaterIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -103,7 +141,7 @@ struct LogWaterIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of water?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "water")
     return .result(dialog: "Logged \\(spoken) of water.")
@@ -118,7 +156,7 @@ struct LogCoffeeIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -127,7 +165,7 @@ struct LogCoffeeIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of coffee?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "coffee")
     return .result(dialog: "Logged \\(spoken) of coffee.")
@@ -142,7 +180,7 @@ struct LogTeaIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -151,7 +189,7 @@ struct LogTeaIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of tea?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "tea")
     return .result(dialog: "Logged \\(spoken) of tea.")
@@ -166,7 +204,7 @@ struct LogSodaIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -175,7 +213,7 @@ struct LogSodaIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of soda?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "soda")
     return .result(dialog: "Logged \\(spoken) of soda.")
@@ -190,7 +228,7 @@ struct LogJuiceIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -199,7 +237,7 @@ struct LogJuiceIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of juice?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "juice")
     return .result(dialog: "Logged \\(spoken) of juice.")
@@ -214,7 +252,7 @@ struct LogSportsDrinkIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -223,7 +261,7 @@ struct LogSportsDrinkIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of sports drink?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "sports")
     return .result(dialog: "Logged \\(spoken) of sports drink.")
@@ -238,7 +276,7 @@ struct LogMilkIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -247,7 +285,7 @@ struct LogMilkIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of milk?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "milk")
     return .result(dialog: "Logged \\(spoken) of milk.")
@@ -262,7 +300,7 @@ struct LogBeerIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -271,7 +309,7 @@ struct LogBeerIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of beer?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "beer")
     return .result(dialog: "Logged \\(spoken) of beer.")
@@ -286,7 +324,7 @@ struct LogCocktailIntent: AppIntent {
 
   @Parameter(
     title: "Amount",
-    requestValueDialog: "How many ounces?"
+    requestValueDialog: HydroHeroSiriHelpers.amountPromptDialog()
   )
   var amount: Double
 
@@ -295,7 +333,7 @@ struct LogCocktailIntent: AppIntent {
   }
 
   func perform() async throws -> some IntentResult & ProvidesDialog {
-    let (oz, spoken) = HydroHeroSiriHelpers.formattedOz(amount)
+    let (oz, spoken) = HydroHeroSiriHelpers.formattedAmount(amount)
     try await requestConfirmation(result: .result(dialog: "Log \\(spoken) of cocktail?"))
     HydroHeroSiriHelpers.appendQueueEntry(amountOz: oz, beverageKey: "cocktail")
     return .result(dialog: "Logged \\(spoken) of cocktail.")
@@ -547,6 +585,22 @@ class LLSiriQueue: NSObject {
     resolve(true)
   }
 
+  // Mirror the user's preferred display unit ("oz" or "ml") into the shared
+  // App Group so BeverageIntents can adapt the requestValueDialog Siri reads
+  // back ("How many ounces?" vs "How many milliliters?").
+  @objc(setUnit:resolver:rejecter:)
+  func setUnit(_ unit: NSString,
+               resolver resolve: @escaping RCTPromiseResolveBlock,
+               rejecter reject: @escaping RCTPromiseRejectBlock) {
+    guard let defaults = UserDefaults(suiteName: "${APP_GROUP_ID}") else {
+      resolve(false)
+      return
+    }
+    let normalized = (unit as String) == "ml" ? "ml" : "oz"
+    defaults.set(normalized, forKey: "preferred_unit")
+    resolve(true)
+  }
+
   @objc static func requiresMainQueueSetup() -> Bool { return false }
 }
 `.trimStart();
@@ -559,6 +613,9 @@ const SIRI_QUEUE_OBJC = `
 RCT_EXTERN_METHOD(readAndClear:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(writeCatalog:(NSArray *)presets
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(setUnit:(NSString *)unit
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 @end

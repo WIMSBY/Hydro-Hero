@@ -29,6 +29,7 @@ import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/Her
 import { HeroSetupModal } from "../../components/HeroSetupModal";
 import { drainSiriQueue } from "../../utils/SiriQueue";
 import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
+import { syncSiriUnit } from "../../utils/SiriUnitSync";
 import {
   detectPendingBadges,
   loadUnlockedBadgeIds,
@@ -3672,7 +3673,12 @@ export default function WaterTracker() {
 
       // Preferred display unit
       const savedUnit = get('preferred_unit');
-      if (savedUnit === 'ml' || savedUnit === 'oz') setPreferredUnit(savedUnit);
+      if (savedUnit === 'ml' || savedUnit === 'oz') {
+        setPreferredUnit(savedUnit);
+        syncSiriUnit(savedUnit);
+      } else {
+        syncSiriUnit('oz');
+      }
 
       // Preferred body-measurement unit (Suggest tab inputs)
       const savedBodyUnit = get('body_unit');
@@ -5785,6 +5791,7 @@ export default function WaterTracker() {
                           onPress={async () => {
                             setPreferredUnit(u);
                             try { await AsyncStorage.setItem("preferred_unit", u); } catch {}
+                            syncSiriUnit(u);
                           }}
                         >
                           <Text style={{
