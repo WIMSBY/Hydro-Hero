@@ -63,8 +63,9 @@ export function MissionDetailModal({ visible, mission, progress, onClose, onStar
               <Text style={styles.ruleLabel}>HOW IT WORKS</Text>
               <Text style={styles.ruleText}>{mission.ruleText}</Text>
               <Text style={styles.shieldHint}>
-                Hero Shields: {mission.shieldsGranted} forgiveness {mission.shieldsGranted === 1 ? "miss" : "misses"} included.
-                {mission.shieldsGranted === 0 ? " Hardcore — one slip ends the mission." : ""}
+                {mission.shieldsGranted === 0
+                  ? "🛡 No shields — Hardcore. One missed day ends the mission."
+                  : `🛡 Shields: ${mission.shieldsGranted} — you can miss up to ${mission.shieldsGranted} ${mission.shieldsGranted === 1 ? "day" : "days"} without failing. Bonus shields from completed missions stack on top.`}
               </Text>
             </View>
 
