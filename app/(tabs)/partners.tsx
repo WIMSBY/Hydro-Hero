@@ -699,19 +699,24 @@ function SquadMemberCard({
         <Text style={{ color: GOLD, fontSize: 11 }}>🏆 {member.lifetimeJackpots}</Text>
       </View>
 
-      {/* Action buttons */}
+      {/* Action buttons — self-profile members skip Cheer/Request since
+          they live on the same device (no external message makes sense). */}
       <View style={{ flexDirection: 'row', gap: 7 }}>
         <TouchableOpacity style={s.cardBtn} onPress={onUpdate}>
-          <Text style={s.cardBtnTxt}>🔄 Update</Text>
+          <Text style={s.cardBtnTxt}>🔄 {member.selfProfileId ? 'Refresh' : 'Update'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[s.cardBtn, { backgroundColor: 'rgba(255,215,0,0.12)', borderColor: 'rgba(255,215,0,0.35)' }]} onPress={onCheer}>
-          <Text style={[s.cardBtnTxt, { color: GOLD }]}>📣 Cheer On</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={s.cardBtn} onPress={() =>
-          Share.share({ message: `Hey ${member.username}!${myUsername ? ` ${myUsername} here —` : ''} could you send me your Hydro Hero progress code so I can see how you're doing? Tap to open your Share screen: hydrohero://share` })
-        }>
-          <Text style={s.cardBtnTxt}>💬 Request</Text>
-        </TouchableOpacity>
+        {!member.selfProfileId && (
+          <>
+            <TouchableOpacity style={[s.cardBtn, { backgroundColor: 'rgba(255,215,0,0.12)', borderColor: 'rgba(255,215,0,0.35)' }]} onPress={onCheer}>
+              <Text style={[s.cardBtnTxt, { color: GOLD }]}>📣 Cheer On</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.cardBtn} onPress={() =>
+              Share.share({ message: `Hey ${member.username}!${myUsername ? ` ${myUsername} here —` : ''} could you send me your Hydro Hero progress code so I can see how you're doing? Tap to open your Share screen: hydrohero://share` })
+            }>
+              <Text style={s.cardBtnTxt}>💬 Request</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* Updated time */}
