@@ -890,7 +890,20 @@ export default function PartnersScreen() {
         pGetItem('lifetime_jackpots'),
       ]);
 
-      if (rawMembers)  setMembers(JSON.parse(rawMembers));
+      if (rawMembers) {
+        // One-shot cleanup: today's Add-From-Family feature was reverted in
+        // favor of read-only "Family at a Glance". Squad members written by
+        // that feature carry a stale selfProfileId field; drop them so
+        // those profiles only render in the glance section, not as Squad.
+        const parsed = JSON.parse(rawMembers);
+        const cleaned = Array.isArray(parsed)
+          ? parsed.filter((m: any) => !m || typeof m !== 'object' || !('selfProfileId' in m))
+          : [];
+        setMembers(cleaned);
+        if (cleaned.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
+          pSetItem('squad_members', JSON.stringify(cleaned)).catch(() => {});
+        }
+      }
 
       const hyd       = rawHyd ? JSON.parse(rawHyd) : 0;
       const goal      = rawGoal ? JSON.parse(rawGoal) : 64;
