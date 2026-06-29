@@ -25,7 +25,9 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { pGetItem, pSetItem } from '../../utils/profileStorage';
+import type { Profile } from '../../utils/ProfileStore';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
 import QRCode from 'react-native-qrcode-svg';
@@ -78,6 +80,11 @@ interface SquadMember {
   lifetimeJackpots: number;
   savedAt: number;
   codeTimestamp: number;
+  // Set when the member is one of the user's own Family Mode profiles. The
+  // Update button on these cards re-reads from local namespaced storage
+  // instead of opening the Paste-Code modal; the free 1-member cap also
+  // ignores them.
+  selfProfileId?: string;
 }
 
 interface CodePayload extends SquadMember {
@@ -764,7 +771,7 @@ function SquadStats({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function PartnersScreen() {
   const { isPro, openPaywall } = useProContext();
-  const { activeProfile, openEditor } = useProfile();
+  const { activeProfile, openEditor, profiles } = useProfile();
 
   // Squad identity is sourced entirely from the active profile in Family
   // Mode — one place to edit (the avatar pill on Home), one place that
@@ -906,11 +913,56 @@ export default function PartnersScreen() {
     setShowAdd(false);
   }
 
+  // ── Add / refresh a Family Mode profile as a Squad member ───────────────────
+  // Reads the profile's namespaced storage directly so we never need to round-
+  // trip through the share-code flow for the user's own profiles.
+  async function addOrRefreshFamily(profile: Profile) {
+    try {
+      const get = (k: string) => AsyncStorage.getItem(`${profile.id}:${k}`);
+      const [rawHyd, rawGoal, rawGoalHist, rawBreakdown, rawJackpots] = await Promise.all([
+        get('water_total_hydration'),
+        get('water_goal'),
+        get('goal_history'),
+        get('water_category_breakdown'),
+        get('lifetime_jackpots'),
+      ]);
+      const hyd       = rawHyd ? JSON.parse(rawHyd) : 0;
+      const goal      = rawGoal ? JSON.parse(rawGoal) : 64;
+      const goalHist  = rawGoalHist ? JSON.parse(rawGoalHist) : {};
+      const breakdown = rawBreakdown ? JSON.parse(rawBreakdown) : {};
+      const jackpots  = rawJackpots ? JSON.parse(rawJackpots) : 0;
+
+      const now = Date.now();
+      const member: SquadMember = {
+        username:         profile.name,
+        avatar:           resolveAvatar(profile.avatarKey),
+        hydrationOz:      hyd,
+        hydrationPct:     goal > 0 ? hyd / goal : 0,
+        goalOz:           goal,
+        streak:           computeStreak(goalHist),
+        breakdown,
+        weekHistory:      getLast7Days(goalHist),
+        lifetimeJackpots: jackpots,
+        savedAt:          now,
+        codeTimestamp:    now,
+        selfProfileId:    profile.id,
+      };
+      const existing = members.find(m => m.selfProfileId === profile.id);
+      const updated  = existing
+        ? members.map(m => m.selfProfileId === profile.id ? member : m)
+        : [...members, member];
+      setMembers(updated);
+      await pSetItem('squad_members', JSON.stringify(updated));
+    } catch {}
+  }
+
   // ── Confirm adding / updating ────────────────────────────────────────────────
   async function confirmAdd() {
     if (!previewPayload) return;
-    // Free tier: max 1 squad member. Adding a new (non-update) member when already at limit → paywall.
-    if (!isPro && !isUpdateFor && members.length >= 1) {
+    // Free tier: max 1 squad member from outside Family Mode. Family-Mode
+    // self-profiles don't count toward the cap — they're always free.
+    const externalCount = members.filter(m => !m.selfProfileId).length;
+    if (!isPro && !isUpdateFor && externalCount >= 1) {
       openPaywall();
       return;
     }
@@ -1010,10 +1062,6 @@ export default function PartnersScreen() {
             </View>
           )}
           <WeekDots history={myWeekHist} />
-
-          <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD, marginTop: 14 }]} onPress={generateCode}>
-            <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>💧 Invite to Squad</Text>
-          </TouchableOpacity>
         </View>
 
         {/* Add Squad Member */}
@@ -1032,6 +1080,38 @@ export default function PartnersScreen() {
             <Text style={s.actionBtnTxt}>📷 Scan QR Code</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Add from Family Mode — your own other profiles, no codes needed.
+            Profiles drop off this list once added; refresh from the squad card. */}
+        {(() => {
+          const addable = profiles.filter(
+            p => p.id !== activeProfile?.id && !members.some(m => m.selfProfileId === p.id)
+          );
+          if (addable.length === 0) return null;
+          return (
+            <>
+              <Text style={s.sectionTitle}>👪 ADD FROM FAMILY</Text>
+              <View style={s.card}>
+                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 10 }}>
+                  Add your own profiles to your squad — free, no code roundtrip.
+                </Text>
+                {addable.map(p => (
+                  <TouchableOpacity
+                    key={p.id}
+                    style={s.familyRow}
+                    onPress={() => addOrRefreshFamily(p)}
+                  >
+                    <AvatarCircle value={resolveAvatar(p.avatarKey)} size={36} />
+                    <Text style={{ flex: 1, color: '#fff', fontSize: 14, fontWeight: '700' }} numberOfLines={1}>
+                      {p.name}
+                    </Text>
+                    <Text style={{ color: GOLD, fontSize: 12, fontWeight: '700' }}>＋ Add</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
+          );
+        })()}
 
         {/* Squad Members or Empty State */}
         {members.length === 0 ? (
@@ -1056,7 +1136,15 @@ export default function PartnersScreen() {
                 member={m}
                 myUsername={username}
                 onCheer={() => setCheerFor(m.username)}
-                onUpdate={() => { setIsUpdateFor(m.username); setShowAdd(true); }}
+                onUpdate={() => {
+                  if (m.selfProfileId) {
+                    const profile = profiles.find(p => p.id === m.selfProfileId);
+                    if (profile) addOrRefreshFamily(profile);
+                  } else {
+                    setIsUpdateFor(m.username);
+                    setShowAdd(true);
+                  }
+                }}
                 onRemove={() => removeMember(m.username)}
               />
             ))}
@@ -1148,6 +1236,13 @@ const s = StyleSheet.create({
 
   memberName: { color: GOLD, fontSize: 15, fontWeight: '800' },
   memberSub:  { color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 1 },
+
+  familyRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 10, paddingHorizontal: 12, marginBottom: 6,
+    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
+  },
 
   cardBtn: {
     flex: 1, height: 34, borderRadius: 8, borderWidth: 1,
