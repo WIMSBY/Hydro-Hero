@@ -1062,6 +1062,10 @@ export default function PartnersScreen() {
             </View>
           )}
           <WeekDots history={myWeekHist} />
+
+          <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD, marginTop: 14 }]} onPress={generateCode}>
+            <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>💧 Invite to Squad</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Add Squad Member */}
