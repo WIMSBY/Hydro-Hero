@@ -4593,6 +4593,30 @@ export default function WaterTracker() {
         </View>
         <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingQty(1); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
 
+        {/* Custom Amount entry — replaces the old "+" header button and the
+            "⭐ Custom" beverage tile so there's one unambiguous entry point. */}
+        <TouchableOpacity
+          style={{
+            marginHorizontal: 12,
+            marginTop: 10,
+            paddingVertical: 13,
+            paddingHorizontal: 16,
+            borderRadius: 12,
+            borderWidth: 1.5,
+            borderColor: "rgba(255,215,0,0.45)",
+            backgroundColor: "rgba(255,215,0,0.06)",
+            alignItems: "center",
+            flexDirection: "row",
+            justifyContent: "center",
+            gap: 8,
+          }}
+          activeOpacity={0.75}
+          onPress={() => { playButtonTapSound(); openCustomModal(); }}
+        >
+          <Text style={{ fontSize: 18, color: GOLD }}>＋</Text>
+          <Text style={{ color: GOLD, fontSize: 15, fontWeight: "700", letterSpacing: 0.5 }}>Other Amount</Text>
+        </TouchableOpacity>
+
         {/* Pro upsell — Quick Add customization (free users only) */}
         {!isPro && (
           <TouchableOpacity
@@ -4600,7 +4624,7 @@ export default function WaterTracker() {
             onPress={() => openPaywall()}
             style={{
               marginHorizontal: 12,
-              marginTop: 10,
+              marginTop: 8,
               borderRadius: 14,
               borderWidth: 1.5,
               borderColor: "rgba(255,215,0,0.5)",
@@ -4629,30 +4653,6 @@ export default function WaterTracker() {
             </View>
           </TouchableOpacity>
         )}
-
-        {/* Custom Amount entry — replaces the old "+" header button and the
-            "⭐ Custom" beverage tile so there's one unambiguous entry point. */}
-        <TouchableOpacity
-          style={{
-            marginHorizontal: 12,
-            marginTop: 8,
-            paddingVertical: 13,
-            paddingHorizontal: 16,
-            borderRadius: 12,
-            borderWidth: 1.5,
-            borderColor: "rgba(255,215,0,0.45)",
-            backgroundColor: "rgba(255,215,0,0.06)",
-            alignItems: "center",
-            flexDirection: "row",
-            justifyContent: "center",
-            gap: 8,
-          }}
-          activeOpacity={0.75}
-          onPress={() => { playButtonTapSound(); openCustomModal(); }}
-        >
-          <Text style={{ fontSize: 18, color: GOLD }}>＋</Text>
-          <Text style={{ color: GOLD, fontSize: 15, fontWeight: "700", letterSpacing: 0.5 }}>Other Amount</Text>
-        </TouchableOpacity>
 
         {/* Result Box */}
         <ResultBox message={resultMessage} />
