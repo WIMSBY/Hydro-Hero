@@ -4010,7 +4010,9 @@ export default function WaterTracker() {
     setSpinning(true);
     if (triggersJackpot) {
       setJackpotSpinning(true);
-      skipNextSplashRef.current = true;
+      // Splash plays on tank fill (jackpot fanfare now waits ~2.5s after the
+      // tap so the droplet + splash sounds finish before the fireworks kick
+      // in — see timed setTimeouts below).
     }
     // CRITICAL: bump logNonce in the SAME render batch as setDisplayedHydration.
     // The vault's useEffect[logNonce] fires revealRef.play(), which captures
@@ -4031,7 +4033,13 @@ export default function WaterTracker() {
     const bt = betTimersRef.current;
 
     if (triggersJackpot) {
-      // Celebratory shake + confetti when the fill completes.
+      // Sequencing (relative to tap):
+      //   t≈0     reveal sound, scroll
+      //   t≈1.2s  tank fill → droplet + splash sounds play
+      //   t=2500  jackpot sound + shake + confetti shown (splash now done)
+      //   t=3800  confetti hidden, GOAL message + celebration card shown,
+      //           streak milestone card released (jackpot sound may keep
+      //           playing under the cards — that's intentional fanfare).
       bt.push(setTimeout(() => {
         haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
         playJackpotSound();
@@ -4044,16 +4052,15 @@ export default function WaterTracker() {
           Animated.timing(screenShakeAnim, { toValue: 0,  duration: 40, useNativeDriver: true }),
         ]).start();
         setReelConfettiVisible(true);
-      }, 1100));
-
-      bt.push(setTimeout(() => setReelConfettiVisible(false), 2400));
+      }, 2500));
 
       bt.push(setTimeout(() => {
+        setReelConfettiVisible(false);
         setSpinning(false);
         setJackpotSpinning(false);
         setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → GOAL! 🏆`);
         setShowCelebration(true);
-      }, 1500));
+      }, 3800));
     } else {
       bt.push(setTimeout(() => {
         setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → ${hydrated} oz hydration`);
@@ -4164,6 +4171,7 @@ export default function WaterTracker() {
   function handleCustomAdd() {
     const raw = parseFloat(customAmount);
     if (!isNaN(raw) && raw > 0) {
+      playButtonTapSound();
       const oz = customUnit === "ml" ? Math.round((raw / 29.5735) * 10) / 10 : raw;
       setShowCustomModal(false);
       setCustomAmount("");
@@ -4411,11 +4419,17 @@ export default function WaterTracker() {
         14: ["Two Week Streak! 👑", "14 days straight — unstoppable!"],
         30: ["30 Day Streak! 🌊",  "A whole month of hitting your goal — you're a Hydro Hero legend!"],
       };
+      // Delay streak fanfare so it lands alongside the Goal Reached card
+      // (after the tank fill + droplet/splash + jackpot shake+confetti
+      // sequence). Stays in sync with the handleBet setTimeout chain above.
+      const STREAK_DELAY_MS = 3800;
       if (STREAK_NOTIFS[streak]) {
-        playStreakSound();
-        haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
-        const [title, body] = STREAK_NOTIFS[streak];
-        fireImmediateNotifOnce(`notif_streak_${streak}_${getTodayKey()}`, title, body, notifStreakEnabled);
+        setTimeout(() => {
+          playStreakSound();
+          haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+          const [title, body] = STREAK_NOTIFS[streak];
+          fireImmediateNotifOnce(`notif_streak_${streak}_${getTodayKey()}`, title, body, notifStreakEnabled);
+        }, STREAK_DELAY_MS);
       }
       // Show confetti milestone card for 3, 7, 14, 30 — only once per milestone
       const CONFETTI_MILESTONES = [3, 7, 14, 30];
@@ -4426,7 +4440,7 @@ export default function WaterTracker() {
             const shown = await pGetItem(milestoneKey);
             if (!shown) {
               await pSetItem(milestoneKey, "1");
-              setStreakMilestone(streak);
+              setTimeout(() => setStreakMilestone(streak), STREAK_DELAY_MS);
             }
           } catch {}
         })();
