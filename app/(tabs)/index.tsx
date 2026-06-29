@@ -136,8 +136,8 @@ function getBev(key: string): BevDef {
 
 const EMPTY_BREAKDOWN: Record<BevCategory, number> = {
   water: 0, coffee: 0, tea: 0, icedtea: 0, soda: 0, flavored: 0, coconut: 0,
-  juice: 0, lemonade: 0, fruit: 0, sports: 0, milk: 0, protein: 0,
-  beer: 0, wine: 0, cocktail: 0, energy: 0, energyshot: 0, hotchoc: 0, spirits: 0,
+  juice: 0, lemonade: 0, preworkout: 0, sports: 0, milk: 0, protein: 0,
+  beer: 0, wine: 0, cocktail: 0, energy: 0, kombucha: 0, hotchoc: 0, spirits: 0,
 };
 
 function calcHydratedOz(oz: number, category: BevCategory): number {
