@@ -80,11 +80,6 @@ interface SquadMember {
   lifetimeJackpots: number;
   savedAt: number;
   codeTimestamp: number;
-  // Set when the member is one of the user's own Family Mode profiles. The
-  // Update button on these cards re-reads from local namespaced storage
-  // instead of opening the Paste-Code modal; the free 1-member cap also
-  // ignores them.
-  selfProfileId?: string;
 }
 
 interface CodePayload extends SquadMember {
@@ -636,6 +631,56 @@ function PreviewModal({
   );
 }
 
+// ─── Family at a Glance row (read-only summary of other on-device profiles) ──
+function FamilyGlanceRow({ profile, refreshKey }: { profile: Profile; refreshKey: number }) {
+  const [pct, setPct] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [hyd, setHyd] = useState(0);
+  const [goal, setGoal] = useState(64);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const get = (k: string) => AsyncStorage.getItem(`${profile.id}:${k}`);
+        const [rawHyd, rawGoal, rawGoalHist] = await Promise.all([
+          get('water_total_hydration'),
+          get('water_goal'),
+          get('goal_history'),
+        ]);
+        if (cancelled) return;
+        const h = rawHyd ? JSON.parse(rawHyd) : 0;
+        const g = rawGoal ? JSON.parse(rawGoal) : 64;
+        const gh = rawGoalHist ? JSON.parse(rawGoalHist) : {};
+        setHyd(h);
+        setGoal(g);
+        setPct(g > 0 ? h / g : 0);
+        setStreak(computeStreak(gh));
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [profile.id, refreshKey]);
+
+  const hitGoal = pct >= 1;
+  return (
+    <View style={s.familyGlanceRow}>
+      <AvatarCircle value={resolveAvatar(profile.avatarKey)} size={36} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }} numberOfLines={1}>
+          {profile.name}
+        </Text>
+        <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginTop: 1 }}>
+          {streak > 0 ? `🔥 ${streak} day streak` : `${Math.round(hyd)} / ${goal} oz today`}
+        </Text>
+      </View>
+      <MiniDropFill pct={pct} />
+      <Text style={{ color: hitGoal ? GOLD : 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '800', minWidth: 38, textAlign: 'right' }}>
+        {hitGoal ? '🎯' : `${Math.round(pct * 100)}%`}
+      </Text>
+    </View>
+  );
+}
+
 // ─── Squad Member Card ────────────────────────────────────────────────────────
 function SquadMemberCard({
   member,
@@ -699,24 +744,19 @@ function SquadMemberCard({
         <Text style={{ color: GOLD, fontSize: 11 }}>🏆 {member.lifetimeJackpots}</Text>
       </View>
 
-      {/* Action buttons — self-profile members skip Cheer/Request since
-          they live on the same device (no external message makes sense). */}
+      {/* Action buttons */}
       <View style={{ flexDirection: 'row', gap: 7 }}>
         <TouchableOpacity style={s.cardBtn} onPress={onUpdate}>
-          <Text style={s.cardBtnTxt}>🔄 {member.selfProfileId ? 'Refresh' : 'Update'}</Text>
+          <Text style={s.cardBtnTxt}>🔄 Update</Text>
         </TouchableOpacity>
-        {!member.selfProfileId && (
-          <>
-            <TouchableOpacity style={[s.cardBtn, { backgroundColor: 'rgba(255,215,0,0.12)', borderColor: 'rgba(255,215,0,0.35)' }]} onPress={onCheer}>
-              <Text style={[s.cardBtnTxt, { color: GOLD }]}>📣 Cheer On</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={s.cardBtn} onPress={() =>
-              Share.share({ message: `Hey ${member.username}!${myUsername ? ` ${myUsername} here —` : ''} could you send me your Hydro Hero progress code so I can see how you're doing? Tap to open your Share screen: hydrohero://share` })
-            }>
-              <Text style={s.cardBtnTxt}>💬 Request</Text>
-            </TouchableOpacity>
-          </>
-        )}
+        <TouchableOpacity style={[s.cardBtn, { backgroundColor: 'rgba(255,215,0,0.12)', borderColor: 'rgba(255,215,0,0.35)' }]} onPress={onCheer}>
+          <Text style={[s.cardBtnTxt, { color: GOLD }]}>📣 Cheer On</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={s.cardBtn} onPress={() =>
+          Share.share({ message: `Hey ${member.username}!${myUsername ? ` ${myUsername} here —` : ''} could you send me your Hydro Hero progress code so I can see how you're doing? Tap to open your Share screen: hydrohero://share` })
+        }>
+          <Text style={s.cardBtnTxt}>💬 Request</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Updated time */}
@@ -795,6 +835,9 @@ export default function PartnersScreen() {
 
   // Squad state
   const [members, setMembers]         = useState<SquadMember[]>([]);
+  // Bumps each time the tab regains focus so FamilyGlanceRow children
+  // re-read the other profiles' namespaced storage.
+  const [familyRefresh, setFamilyRefresh] = useState(0);
 
   // Modal visibility
   const [showShare, setShowShare]     = useState(false);
@@ -811,7 +854,10 @@ export default function PartnersScreen() {
   const processedAddCode = useRef<string | null>(null);
   const processedShowShare = useRef<string | null>(null);
 
-  useFocusEffect(useCallback(() => { loadAll(); }, []));
+  useFocusEffect(useCallback(() => {
+    loadAll();
+    setFamilyRefresh((n) => n + 1);
+  }, []));
 
   useEffect(() => {
     if (addCode && addCode !== processedAddCode.current) {
@@ -918,56 +964,11 @@ export default function PartnersScreen() {
     setShowAdd(false);
   }
 
-  // ── Add / refresh a Family Mode profile as a Squad member ───────────────────
-  // Reads the profile's namespaced storage directly so we never need to round-
-  // trip through the share-code flow for the user's own profiles.
-  async function addOrRefreshFamily(profile: Profile) {
-    try {
-      const get = (k: string) => AsyncStorage.getItem(`${profile.id}:${k}`);
-      const [rawHyd, rawGoal, rawGoalHist, rawBreakdown, rawJackpots] = await Promise.all([
-        get('water_total_hydration'),
-        get('water_goal'),
-        get('goal_history'),
-        get('water_category_breakdown'),
-        get('lifetime_jackpots'),
-      ]);
-      const hyd       = rawHyd ? JSON.parse(rawHyd) : 0;
-      const goal      = rawGoal ? JSON.parse(rawGoal) : 64;
-      const goalHist  = rawGoalHist ? JSON.parse(rawGoalHist) : {};
-      const breakdown = rawBreakdown ? JSON.parse(rawBreakdown) : {};
-      const jackpots  = rawJackpots ? JSON.parse(rawJackpots) : 0;
-
-      const now = Date.now();
-      const member: SquadMember = {
-        username:         profile.name,
-        avatar:           resolveAvatar(profile.avatarKey),
-        hydrationOz:      hyd,
-        hydrationPct:     goal > 0 ? hyd / goal : 0,
-        goalOz:           goal,
-        streak:           computeStreak(goalHist),
-        breakdown,
-        weekHistory:      getLast7Days(goalHist),
-        lifetimeJackpots: jackpots,
-        savedAt:          now,
-        codeTimestamp:    now,
-        selfProfileId:    profile.id,
-      };
-      const existing = members.find(m => m.selfProfileId === profile.id);
-      const updated  = existing
-        ? members.map(m => m.selfProfileId === profile.id ? member : m)
-        : [...members, member];
-      setMembers(updated);
-      await pSetItem('squad_members', JSON.stringify(updated));
-    } catch {}
-  }
-
   // ── Confirm adding / updating ────────────────────────────────────────────────
   async function confirmAdd() {
     if (!previewPayload) return;
-    // Free tier: max 1 squad member from outside Family Mode. Family-Mode
-    // self-profiles don't count toward the cap — they're always free.
-    const externalCount = members.filter(m => !m.selfProfileId).length;
-    if (!isPro && !isUpdateFor && externalCount >= 1) {
+    // Free tier: max 1 squad member. Adding a new (non-update) member when already at limit → paywall.
+    if (!isPro && !isUpdateFor && members.length >= 1) {
       openPaywall();
       return;
     }
@@ -1090,37 +1091,21 @@ export default function PartnersScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Add from Family Mode — your own other profiles, no codes needed.
-            Profiles drop off this list once added; refresh from the squad card. */}
-        {(() => {
-          const addable = profiles.filter(
-            p => p.id !== activeProfile?.id && !members.some(m => m.selfProfileId === p.id)
-          );
-          if (addable.length === 0) return null;
-          return (
-            <>
-              <Text style={s.sectionTitle}>👪 ADD FROM FAMILY</Text>
-              <View style={s.card}>
-                <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 10 }}>
-                  Add your own profiles to your squad — free, no code roundtrip.
-                </Text>
-                {addable.map(p => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={s.familyRow}
-                    onPress={() => addOrRefreshFamily(p)}
-                  >
-                    <AvatarCircle value={resolveAvatar(p.avatarKey)} size={36} />
-                    <Text style={{ flex: 1, color: '#fff', fontSize: 14, fontWeight: '700' }} numberOfLines={1}>
-                      {p.name}
-                    </Text>
-                    <Text style={{ color: GOLD, fontSize: 12, fontWeight: '700' }}>＋ Add</Text>
-                  </TouchableOpacity>
+        {/* Family at a Glance — read-only summary of other profiles on this
+            device. No actions (Cheer/Request only make sense for off-device
+            members). Refreshes each time the tab regains focus via loadAll. */}
+        {profiles.filter(p => p.id !== activeProfile?.id).length > 0 && (
+          <>
+            <Text style={s.sectionTitle}>👪 FAMILY AT A GLANCE</Text>
+            <View style={s.card}>
+              {profiles
+                .filter(p => p.id !== activeProfile?.id)
+                .map(p => (
+                  <FamilyGlanceRow key={p.id} profile={p} refreshKey={familyRefresh} />
                 ))}
-              </View>
-            </>
-          );
-        })()}
+            </View>
+          </>
+        )}
 
         {/* Squad Members or Empty State */}
         {members.length === 0 ? (
@@ -1145,15 +1130,7 @@ export default function PartnersScreen() {
                 member={m}
                 myUsername={username}
                 onCheer={() => setCheerFor(m.username)}
-                onUpdate={() => {
-                  if (m.selfProfileId) {
-                    const profile = profiles.find(p => p.id === m.selfProfileId);
-                    if (profile) addOrRefreshFamily(profile);
-                  } else {
-                    setIsUpdateFor(m.username);
-                    setShowAdd(true);
-                  }
-                }}
+                onUpdate={() => { setIsUpdateFor(m.username); setShowAdd(true); }}
                 onRemove={() => removeMember(m.username)}
               />
             ))}
@@ -1246,11 +1223,9 @@ const s = StyleSheet.create({
   memberName: { color: GOLD, fontSize: 15, fontWeight: '800' },
   memberSub:  { color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 1 },
 
-  familyRow: {
+  familyGlanceRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 10, paddingHorizontal: 12, marginBottom: 6,
-    backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10,
-    borderWidth: 1, borderColor: 'rgba(255,215,0,0.15)',
+    paddingVertical: 8, paddingHorizontal: 4, marginBottom: 4,
   },
 
   cardBtn: {
