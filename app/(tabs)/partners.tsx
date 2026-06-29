@@ -25,9 +25,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { pGetItem, pSetItem, pRemoveItem } from '../../utils/profileStorage';
-import { loadHero, saveHero } from '../../utils/HeroStore';
-import { freshHero, STARTER_EMBLEMS } from '../../constants/hero';
+import { pGetItem, pSetItem } from '../../utils/profileStorage';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
 import QRCode from 'react-native-qrcode-svg';
@@ -766,15 +764,15 @@ function SquadStats({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function PartnersScreen() {
   const { isPro, openPaywall } = useProContext();
-  const { activeProfile } = useProfile();
+  const { activeProfile, openEditor } = useProfile();
 
   // Squad identity is sourced entirely from the active profile in Family
   // Mode — one place to edit (the avatar pill on Home), one place that
   // shows everywhere. The legacy partner_avatar storage is ignored.
   const avatar = resolveAvatar(activeProfile?.avatarKey);
+  const username = (activeProfile?.name ?? '').trim();
 
   // My profile state
-  const [username, setUsername]       = useState('');
   const [myHydration, setMyHydration] = useState(0);
   const [myGoal, setMyGoal]           = useState(64);
   const [myPct, setMyPct]             = useState(0);
@@ -823,11 +821,9 @@ export default function PartnersScreen() {
   async function loadAll() {
     try {
       const [
-        hero, rawLegacyUsername, rawMembers,
+        rawMembers,
         rawHyd, rawGoal, rawGoalHist, rawBreakdown, rawJackpots,
       ] = await Promise.all([
-        loadHero(),
-        pGetItem('partner_username'),
         pGetItem('squad_members'),
         pGetItem('water_total_hydration'),
         pGetItem('water_goal'),
@@ -836,27 +832,6 @@ export default function PartnersScreen() {
         pGetItem('lifetime_jackpots'),
       ]);
 
-      // Build 33 Family Mode: Hero name is the single source of truth for
-      // Squad identity. Migration paths:
-      //   • Hero exists → use it. The legacy partner_username (if any) is
-      //     stale; clear it so the codebase has one name surface.
-      //   • Hero missing + legacy partner_username present → one-shot
-      //     promote the legacy name into a Hero so future reads work.
-      //   • Neither → username stays empty; the user is nudged to set a
-      //     Hero name on Home before they can share a Squad code.
-      let displayName = '';
-      if (hero?.name) {
-        displayName = hero.name;
-        if (rawLegacyUsername) {
-          pRemoveItem('partner_username').catch(() => {});
-        }
-      } else if (rawLegacyUsername && rawLegacyUsername.trim()) {
-        displayName = rawLegacyUsername.trim();
-        const migrated = freshHero(displayName, STARTER_EMBLEMS[0].id);
-        saveHero(migrated).catch(() => {});
-        pRemoveItem('partner_username').catch(() => {});
-      }
-      setUsername(displayName);
       if (rawMembers)  setMembers(JSON.parse(rawMembers));
 
       const hyd       = rawHyd ? JSON.parse(rawHyd) : 0;
@@ -897,9 +872,7 @@ export default function PartnersScreen() {
   }
 
   function generateCode() {
-    if (!username.trim()) {
-      // Squad name = Hero name now (Family Mode Day 3). Push the user back
-      // to Home where the HeroSetupModal owns the name field.
+    if (!username) {
       Alert.alert(
         'Set your Hero name first',
         'Your Squad code uses your Hero name. Set one on the Home tab, then come back here to share.',
@@ -1000,17 +973,24 @@ export default function PartnersScreen() {
 
         {/* My Profile Card */}
         <View style={s.card}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              if (activeProfile) openEditor({ mode: 'edit', profile: activeProfile });
+            }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}
+          >
             <AvatarCircle value={avatar} size={58} />
             <View style={{ flex: 1 }}>
               <Text style={s.usernameDisplay} numberOfLines={1}>
                 {username || 'No Hero name set'}
               </Text>
               <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 2 }}>
-                Name & avatar come from your profile
+                {username ? 'Name & avatar come from your profile' : 'Tap to set a name & avatar'}
               </Text>
             </View>
-          </View>
+            {!username && <Text style={{ color: GOLD, fontSize: 18, paddingHorizontal: 4 }}>✏️</Text>}
+          </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
             <MiniDropFill pct={myPct} />
