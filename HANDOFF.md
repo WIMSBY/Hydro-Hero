@@ -1,130 +1,141 @@
-# Handoff — 2026-06-27 evening (Chanda → work → next session)
+# Handoff — 2026-06-29 evening (Chanda → next session)
 
 ## TL;DR
 
-**Build 33 Day 5 is committed and pushed.** Rewards plumbing landed: SigilCase grid on Missions tab, Iron Will +1 shield at every startMission call site, MissionCompleteCard celebration on Home queued from the engine eval, plus a small RevenueCat dev-warning fix.
+**Build 35 / v1.1.0 is prepped and waiting on Chanda's archive tap.** Eight commits of UX polish, sound design, and Squad cleanup pushed today — all OTA'd to existing Build 34 testers and baked into the Build 35 embedded bundle so App Review's first launch matches what testers already have.
 
-**What's left before archive:** Family Mode (multi-profile feature with avatar pill, emoji picker, Welcome modal, free 2 / Pro 5 paywall hook). Scope is ~2-3 days. Spec is locked.
-
-Build 32 still in TestFlight beta review last we knew. Don't archive Build 33 until Family Mode lands.
+Xcode workspace is open. Working tree is clean. `tsc --noEmit` is green. Just hit Product → Archive.
 
 ## Where we are
 
 **Branch:** `2026-06-19-bdv9` — pushed to origin.
 
-**Latest commits on top of `2f3a0a6` (Build 34 Day 4 + Hourly Hydration):**
-- `<HEAD>` — Build 34 Day 5: rewards plumbing + RC anonymous-logOut fix
+**Latest commits on top of `4624209` (Build 34 archive):**
+1. `bbe3e70` Squad: tap header to edit active profile; pencil only when unnamed
+2. `bd38f2e` Squad: add-from-family flow + drop redundant Invite button *(neutralized later)*
+3. `3d539d8` Squad: restore Invite to Squad button on active profile card
+4. `8065f62` Missions: clearer shield explainer in detail modal
+5. `40afd85` **Build 35: bump buildNumber for archive**
+6. `21bed87` Squad: hide Cheer/Request on self-profile cards *(reverted)*
+7. `521ae48` Squad: replace Add From Family with read-only Family At A Glance
+8. `fa185e4` Squad: drop stale self-profile members from squad_members on load
+9. `b76668e` Home: swap Other Amount above Customize-Your-Quick-Add upsell
+10. `7dd7885` Catalog: replace legacy fruit/energyshot keys (tsc cleanup)
+11. `87f687c` Sounds: new jackpot fanfare + scifi droplet; resequence goal celebration
 
-(Commit messages say "Build 34" because the Missions feature was originally planned as Build 34; the actual binary is Build 33 / v1.1.0 combining LA + Missions + Family Mode.)
+(Commits 2 + 6 were tried and walked back — final tree is clean. Squad lost a brief Add-From-Family interactive section in favor of a read-only Family At A Glance summary; same-device "squad members" muddied the friends-on-other-devices model.)
 
-**Day 5 deliverables, all shipped to branch:**
-1. `utils/Rewards.ts` — `getUnlockedRewards(progresses)`, `hasPower(progresses, id)`, `startMissionWithPowers(id, progresses, today)` (Iron Will wraps the engine call), `getSigilTeases`, `newlyCompletedMissions` diff helper. Scaffold comments noting other powers as deferred.
-2. `components/SigilCase.tsx` — collapsible grid on Missions tab between MissionsSection and TrophyCase. Shows earned + locked sigils/powers/cosmetics + "Next reward" tease.
-3. Iron Will wired at all three startMission call sites: Home auto-start (`index.tsx`), Missions tab auto-start (`badges.tsx`), MissionsSection.handleStart (`MissionsSection.tsx`).
-4. MissionCompleteCard on Home — gold-glow card with mission emblem + reward readout, plays `playJackpotSound`. Queued from `evaluateAllActive`'s `changed` array; multiple same-night completions queue and show one at a time.
-5. Small dev-warning fix in `resetProForTesting`: check RC `getAppUserID()` for the `$RCAnonymousID:` prefix before calling `logOut()` to suppress RevenueCat's noisy "LogOut was called but the current user is anonymous" LogBox redbox.
+## Archive checklist (Chanda picks up here)
 
-## What's NOT in Build 33 yet (Family Mode work — start here when you return)
+Prep already done:
+- ✅ `app.json` ios.buildNumber `34 → 35` (commit `40afd85`)
+- ✅ `npx expo prebuild --clean --platform ios` ran clean
+- ✅ `ios/.xcode.env.local` re-armed with SENTRY_AUTH_TOKEN + EXPO_PUBLIC_REVENUECAT_IOS_API_KEY
+- ✅ `ios/HydroHero/Info.plist` shows 1.1.0 / 35
+- ✅ `npx tsc --noEmit` returns clean
+- ✅ `ios/HydroHero.xcworkspace` opened
+- ✅ Working tree clean
 
-Full spec: `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/project_family_mode_spec.md` (auto-loaded). Locked product decisions:
+To do:
+1. In Xcode: select HydroHero scheme, destination Any iOS Device (arm64), **Product → Archive**
+2. Verify HydroHeroWidget signing is green
+3. Organizer → Distribute App → App Store Connect → Upload
+4. In ASC v1.1.0 page: detach Build 34, attach Build 35
+5. Paste in the new description sections + What's New + Promo Text (see §"ASC copy" below)
+6. Submit for App Review
 
-- **Switch UX:** Avatar pill in Home header (top-right). Tap → bottom sheet with profile rows + "+ Add Profile" footer. Long-press a row → edit/delete.
-- **Identity:** Name + emoji-avatar picker (🦊🐼🦁🦄🐢🦋🐙🐝🐳🐶🐱🦉🦒🦝🐧) + existing 5 Hero emblems.
-- **Pro gating:** Free = 2 profiles, Pro = 5. 3rd profile add triggers paywall. Slots 3-5 render visible-but-locked per [[feedback-pro-features-tease-dont-hide]].
-- **Hero name = single source of truth.** Editing Hero name in HeroSetupModal updates: Family profile name AND Squad display name. Kill the standalone Squad display-name input.
-- **Migration:** On first launch of Build 33: existing Hero data becomes Profile 1 (auto-create). Show a one-time "Meet Family Mode" welcome modal. If only legacy Squad name exists (no Hero), copy it to Hero in a one-shot migration.
-- **Pro entitlement is account-level** (RC). Buying Pro on any profile unlocks Pro everywhere — there's no per-profile Pro state.
+If archive surfaces a bug or you change anything: re-archive on same branch, no buildNumber bump needed (Build 35 hasn't shipped to anyone external). If it's already uploaded to ASC, cut Build 36 instead using the same playbook.
 
-**What needs namespacing (`<profileId>:<key>` in AsyncStorage):**
-drink log, water history, daily goal, streak, Hero name/emblem, missions catalog progress, hero shields, hourBuckets snapshot, custom presets, unit (oz/ml), body metrics, reveal/last-drink state, hourly-hydration eval cursor, LA opt-in state.
+## OTAs pushed today (runtime 1.1.0, production, iOS)
 
-**Shared / account-level (do NOT namespace):**
-RC entitlement, custom recorded sounds, sound pack selection, notification toggles, theme, Sentry user.
+Build 34 testers already have all of these:
+1. `00bdc168-c109-4ab2-94a9-2eb68564ac64` — Squad header tap-to-edit + pencil-when-empty
+2. `129b72a8-bec6-4876-9316-90ca5a31f3b5` — Add-From-Family (later partially superseded)
+3. `eb584e0a-9131-4ae0-a044-74b53f3c3364` — restore Invite button
+4. `349ea518-4811-4443-8f24-99b9f1d2d91d` — clearer shield explainer
+5. `057764d4-f425-4c09-b3f0-2b085e2dba89` — Family At A Glance + drop stale self-added members (one-shot migration)
+6. `343e5228-5fb5-46e0-b8da-e85140eb3fe3` — Other Amount above upsell
+7. `6ca83868-4872-48c2-a914-a726fb01771d` — new sounds + goal-celebration resequence
 
-**Engine impact:** `performDailyReset` and `evaluateAllActive` should eval ALL profiles on app foreground (not just active) so streaks stay honest on inactive profiles at midnight rollover.
+## Goal celebration sequence (worth knowing if you tweak)
 
-**LA impact:** Live Activity is tied to active profile. Switching profile ends current LA and starts a new one for the new profile (if it has LA enabled).
+After today's resequence in `app/(tabs)/index.tsx`:
 
-## First thing when you return
+- `t≈0`: reveal sound, scroll
+- `t≈1.2s`: tank fill → droplet + splash sounds (splash no longer skipped on jackpot)
+- `t=2500ms`: jackpot fanfare (4s sound) + shake + confetti shown
+- `t=3800ms`: confetti hides, GOAL message + celebration card + streak milestone card released
+- Jackpot sound continues under the cards — intentional audio bleed, confirmed wanted
 
-1. Check today's overnight engine eval. If Origin Story progress moved from `Day 0/7 → Day 1/7` (assuming you hit goal today on Chanda's test device), the catchUp + midnight rollover plumbing worked end-to-end. If it didn't move, that's a Day 5 bug to chase before Family Mode.
-2. Verify SigilCase renders on the Missions tab visually. Day 5 was verified at bundle level (Metro compiled clean, 8757 modules, zero errors), but cliclick couldn't drive into the Sim due to a host-side Accessibility permission gap. To unblock visual verification: System Settings → Privacy & Security → Accessibility → toggle on the terminal running Claude Code. Then I can drive the UI and screenshot SigilCase directly.
-3. Start Family Mode Day 1: data layer refactor.
+`STREAK_DELAY_MS = 3800` in the streak useEffect keeps the streak fanfare in sync.
 
-## Family Mode rough sequencing
+## ASC copy (paste-ready)
 
-**Day 1 (data layer):**
-- New `utils/ProfileStore.ts` — Profile type, `profiles` array, `activeProfileId`, `getActiveProfileId()`, `setActiveProfile()`, `addProfile()`, `deleteProfile()`, `listProfiles()`.
-- Define `prefixKey(key)` helper that namespaces an AsyncStorage key with the active profile ID.
-- One-shot migration: on app boot, if `profiles` is missing, create Profile 1 from existing Hero data and rename old keys to `<id>:<key>`.
+**Add to existing description, after "Satisfying Drink Logging":**
 
-**Day 2 (UI):**
-- Avatar pill component on Home header.
-- ProfileSwitcherSheet (bottom sheet with rows + "+ Add Profile").
-- ProfileEditorModal (name input + emoji-avatar picker grid).
-- Welcome modal on first launch of Build 33.
+```
+Hero Missions
+Turn your daily goal into a quest. Four evergreen Mission chains — The Hero's Journey, Tea Time, Hourly Hydration, and Dry Spell — let you earn Hero Sigils, miss-day Shields, and unlock new powers as you complete Bronze, Silver, and Gold tiers.
 
-**Day 3 (integration):**
-- Refactor all profile-scoped AsyncStorage reads/writes through `prefixKey`.
-- Engine eval updated to iterate all profiles on foreground.
-- Live Activity end-and-restart on profile switch.
-- Squad page: remove standalone display-name input, source from active profile's Hero name.
-- Free 2 / Pro 5 paywall hook on profile add.
+Live Activity
+Keep your tank on your Lock Screen and Dynamic Island so you can check your hydration at a glance. Opt in any time — off by default.
 
-## Archive checklist (after Family Mode lands)
-
-Per project memory landmines:
-
-```bash
-# 1. Bump app.json: version "1.1.0", ios.buildNumber "33"
-# 2. Run prebuild --clean (the ONLY way local Xcode archive respects the buildNumber bump)
-npx expo prebuild --clean
-
-# 3. Re-add Sentry + RC keys to ios/.xcode.env.local (wiped by --clean)
-cat >> ios/.xcode.env.local <<EOF
-export SENTRY_AUTH_TOKEN=<from .env.local>
-export EXPO_PUBLIC_REVENUECAT_IOS_API_KEY=<from .env.local>
-EOF
-
-# 4. Open in Xcode
-open ios/HydroHero.xcworkspace
-
-# 5. Verify HydroHeroWidget signing is still green
-# 6. Product → Archive → distribute to App Store Connect
-# 7. In ASC: attach to v1.1.0, write Reviewer Notes + What's New, submit for TF beta review
+Family Mode
+One phone, the whole household. Each family member gets their own profile with their own goal, streak, history, and emoji avatar — and you can see everyone's progress on the Squad tab. Free for 2 profiles, Pro unlocks up to 5. Everything stays local — no cloud, no accounts.
 ```
 
-## Reviewer Notes (when you submit)
+Optional in-place edit to existing "Hydrate With Your Squad" line: change "Add friends, share your progress" → "Add friends and family members on other devices, share progress via QR or code".
 
-- New feature: Live Activities (opt-in Lock Screen + Dynamic Island tank droplet)
-- New feature: Missions (4 evergreen chains, fully local, no new permissions)
-- New feature: Family Mode (multi-profile, fully local, no new permissions, no cloud)
-- Tab renamed Badges → Missions (same route, same icon)
-- No new IAPs
-- No new permissions or Info.plist usage descriptions
+**What's New in This Version:**
 
-## In case anything broke overnight
+```
+v1.1.0 — Missions, Family Mode, and Live Activities
 
-- Sentry triage same as before (HYDRO-HERO-9 wrap, HYDRO-HERO-6 dev-only, etc.) — see `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/project_handoff_2026_06_22.md`
-- The OTA channel-name issue from Build 24-26 is already fixed in app.json — Build 33's local archive will ship with the channel header.
-- If Live Activity doesn't render on a tester's device: usually means iOS-level Live Activities were disabled. The opt-in chip's onPress already handles the DISABLED error path with an alert.
+🛡 Missions — Four evergreen mission chains turn your daily goal into a story. Earn Hero Sigils, miss-day Shields, and unlock powers as you complete each tier.
 
-## Not in scope until Build 34+
+💧 Live Activity — Optional Lock Screen + Dynamic Island droplet that tracks your tank in real time.
 
-- Custom mission editor (Pro headline for Build 34)
-- Sixth Sense adaptive reminders implementation (toggle only after Dry Spell Silver completion)
-- Hydro Vision custom widget skin
-- Time Warp freeze-streak pass
-- Squad Beacon animated share card
-- Per-profile notification names ("Hey [profile name], drink up!")
+👪 Family Mode — Each member gets their own goal, streak, and history. Free for 2 profiles, Pro unlocks 5.
+
+🎯 Squad — Cleaner profile editing and a new Family at a Glance card.
+
+🔊 New sounds — Refreshed jackpot fanfare and a longer goal celebration.
+
+Plus polish across the Home screen, Quick Add, and Missions tab.
+```
+
+**Promotional Text — pick one (170 char limit):**
+
+- Playful (138 chars): "v1.1.0: Live Activities, multi-profile Family Mode, and four Mission chains that turn your daily goal into an epic quest. Hydrate like a hero."
+- Direct (152 chars): "Massive update — Missions, Family Mode for the whole household, Live Activities, and a goal celebration worthy of the name. Pour something and tap in."
+- Benefit-first (140 chars): "Track everyone's hydration in one app. New: Missions, Family profiles, Live Activities, and a sweeter goal-hit celebration to look forward to."
+
+**Reviewer Notes:**
+
+```
+Build 35 = v1.1.0 polish refresh on the v1.1.0 features. No new IAPs, no new permissions, no new Info.plist usage descriptions. Bug fixes + UX improvements to Squad, Missions, Home celebration sequence.
+```
+
+## Screenshots
+
+iPhone 6.5" slot (1242 × 2688, iPhone 11 Pro Max sim) may want a refresh — Squad has the new Family At A Glance section, and the Missions detail modal has the clearer shield copy. Sim is already booted on iPhone 11 Pro Max with Build 35 dev install if you want fresh captures.
+
+iPad screenshots left as-is per prior decision.
+
+## If review comes back with feedback
+
+- **JS-level fix possible** → patch on `2026-06-19-bdv9`, `npx eas update --branch production --platform ios --message "..."`, no new binary needed. Existing installs pick it up; reviewer reinstall sees the embedded bundle though, so for first-launch blockers cut a new binary.
+- **Native or first-launch blocker** → bump buildNumber to 36, repeat archive checklist. Same playbook, same landmines (`prebuild --clean` wipes `.xcode.env.local` — re-append from `.env.local`).
+- **Rejection categories that have hit us before**:
+  - 2.1(b) unresponsive subscribe button — Build 21 fix (defer openPaywall after modal close)
+  - 5.1.1(iv) camera pre-prompt — Build 20 fix (Grant Camera Access / Continue / Open Settings flow). Not touched today; if reviewer claims it changed, double-check.
+  - First-launch freeze — Build 33 → 34 fix (Modal-over-Modal in profile editor). Sim-tested clean for Build 35.
 
 ## Pointers
 
+- Latest state: `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/project_build35_session_2026_06_29.md` (auto-loaded — also has the full ASC copy block)
+- Canonical Build 35 diff: `project_build35_contents.md`
 - Quick state catch-up: `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/MEMORY.md` (auto-loaded)
-- Family Mode spec: `project_family_mode_spec.md`
-- Pro-gate map (every gated surface): `project_pro_gate_map.md`
-- "Tease, don't hide" feedback: `feedback_pro_features_tease_dont_hide.md`
-- Build process landmines: `feedback_local_archive_*.md` + `feedback_apple_targets_filename.md`
-- Sentry token + RC key: `.env.local` (and re-paste into `ios/.xcode.env.local` after prebuild --clean)
+- Archive landmines: `feedback_prebuild_wipes_xcode_env_local.md` + `feedback_local_archive_buildnumber.md` + `feedback_prebuild_needs_clean.md`
 - TestFlight + ASC dashboard links: `reference_external_dashboards.md`
 - Tester device: Chanda's iPhone 15 Pro UDID `00008130-000425883E40001C` (Developer Mode ON)
