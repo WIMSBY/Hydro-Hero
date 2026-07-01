@@ -111,6 +111,7 @@ function formatOz(oz: number): string {
 const POPULAR_PRESETS = [
   { oz: 8,    label: "8oz",   sub: "small glass" },
   { oz: 12,   label: "12oz",  sub: "can" },
+  { oz: 16,   label: "16oz",  sub: "pint glass" },
   { oz: 16.9, label: "16.9oz",sub: "std bottle" },
   { oz: 20,   label: "20oz",  sub: "lg bottle" },
   { oz: 32,   label: "32oz",  sub: "Stanley sm" },
