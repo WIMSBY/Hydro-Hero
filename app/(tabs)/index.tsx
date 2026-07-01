@@ -1613,19 +1613,33 @@ interface QuickAddCustomModalProps {
 }
 function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: QuickAddCustomModalProps) {
   const [drafts, setDrafts] = useState<string[]>(currentAmounts.map(String));
-  const [focused, setFocused] = useState<number | null>(null);
+  // `expanded` = index of the currently open row, or null if none. Only one
+  // row can be expanded at a time. Modal opens with Button 1 expanded so the
+  // user has an immediate target for presets.
+  const [expanded, setExpanded] = useState<number | null>(null);
   const inputRefs = useRef<(import("react-native").TextInput | null)[]>([]);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const rowYRefs = useRef<number[]>([]);
 
-  // Sync drafts when modal opens; auto-select Button 1 so tapping a preset
-  // has an obvious target without popping the keyboard.
   useEffect(() => {
     if (visible) {
       setDrafts(currentAmounts.map((oz) => formatOz(oz)));
-      setFocused(0);
+      setExpanded(0);
     } else {
-      setFocused(null);
+      setExpanded(null);
     }
   }, [visible, currentAmounts]);
+
+  // Scroll the expanded row into view so its preset panel is visible.
+  useEffect(() => {
+    if (expanded === null) return;
+    const y = rowYRefs.current[expanded];
+    if (y === undefined) return;
+    const t = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+    }, 60);
+    return () => clearTimeout(t);
+  }, [expanded]);
 
   function setSlot(i: number, val: string) {
     setDrafts((prev) => { const next = [...prev]; next[i] = val; return next; });
@@ -1650,11 +1664,6 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
     }
   }
 
-  function applyPreset(oz: number) {
-    const slot = focused ?? 0;
-    setSlot(slot, formatOz(oz));
-  }
-
   const allValid = drafts.every(isValid);
 
   return (
@@ -1672,83 +1681,149 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                       <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Tap a button, then a preset — or type your own amount</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Tap a button to edit its amount</Text>
                 </View>
 
-                <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  ref={scrollRef}
+                  style={{ maxHeight: 480 }}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
                   <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
 
-                    {/* Slot rows */}
+                    {/* Expandable button rows */}
                     {drafts.map((val, i) => {
-                      const isFocused = focused === i;
+                      const isExpanded = expanded === i;
                       const valid = isValid(val);
                       const mlVal = valid ? `${ozToMl(parseFloat(val))} ml` : "—";
+                      const defaultOz = QUICK_ADD_DEFAULTS[i];
+                      const isDefault = valid && parseFloat(val) === defaultOz;
+                      const currentOzNum = valid ? parseFloat(val) : NaN;
                       return (
-                        <TouchableOpacity
+                        <View
                           key={i}
-                          activeOpacity={0.85}
-                          onPress={() => setFocused(i)}
+                          onLayout={(e) => { rowYRefs.current[i] = e.nativeEvent.layout.y; }}
                           style={{ marginBottom: 10 }}
                         >
-                          <View style={{
-                            flexDirection: "row", alignItems: "center",
-                            backgroundColor: isFocused ? "rgba(255,215,0,0.20)" : "rgba(255,215,0,0.08)",
-                            borderRadius: 12, borderWidth: 1.5,
-                            borderColor: isFocused ? "#c8a000" : (valid ? "rgba(200,160,0,0.35)" : "#FF6B6B"),
-                            paddingHorizontal: 12,
-                            minHeight: 52,
-                          }}>
-                            <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700", width: 60 }}>Button {i + 1}</Text>
-                            <TextInput
-                              ref={(r) => { inputRefs.current[i] = r; }}
-                              value={val}
-                              onChangeText={(t) => setSlot(i, t)}
-                              onFocus={() => setFocused(i)}
-                              onBlur={() => setFocused((f) => f === i ? null : f)}
-                              keyboardType="decimal-pad"
-                              style={{ flex: 1, color: "#1a1a2e", fontSize: 18, fontWeight: "700", paddingVertical: 10 }}
-                              selectTextOnFocus
-                              returnKeyType="done"
-                              placeholderTextColor="#aaaaaa"
-                            />
+                          {/* Header (always visible, tap to expand/collapse) */}
+                          <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={() => setExpanded(isExpanded ? null : i)}
+                            accessibilityLabel={`Button ${i + 1}: ${val} oz. ${isExpanded ? 'Tap to collapse' : 'Tap to edit'}`}
+                            style={{
+                              flexDirection: "row", alignItems: "center",
+                              backgroundColor: isExpanded ? "rgba(255,215,0,0.22)" : "rgba(255,215,0,0.08)",
+                              borderTopLeftRadius: 12, borderTopRightRadius: 12,
+                              borderBottomLeftRadius: isExpanded ? 0 : 12,
+                              borderBottomRightRadius: isExpanded ? 0 : 12,
+                              borderWidth: 1.5,
+                              borderColor: isExpanded ? "#c8a000" : (valid ? "rgba(200,160,0,0.35)" : "#FF6B6B"),
+                              borderBottomWidth: isExpanded ? 0 : 1.5,
+                              paddingHorizontal: 14,
+                              minHeight: 52,
+                            }}
+                          >
+                            <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700", width: 66 }}>Button {i + 1}</Text>
+                            <Text style={{
+                              flex: 1,
+                              color: valid ? "#1a1a2e" : "#CC2200",
+                              fontSize: 18, fontWeight: "800",
+                            }}>
+                              {val || "—"} <Text style={{ fontSize: 13, fontWeight: "600", color: "#888" }}>oz</Text>
+                            </Text>
                             <Text style={{ color: "#888888", fontSize: 12, marginRight: 10, minWidth: 54, textAlign: "right" }}>{mlVal}</Text>
-                            <TouchableOpacity onPress={() => resetSlot(i)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                              accessibilityLabel={`Reset Button ${i + 1} to default`}
-                              style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(0,0,0,0.08)", alignItems: "center", justifyContent: "center" }}>
-                              <Text style={{ color: "#888888", fontSize: 15, lineHeight: 18 }}>↺</Text>
-                            </TouchableOpacity>
-                          </View>
-                          {!valid && val.length > 0 && (
-                            <Text style={{ color: "#CC2200", fontSize: 11, marginTop: 3, marginLeft: 4 }}>Enter a value between 1 and 128 oz</Text>
+                            <Text style={{ color: "#c8a000", fontSize: 14, fontWeight: "800", width: 16, textAlign: "center" }}>
+                              {isExpanded ? "▾" : "▸"}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {/* Expanded editor panel */}
+                          {isExpanded && (
+                            <View style={{
+                              backgroundColor: "rgba(255,215,0,0.10)",
+                              borderWidth: 1.5, borderTopWidth: 0,
+                              borderColor: "#c8a000",
+                              borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
+                              paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14,
+                            }}>
+                              {/* Editable input */}
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                                <View style={{
+                                  flexDirection: "row", alignItems: "center",
+                                  backgroundColor: "#fdf7d8",
+                                  borderWidth: 1, borderColor: valid ? "#c8a000" : "#FF6B6B",
+                                  borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
+                                  flex: 1,
+                                }}>
+                                  <TextInput
+                                    ref={(r) => { inputRefs.current[i] = r; }}
+                                    value={val}
+                                    onChangeText={(t) => setSlot(i, t)}
+                                    keyboardType="decimal-pad"
+                                    style={{ flex: 1, color: "#1a1a2e", fontSize: 20, fontWeight: "700", paddingVertical: 4 }}
+                                    selectTextOnFocus
+                                    returnKeyType="done"
+                                    placeholder={formatOz(defaultOz)}
+                                    placeholderTextColor="#c9b568"
+                                  />
+                                  <Text style={{ color: "#888", fontSize: 15, fontWeight: "700", marginLeft: 4 }}>oz</Text>
+                                </View>
+                                <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "600", minWidth: 60 }}>= {mlVal}</Text>
+                              </View>
+
+                              {!valid && val.length > 0 && (
+                                <Text style={{ color: "#FF9999", fontSize: 11, marginTop: 6 }}>Enter a value between 1 and 128 oz</Text>
+                              )}
+
+                              {/* Popular Sizes (per-row) */}
+                              <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginTop: 14, marginBottom: 8 }}>
+                                POPULAR SIZES
+                              </Text>
+                              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
+                                {POPULAR_PRESETS.map((p) => {
+                                  const isSelected = currentOzNum === p.oz;
+                                  return (
+                                    <TouchableOpacity
+                                      key={p.oz}
+                                      onPress={() => setSlot(i, formatOz(p.oz))}
+                                      activeOpacity={0.7}
+                                      style={{
+                                        borderRadius: 20, borderWidth: 1.5,
+                                        borderColor: "#c8a000",
+                                        backgroundColor: isSelected ? "#c8a000" : "rgba(255,215,0,0.07)",
+                                        paddingHorizontal: 12, paddingVertical: 6,
+                                        alignItems: "center",
+                                      }}>
+                                      <Text style={{ color: isSelected ? "#fff" : "#c8a000", fontSize: 13, fontWeight: "700" }}>{p.label}</Text>
+                                      <Text style={{ color: isSelected ? "rgba(255,255,255,0.85)" : "#999999", fontSize: 9, marginTop: 1 }}>{p.sub}</Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+
+                              {/* Reset to default (per-row) */}
+                              <TouchableOpacity
+                                onPress={() => resetSlot(i)}
+                                disabled={isDefault}
+                                activeOpacity={0.7}
+                                accessibilityLabel={`Reset Button ${i + 1} to default of ${formatOz(defaultOz)} oz`}
+                                style={{
+                                  flexDirection: "row", alignItems: "center", justifyContent: "center",
+                                  marginTop: 12, borderRadius: 10, borderWidth: 1,
+                                  borderColor: isDefault ? "rgba(200,160,0,0.25)" : "#c8a000",
+                                  paddingVertical: 9, paddingHorizontal: 12,
+                                  opacity: isDefault ? 0.45 : 1,
+                                }}>
+                                <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700" }}>
+                                  ↺  Reset to default ({formatOz(defaultOz)} oz)
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
                           )}
-                        </TouchableOpacity>
+                        </View>
                       );
                     })}
-
-                    {/* Popular Sizes */}
-                    <View style={{ marginTop: 8, marginBottom: 4 }}>
-                      <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 10 }}>
-                        POPULAR SIZES{focused !== null ? `  →  filling Button ${focused + 1}` : "  (tap a button above first)"}
-                      </Text>
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
-                        {POPULAR_PRESETS.map((p) => (
-                          <TouchableOpacity
-                            key={p.oz}
-                            onPress={() => applyPreset(p.oz)}
-                            activeOpacity={0.7}
-                            style={{
-                              borderRadius: 20, borderWidth: 1.5,
-                              borderColor: "#c8a000",
-                              backgroundColor: "rgba(255,215,0,0.07)",
-                              paddingHorizontal: 12, paddingVertical: 6,
-                              alignItems: "center",
-                            }}>
-                            <Text style={{ color: "#c8a000", fontSize: 13, fontWeight: "700" }}>{p.label}</Text>
-                            <Text style={{ color: "#999999", fontSize: 9, marginTop: 1 }}>{p.sub}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
 
                     {/* Reset All */}
                     <TouchableOpacity onPress={resetAll}
