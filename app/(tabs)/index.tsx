@@ -114,8 +114,8 @@ const POPULAR_PRESETS = [
   { oz: 16,   label: "16oz",  sub: "pint glass" },
   { oz: 16.9, label: "16.9oz",sub: "std bottle" },
   { oz: 20,   label: "20oz",  sub: "lg bottle" },
-  { oz: 32,   label: "32oz",  sub: "Stanley sm" },
-  { oz: 40,   label: "40oz",  sub: "Stanley lg" },
+  { oz: 32,   label: "32oz",  sub: "big tumbler" },
+  { oz: 40,   label: "40oz",  sub: "xl tumbler" },
 ];
 
 interface Preset { id: string; label: string; oz: number; category: BevCategory; }
