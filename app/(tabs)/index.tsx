@@ -195,11 +195,13 @@ interface ScrollPickerProps {
   selectedIndex: number;
   onIndexChange: (index: number) => void;
   label: string;
+  variant?: "light" | "lightNavy";
 }
 
-function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPickerProps) {
+function ScrollPicker({ items, selectedIndex, onIndexChange, label, variant = "light" }: ScrollPickerProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(selectedIndex);
+  const s = variant === "lightNavy" ? pickerStylesLightNavy : pickerStyles;
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -215,7 +217,7 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPick
   };
 
   return (
-    <View style={pickerStyles.wrapper}>
+    <View style={s.wrapper}>
       <ScrollView
         ref={scrollRef}
         style={{ height: PICKER_ITEM_H * PICKER_VISIBLE }}
@@ -234,12 +236,12 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPick
         {items.map((item, i) => {
           const dist = Math.abs(i - activeIndex);
           return (
-            <View key={i} style={pickerStyles.item}>
+            <View key={i} style={s.item}>
               <Text style={[
-                pickerStyles.itemBase,
-                dist === 0 && pickerStyles.itemCenter,
-                dist === 1 && pickerStyles.itemNear,
-                dist >= 2 && pickerStyles.itemFar,
+                s.itemBase,
+                dist === 0 && s.itemCenter,
+                dist === 1 && s.itemNear,
+                dist >= 2 && s.itemFar,
               ]}>
                 {item}
               </Text>
@@ -247,8 +249,8 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPick
           );
         })}
       </ScrollView>
-      <View style={pickerStyles.highlight} pointerEvents="none" />
-      <Text style={pickerStyles.unitLabel}>{label}</Text>
+      <View style={s.highlight} pointerEvents="none" />
+      <Text style={s.unitLabel}>{label}</Text>
     </View>
   );
 }
@@ -270,6 +272,28 @@ const pickerStyles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "rgba(0,0,0,0.1)",
     backgroundColor: "rgba(0,0,0,0.03)",
+  },
+  unitLabel: { color: "#888888", fontSize: 11, marginTop: 2, marginBottom: 4 },
+});
+
+// Light-body variant: navy highlight bar over #E8ECF2 grey backdrop.
+const pickerStylesLightNavy = StyleSheet.create({
+  wrapper: { alignItems: "center", backgroundColor: "#E8ECF2", borderRadius: 10, paddingHorizontal: 6 },
+  item: { height: PICKER_ITEM_H, justifyContent: "center", alignItems: "center", minWidth: 52 },
+  itemBase: { color: "#1a1a2e", fontSize: 13, opacity: 0.25 },
+  itemCenter: { fontSize: 16, fontWeight: "700", opacity: 1 },
+  itemNear: { fontSize: 14, opacity: 0.45 },
+  itemFar: { fontSize: 13, opacity: 0.15 },
+  highlight: {
+    position: "absolute",
+    top: PICKER_ITEM_H,
+    left: 0,
+    right: 0,
+    height: PICKER_ITEM_H,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "rgba(0,136,255,0.30)",
+    backgroundColor: "rgba(0,136,255,0.10)",
   },
   unitLabel: { color: "#888888", fontSize: 11, marginTop: 2, marginBottom: 4 },
 });
@@ -442,6 +466,16 @@ const presetStyles = StyleSheet.create({
 // ==========================================
 const GOLD = "#FFD700";
 const GOLD_DIM = "#c8a000";
+
+// Light+navy modal palette (see below-file docstring for full token set).
+// Hoisted here so the modal-component-scoped StyleSheets (cbStyles at ~1497
+// and the QuickAdd modal component at ~1715) can reference them; the rest of
+// the light+navy design tokens live in the trailer near styles.
+const LIGHT_BODY = "#F0F2F5";
+const LIGHT_NAVY = "#1a0a3a";
+const LIGHT_NAVY_DEEP = "#1a1a2e";
+const ACCENT_WATER_TINT = "rgba(0,136,255,0.10)";
+const ACCENT_WATER_BORDER = "rgba(0,136,255,0.42)";
 // --- Star Particles ---
 function StarParticles() {
   const N = 14;
@@ -1313,7 +1347,7 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
           >
             <Text style={cbStyles.rowEmoji}>{item.emoji}</Text>
             <View style={{ flex: 1 }}>
-              <Text style={[cbStyles.rowName, { color: GOLD }]}>{item.label}</Text>
+              <Text style={cbStyles.rowName}>{item.label}</Text>
               <Text style={cbStyles.rowEff}>{Math.round(item.eff * 100)}% hydration</Text>
             </View>
             <Text style={cbStyles.check}>✓</Text>
@@ -1334,8 +1368,8 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
               <Text style={cbStyles.title}>Customize Your Beverages</Text>
               <Text style={cbStyles.subtitle}>Long-press a tile to drag and reorder</Text>
               <Text style={cbStyles.counter}>
-                <Text style={{ color: GOLD }}>{selected.length}</Text>
-                <Text style={{ color: "rgba(255,255,255,0.5)" }}> of 20 selected</Text>
+                <Text style={{ color: LIGHT_NAVY }}>{selected.length}</Text>
+                <Text style={{ color: "#666666" }}> of 20 selected</Text>
               </Text>
             </View>
             <TouchableOpacity onPress={onCancel} style={cbStyles.closeBtn}>
@@ -1419,10 +1453,10 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
                           </View>
                           {isLocked && (
                             <View style={{
-                              backgroundColor: GOLD, borderRadius: 5,
+                              backgroundColor: LIGHT_NAVY, borderRadius: 5,
                               paddingHorizontal: 6, paddingVertical: 2,
                             }}>
-                              <Text style={{ color: "#0a0520", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
+                              <Text style={{ color: "#ffffff", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
                             </View>
                           )}
                         </TouchableOpacity>
@@ -1450,33 +1484,33 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
   );
 }
 const cbStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#0d0030", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 2, borderColor: GOLD, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%" },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%" },
   header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
-  title: { color: GOLD, fontSize: 18, fontWeight: "800" },
-  subtitle: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 3 },
+  title: { color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800" },
+  subtitle: { color: "#666666", fontSize: 12, marginTop: 3 },
   counter: { fontSize: 13, fontWeight: "700", marginTop: 6 },
   closeBtn: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  closeTxt: { color: "rgba(255,255,255,0.6)", fontSize: 18 },
+  closeTxt: { color: "#888888", fontSize: 18 },
   actionRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", backgroundColor: "rgba(255,215,0,0.07)" },
-  actionTxt: { color: GOLD_DIM, fontSize: 12, fontWeight: "700" },
-  hint: { color: "#FF8800", fontSize: 12, fontWeight: "600", marginBottom: 8 },
-  divider: { height: 1, backgroundColor: "rgba(255,215,0,0.25)", marginVertical: 8 },
+  actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,0,0,0.12)", alignItems: "center", backgroundColor: "#ffffff" },
+  actionTxt: { color: LIGHT_NAVY_DEEP, fontSize: 12, fontWeight: "700" },
+  hint: { color: "#C0152A", fontSize: 12, fontWeight: "600", marginBottom: 8 },
+  divider: { height: 1, backgroundColor: "rgba(0,0,0,0.08)", marginVertical: 8 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: "transparent", gap: 12 },
-  rowSel: { backgroundColor: "rgba(255,215,0,0.08)", borderColor: "rgba(255,215,0,0.35)" },
-  rowActive: { backgroundColor: "rgba(255,215,0,0.28)", borderColor: GOLD, borderWidth: 2, shadowColor: GOLD, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  rowSel: { backgroundColor: "#ffffff", borderColor: "rgba(0,0,0,0.08)" },
+  rowActive: { backgroundColor: "rgba(0,136,255,0.12)", borderColor: "rgba(0,136,255,0.55)", borderWidth: 1.5, shadowColor: LIGHT_NAVY, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   dragArea: { width: 36, alignSelf: "stretch", alignItems: "center", justifyContent: "center", marginLeft: -4 },
-  dragHandle: { color: GOLD_DIM, fontSize: 22, fontWeight: "900", letterSpacing: -2, lineHeight: 22 },
+  dragHandle: { color: "#888888", fontSize: 22, fontWeight: "900", letterSpacing: -2, lineHeight: 22 },
   dragHandlePlaceholder: { width: 36 },
   rowTapZone: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   rowEmoji: { fontSize: 22, width: 30, textAlign: "center" },
-  rowName: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
-  rowEff: { color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 1 },
-  check: { color: GOLD, fontSize: 18, fontWeight: "800" },
+  rowName: { color: LIGHT_NAVY_DEEP, fontSize: 14, fontWeight: "600" },
+  rowEff: { color: "#666666", fontSize: 11, marginTop: 1 },
+  check: { color: LIGHT_NAVY, fontSize: 18, fontWeight: "800" },
   btnRow: { paddingVertical: 16 },
-  saveBtn: { paddingVertical: 14, borderRadius: 12, backgroundColor: GOLD, alignItems: "center" },
-  saveTxt: { color: "#000000", fontSize: 14, fontWeight: "800" },
+  saveBtn: { paddingVertical: 14, borderRadius: 12, backgroundColor: LIGHT_NAVY, alignItems: "center" },
+  saveTxt: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
 });
 
 // --- Beverage Selector ---
@@ -1672,16 +1706,16 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.modalBox, { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
                 {/* Header */}
-                <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)", borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
                     <TouchableOpacity onPress={onCancel} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                      <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                      <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Tap a button to edit its amount</Text>
+                  <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>Tap a button to edit its amount</Text>
                 </View>
 
                 <ScrollView
@@ -1713,27 +1747,27 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                             accessibilityLabel={`Button ${i + 1}: ${val} oz. ${isExpanded ? 'Tap to collapse' : 'Tap to edit'}`}
                             style={{
                               flexDirection: "row", alignItems: "center",
-                              backgroundColor: isExpanded ? "rgba(255,215,0,0.22)" : "rgba(255,215,0,0.08)",
+                              backgroundColor: isExpanded ? ACCENT_WATER_TINT : "#ffffff",
                               borderTopLeftRadius: 12, borderTopRightRadius: 12,
                               borderBottomLeftRadius: isExpanded ? 0 : 12,
                               borderBottomRightRadius: isExpanded ? 0 : 12,
-                              borderWidth: 1.5,
-                              borderColor: isExpanded ? "#c8a000" : (valid ? "rgba(200,160,0,0.35)" : "#FF6B6B"),
-                              borderBottomWidth: isExpanded ? 0 : 1.5,
+                              borderWidth: 1,
+                              borderColor: isExpanded ? ACCENT_WATER_BORDER : (valid ? "rgba(0,0,0,0.10)" : "#FF6B6B"),
+                              borderBottomWidth: isExpanded ? 0 : 1,
                               paddingHorizontal: 14,
                               minHeight: 52,
                             }}
                           >
-                            <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700", width: 66 }}>Button {i + 1}</Text>
+                            <Text style={{ color: "#666666", fontSize: 12, fontWeight: "700", width: 66 }}>Button {i + 1}</Text>
                             <Text style={{
                               flex: 1,
-                              color: valid ? "#1a1a2e" : "#CC2200",
+                              color: valid ? LIGHT_NAVY_DEEP : "#CC2200",
                               fontSize: 18, fontWeight: "800",
                             }}>
                               {val || "—"} <Text style={{ fontSize: 13, fontWeight: "600", color: "#888" }}>oz</Text>
                             </Text>
                             <Text style={{ color: "#888888", fontSize: 12, marginRight: 10, minWidth: 54, textAlign: "right" }}>{mlVal}</Text>
-                            <Text style={{ color: "#c8a000", fontSize: 14, fontWeight: "800", width: 16, textAlign: "center" }}>
+                            <Text style={{ color: LIGHT_NAVY, fontSize: 14, fontWeight: "800", width: 16, textAlign: "center" }}>
                               {isExpanded ? "▾" : "▸"}
                             </Text>
                           </TouchableOpacity>
@@ -1741,9 +1775,9 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                           {/* Expanded editor panel */}
                           {isExpanded && (
                             <View style={{
-                              backgroundColor: "rgba(255,215,0,0.10)",
-                              borderWidth: 1.5, borderTopWidth: 0,
-                              borderColor: "#c8a000",
+                              backgroundColor: ACCENT_WATER_TINT,
+                              borderWidth: 1, borderTopWidth: 0,
+                              borderColor: ACCENT_WATER_BORDER,
                               borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
                               paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14,
                             }}>
@@ -1751,8 +1785,8 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                               <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
                                 <View style={{
                                   flexDirection: "row", alignItems: "center",
-                                  backgroundColor: "#fdf7d8",
-                                  borderWidth: 1, borderColor: valid ? "#c8a000" : "#FF6B6B",
+                                  backgroundColor: "#ffffff",
+                                  borderWidth: 1, borderColor: valid ? "rgba(0,0,0,0.12)" : "#FF6B6B",
                                   borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
                                   flex: 1,
                                 }}>
@@ -1761,23 +1795,23 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                                     value={val}
                                     onChangeText={(t) => setSlot(i, t)}
                                     keyboardType="decimal-pad"
-                                    style={{ flex: 1, color: "#1a1a2e", fontSize: 20, fontWeight: "700", paddingVertical: 4 }}
+                                    style={{ flex: 1, color: LIGHT_NAVY_DEEP, fontSize: 20, fontWeight: "700", paddingVertical: 4 }}
                                     selectTextOnFocus
                                     returnKeyType="done"
                                     placeholder={formatOz(defaultOz)}
-                                    placeholderTextColor="#c9b568"
+                                    placeholderTextColor="#a8a8a8"
                                   />
                                   <Text style={{ color: "#888", fontSize: 15, fontWeight: "700", marginLeft: 4 }}>oz</Text>
                                 </View>
-                                <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "600", minWidth: 60 }}>= {mlVal}</Text>
+                                <Text style={{ color: "#666666", fontSize: 13, fontWeight: "600", minWidth: 60 }}>= {mlVal}</Text>
                               </View>
 
                               {!valid && val.length > 0 && (
-                                <Text style={{ color: "#FF9999", fontSize: 11, marginTop: 6 }}>Enter a value between 1 and 128 oz</Text>
+                                <Text style={{ color: "#C0152A", fontSize: 11, marginTop: 6 }}>Enter a value between 1 and 128 oz</Text>
                               )}
 
                               {/* Popular Sizes (per-row) */}
-                              <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginTop: 14, marginBottom: 8 }}>
+                              <Text style={{ color: LIGHT_NAVY, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginTop: 14, marginBottom: 8 }}>
                                 POPULAR SIZES
                               </Text>
                               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
@@ -1789,14 +1823,14 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                                       onPress={() => setSlot(i, formatOz(p.oz))}
                                       activeOpacity={0.7}
                                       style={{
-                                        borderRadius: 20, borderWidth: 1.5,
-                                        borderColor: "#c8a000",
-                                        backgroundColor: isSelected ? "#c8a000" : "rgba(255,215,0,0.07)",
+                                        borderRadius: 20, borderWidth: 1,
+                                        borderColor: isSelected ? LIGHT_NAVY : "rgba(0,0,0,0.15)",
+                                        backgroundColor: isSelected ? LIGHT_NAVY : "#ffffff",
                                         paddingHorizontal: 12, paddingVertical: 6,
                                         alignItems: "center",
                                       }}>
-                                      <Text style={{ color: isSelected ? "#fff" : "#c8a000", fontSize: 13, fontWeight: "700" }}>{p.label}</Text>
-                                      <Text style={{ color: isSelected ? "rgba(255,255,255,0.85)" : "#999999", fontSize: 9, marginTop: 1 }}>{p.sub}</Text>
+                                      <Text style={{ color: isSelected ? "#ffffff" : LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "700" }}>{p.label}</Text>
+                                      <Text style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "#888888", fontSize: 9, marginTop: 1 }}>{p.sub}</Text>
                                     </TouchableOpacity>
                                   );
                                 })}
@@ -1811,11 +1845,11 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                                 style={{
                                   flexDirection: "row", alignItems: "center", justifyContent: "center",
                                   marginTop: 12, borderRadius: 10, borderWidth: 1,
-                                  borderColor: isDefault ? "rgba(200,160,0,0.25)" : "#c8a000",
+                                  borderColor: isDefault ? "rgba(0,0,0,0.12)" : "rgba(26,10,58,0.35)",
                                   paddingVertical: 9, paddingHorizontal: 12,
-                                  opacity: isDefault ? 0.45 : 1,
+                                  opacity: isDefault ? 0.5 : 1,
                                 }}>
-                                <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700" }}>
+                                <Text style={{ color: LIGHT_NAVY, fontSize: 12, fontWeight: "700" }}>
                                   ↺  Reset to default ({formatOz(defaultOz)} oz)
                                 </Text>
                               </TouchableOpacity>
@@ -1827,8 +1861,8 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
 
                     {/* Reset All */}
                     <TouchableOpacity onPress={resetAll}
-                      style={{ alignSelf: "flex-start", borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14, marginBottom: 6, backgroundColor: "transparent" }}>
-                      <Text style={{ color: "#c8a000", fontSize: 13, fontWeight: "700" }}>↺ Reset All to Defaults</Text>
+                      style={{ alignSelf: "flex-start", borderWidth: 1, borderColor: "rgba(26,10,58,0.35)", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14, marginBottom: 6, backgroundColor: "transparent" }}>
+                      <Text style={{ color: LIGHT_NAVY, fontSize: 13, fontWeight: "700" }}>↺ Reset All to Defaults</Text>
                     </TouchableOpacity>
                   </View>
                 </ScrollView>
@@ -1837,18 +1871,18 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                 {Platform.OS === "ios" && (
                   <View style={{ backgroundColor: "#f0f0f0", flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#dddddd" }}>
                     <TouchableOpacity onPress={Keyboard.dismiss} hitSlop={{ top: 8, bottom: 8, left: 16, right: 8 }}>
-                      <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>Done</Text>
+                      <Text style={{ color: LIGHT_NAVY, fontSize: 15, fontWeight: "700" }}>Done</Text>
                     </TouchableOpacity>
                   </View>
                 )}
 
                 {/* Action buttons */}
-                <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "rgba(200,160,0,0.2)" }}>
-                  <TouchableOpacity onPress={onCancel} style={{ flex: 1, height: 50, borderRadius: 14, backgroundColor: "#EEEEEE", alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: "#555555", fontSize: 16, fontWeight: "600" }}>Cancel</Text>
+                <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.06)" }}>
+                  <TouchableOpacity onPress={onCancel} style={{ flex: 1, height: 50, borderRadius: 14, backgroundColor: "transparent", borderWidth: 1, borderColor: "rgba(0,0,0,0.12)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 16, fontWeight: "600" }}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handleSave} disabled={!allValid} style={{ flex: 2, height: 50, borderRadius: 14, backgroundColor: allValid ? "#c8a000" : "rgba(200,160,0,0.25)", alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: allValid ? "#ffffff" : "#aaaaaa", fontSize: 16, fontWeight: "800" }}>Save</Text>
+                  <TouchableOpacity onPress={handleSave} disabled={!allValid} style={{ flex: 2, height: 50, borderRadius: 14, backgroundColor: allValid ? LIGHT_NAVY : "rgba(26,10,58,0.20)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "800" }}>Save</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2952,6 +2986,13 @@ export default function WaterTracker() {
   const [promoCode, setPromoCode] = useState('');
   const [promoLoading, setPromoLoading] = useState(false);
 
+  // Save-as-Preset modal (custom, replaces Alert.prompt so we can pre-select
+  // the default name on focus and let the user overwrite with one tap).
+  const [showSavePresetModal, setShowSavePresetModal] = useState(false);
+  const [savePresetName, setSavePresetName] = useState('');
+  const [savePresetSubtitle, setSavePresetSubtitle] = useState('');
+  const savePresetPayloadRef = useRef<{ oz: number; cat: BevCategory } | null>(null);
+
   // Stores every setTimeout ID created in handleBet so they can be cancelled on unmount
   const betTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -3321,10 +3362,10 @@ export default function WaterTracker() {
 
   async function performDailyReset(showToast: boolean) {
     // End any active Live Activity at the day boundary — tomorrow's tank is
-    // a fresh ask, opt-in again.
-    if (tankActivityOnRef.current) {
-      endTankActivity().then(() => setTankActivityOn(false));
-    }
+    // a fresh ask, opt-in again. Unconditional: iOS persists LAs across app
+    // launches, so the JS ref can be false while an orphan LA from a prior
+    // session is still on the Lock Screen. Native side no-ops if none exist.
+    endTankActivity().then(() => setTankActivityOn(false));
 
     // Snapshot yesterday before clearing
     const yesterday = new Date();
@@ -3511,6 +3552,12 @@ export default function WaterTracker() {
 
   useEffect(() => {
     scheduleMidnightTimer();
+    // Live Activity opt-in never persists across cold starts (see
+    // project-live-activity-opt-in). iOS keeps LAs alive on the Lock Screen
+    // when the app process ends; our JS state doesn't know they're there and
+    // won't update them. End any orphan on mount so the user can re-tap the
+    // toggle for a fresh session instead of seeing yesterday's fill.
+    endTankActivity().catch(() => {});
     // Drain anything Siri queued while the app was not running.
     processSiriQueue();
     // Family Mode: catch up missed midnight rollovers + mission progress on
@@ -4898,61 +4945,75 @@ export default function WaterTracker() {
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={[styles.modalBox, { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
-                  {/* Navy header (matches Customize Quick Add) */}
-                  <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)", borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+                <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
+                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
                       <TouchableOpacity onPress={closeCustomModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                        <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                        <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Type a custom amount to log</Text>
+                    <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>Type a custom amount to log</Text>
                   </View>
 
-                  {/* Body */}
-                  <View style={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 24 }}>
-                    {/* Unit toggle */}
-                    <View style={styles.modalTabs}>
+                  <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
+                    {/* Unit toggle — navy fill when active */}
+                    <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 12, marginBottom: 18, padding: 4 }}>
                       {(["oz", "ml"] as const).map((u) => (
                         <TouchableOpacity
                           key={u}
-                          style={[styles.modalTab, customUnit === u ? { backgroundColor: GOLD_DIM } : styles.modalTabInactive]}
+                          style={{
+                            flex: 1,
+                            paddingVertical: 11,
+                            alignItems: "center",
+                            borderRadius: 9,
+                            backgroundColor: customUnit === u ? LIGHT_NAVY : "transparent",
+                          }}
                           onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
                         >
-                          <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
+                          <Text style={{
+                            color: customUnit === u ? "#ffffff" : "#666666",
+                            fontSize: 15,
+                            fontWeight: "700",
+                          }}>{u}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
 
-                    {/* Input */}
                     <TextInput
-                      style={styles.modalInput}
+                      style={{
+                        backgroundColor: "#ffffff",
+                        color: LIGHT_NAVY_DEEP,
+                        borderRadius: 12,
+                        paddingHorizontal: 16,
+                        paddingVertical: 16,
+                        fontSize: 18,
+                        borderWidth: 1,
+                        borderColor: "rgba(0,0,0,0.12)",
+                      }}
                       placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
-                      placeholderTextColor="#AAAAAA"
+                      placeholderTextColor="#a8a8a8"
                       keyboardType="decimal-pad"
                       inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
                       value={customAmount}
                       onChangeText={setCustomAmount}
                     />
 
-                    {/* Live conversion */}
                     {(() => {
                       const n = parseFloat(customAmount);
                       if (isNaN(n) || n <= 0) return null;
                       const label = customUnit === "oz"
                         ? `= ${ozToMl(n)} ml`
                         : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
-                      return <Text style={styles.modalMl}>{label}</Text>;
+                      return <Text style={{ color: "#666666", fontSize: 14, marginTop: 8, marginLeft: 4 }}>{label}</Text>;
                     })()}
 
-                    {/* Buttons */}
-                    <View style={styles.modalBtnRow}>
-                      <TouchableOpacity style={styles.modalCancel} onPress={closeCustomModal}>
-                        <Text style={styles.modalCancelText}>Cancel</Text>
+                    <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+                      <TouchableOpacity style={lightCancelBtn} onPress={closeCustomModal}>
+                        <Text style={lightCancelText}>Cancel</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: GOLD_DIM }]} onPress={handleCustomAdd}>
-                        <Text style={styles.modalConfirmText}>Add</Text>
+                      <TouchableOpacity style={lightPrimaryBtn} onPress={handleCustomAdd}>
+                        <Text style={lightPrimaryText}>Add</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -4970,6 +5031,84 @@ export default function WaterTracker() {
             </View>
           </InputAccessoryView>
         )}
+      </Modal>
+
+      {/* Save as Preset Modal — custom (not Alert.prompt) so we can
+          pre-select the default name via TextInput selectTextOnFocus. */}
+      <Modal
+        visible={showSavePresetModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSavePresetModal(false)}
+      >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💾 Save as Preset</Text>
+                    <TouchableOpacity onPress={() => setShowSavePresetModal(false)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>{savePresetSubtitle}</Text>
+                </View>
+                <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
+                  <TextInput
+                    value={savePresetName}
+                    onChangeText={setSavePresetName}
+                    autoFocus
+                    selectTextOnFocus
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      const payload = savePresetPayloadRef.current;
+                      if (payload) {
+                        const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
+                        savePreset(name, payload.oz, payload.cat);
+                      }
+                      setShowSavePresetModal(false);
+                    }}
+                    placeholder="Preset name"
+                    placeholderTextColor="#a8a8a8"
+                    style={{
+                      backgroundColor: "#ffffff",
+                      color: LIGHT_NAVY_DEEP,
+                      borderRadius: 12,
+                      paddingHorizontal: 14,
+                      paddingVertical: 14,
+                      fontSize: 16,
+                      borderWidth: 1,
+                      borderColor: "rgba(0,0,0,0.12)",
+                      marginBottom: 18,
+                    }}
+                  />
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <TouchableOpacity
+                      style={lightCancelBtn}
+                      onPress={() => setShowSavePresetModal(false)}
+                    >
+                      <Text style={lightCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={lightPrimaryBtn}
+                      onPress={() => {
+                        const payload = savePresetPayloadRef.current;
+                        if (payload) {
+                          const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
+                          savePreset(name, payload.oz, payload.cat);
+                        }
+                        setShowSavePresetModal(false);
+                      }}
+                    >
+                      <Text style={lightPrimaryText}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Confirm Drink Modal */}
@@ -5066,21 +5205,10 @@ export default function WaterTracker() {
                 const totalOz = baseOz * pendingQty;
                 const catLabel = CATEGORIES.find((c) => c.key === selectedCategory)?.label ?? "Drink";
                 const suggested = pendingQty > 1 ? `${pendingQty} × ${catLabel}` : `My ${catLabel}`;
-                Alert.prompt(
-                  "Save as Preset",
-                  `One-tap log for ${totalOz} oz ${catLabel}.`,
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Save",
-                      onPress: (name?: string) => {
-                        savePreset(name ?? suggested, totalOz, selectedCategory);
-                      },
-                    },
-                  ],
-                  "plain-text",
-                  suggested,
-                );
+                savePresetPayloadRef.current = { oz: totalOz, cat: selectedCategory };
+                setSavePresetName(suggested);
+                setSavePresetSubtitle(`One-tap log for ${totalOz} oz ${catLabel}.`);
+                setShowSavePresetModal(true);
               }}
             >
               <Text style={{ color: GOLD, fontSize: 14, fontWeight: "700", letterSpacing: 0.4 }}>
@@ -5188,7 +5316,10 @@ export default function WaterTracker() {
         onCancel={() => setShowChooseBevs(false)}
       />
 
-      {/* Set Goal Modal */}
+      {/* Set Goal Modal — LIGHT+NAVY PIVOT PROTOTYPE. Light grey body, navy CTAs,
+          bright-yellow accent on selected chips + recommended-intake card. No
+          muted gold. If Chanda picks this direction we roll it across the
+          other modals; otherwise the dark siblings are the reference. */}
       <Modal visible={showGoalModal} transparent animationType="fade" onRequestClose={closeGoalModal}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
@@ -5199,34 +5330,42 @@ export default function WaterTracker() {
               tab's ScrollPickers. iOS users dismiss the keyboard via the
               InputAccessoryView Done button below. */}
           <View style={styles.modalOverlay}>
-              <View style={styles.modalBox}>
-                  {/* Close button */}
-                  <View style={styles.kbToolbar}>
-                    <TouchableOpacity onPress={closeGoalModal}>
-                      <Text style={[styles.kbDoneBtn, { color: stage.color }]}>✕</Text>
-                    </TouchableOpacity>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", padding: 0, overflow: "hidden" }]}>
+                  {/* Header */}
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Set Daily Goal</Text>
+                      <TouchableOpacity onPress={closeGoalModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ color: "#666666", fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+                      Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
+                    </Text>
                   </View>
-            {/* Title */}
-            <Text style={styles.modalTitle}>💧 Set Daily Goal</Text>
-            <View style={styles.modalDivider} />
-            <Text style={styles.goalSafetyNote}>
-              Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
-            </Text>
 
-            {/* Tabs */}
-            <View style={styles.modalTabs}>
+                  {/* Body */}
+                  <View style={{ paddingHorizontal: 22, paddingTop: 18, paddingBottom: 22 }}>
+
+            {/* Tabs — segmented control, navy fill on active */}
+            <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 12, marginBottom: 20, padding: 4 }}>
               {(["custom", "gallon", "suggested"] as const).map((tab) => (
                 <TouchableOpacity
                   key={tab}
-                  style={[
-                    styles.modalTab,
-                    goalTab === tab
-                      ? { backgroundColor: stage.color }
-                      : styles.modalTabInactive,
-                  ]}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 11,
+                    alignItems: "center",
+                    borderRadius: 9,
+                    backgroundColor: goalTab === tab ? LIGHT_NAVY : "transparent",
+                  }}
                   onPress={() => setGoalTab(tab)}
                 >
-                  <Text style={[styles.modalTabText, goalTab === tab && styles.modalTabTextActive]}>
+                  <Text style={{
+                    color: goalTab === tab ? "#ffffff" : "#666666",
+                    fontSize: 15,
+                    fontWeight: "700",
+                  }}>
                     {tab === "custom" ? "Custom" : tab === "gallon" ? "Gallon" : "Suggested"}
                   </Text>
                 </TouchableOpacity>
@@ -5237,27 +5376,36 @@ export default function WaterTracker() {
             {goalTab === "custom" && (
               <View>
                 <TextInput
-                  style={styles.modalInput}
+                  style={{
+                    backgroundColor: "#ffffff",
+                    color: LIGHT_NAVY_DEEP,
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 16,
+                    fontSize: 18,
+                    borderWidth: 1,
+                    borderColor: "rgba(0,0,0,0.12)",
+                  }}
                   placeholder={preferredUnit === 'ml' ? "Enter goal in ml..." : "Enter goal in oz..."}
-                  placeholderTextColor="#AAAAAA"
+                  placeholderTextColor="#a8a8a8"
                   keyboardType="decimal-pad"
                   inputAccessoryViewID={KB_ACCESSORY_ID}
                   value={newGoal}
                   onChangeText={setNewGoal}
                 />
-                <Text style={styles.modalMl}>
+                <Text style={{ color: "#666666", fontSize: 14, marginTop: 8, marginLeft: 4 }}>
                   {newGoal
                     ? preferredUnit === 'ml'
                       ? `= ${((parseFloat(newGoal) || 0) / 29.5735).toFixed(1)} oz`
                       : `= ${ozToMl(parseFloat(newGoal) || 0)} ml`
                     : ""}
                 </Text>
-                <View style={styles.modalBtnRow}>
-                  <TouchableOpacity style={styles.modalCancel} onPress={closeGoalModal}>
-                    <Text style={styles.modalCancelText}>Cancel</Text>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+                  <TouchableOpacity style={lightCancelBtn} onPress={closeGoalModal}>
+                    <Text style={lightCancelText}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: stage.color }]} onPress={handleSetGoal}>
-                    <Text style={styles.modalConfirmText}>Save</Text>
+                  <TouchableOpacity style={lightPrimaryBtn} onPress={handleSetGoal}>
+                    <Text style={lightPrimaryText}>Save</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -5270,28 +5418,36 @@ export default function WaterTracker() {
                   {[
                     { label: "Half Gallon", oz: 64 },
                     { label: "1 Gallon", oz: 128 },
-                  ].map(({ label, oz }) => (
-                    <TouchableOpacity
-                      key={oz}
-                      style={[
-                        styles.gallonPreset,
-                        { flex: 1 },
-                        goal === oz && { borderColor: stage.color, backgroundColor: stage.color + "18" },
-                      ]}
-                      onPress={() => handleSetGallonGoal(oz)}
-                    >
-                      <Text style={styles.gallonPresetLabel}>{label}</Text>
-                      <Text style={[styles.gallonPresetOz, goal === oz && { color: stage.color }]}>
-                        {preferredUnit === 'ml' ? `${ozToMl(oz)} ml` : `${oz} oz`}
-                      </Text>
-                      <Text style={styles.gallonPresetMl}>
-                        {preferredUnit === 'ml' ? `${oz} oz` : `${ozToMl(oz)} ml`}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                  ].map(({ label, oz }) => {
+                    const selected = goal === oz;
+                    return (
+                      <TouchableOpacity
+                        key={oz}
+                        style={{
+                          flex: 1,
+                          backgroundColor: selected ? ACCENT_YELLOW : "#ffffff",
+                          borderRadius: 14,
+                          paddingVertical: 16,
+                          paddingHorizontal: 16,
+                          alignItems: "center",
+                          borderWidth: 1,
+                          borderColor: selected ? ACCENT_YELLOW : "rgba(0,0,0,0.10)",
+                        }}
+                        onPress={() => handleSetGallonGoal(oz)}
+                      >
+                        <Text style={{ color: selected ? "rgba(26,26,46,0.7)" : "#666666", fontSize: 13, marginBottom: 4 }}>{label}</Text>
+                        <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 22, fontWeight: "bold" }}>
+                          {preferredUnit === 'ml' ? `${ozToMl(oz)} ml` : `${oz} oz`}
+                        </Text>
+                        <Text style={{ color: selected ? "rgba(26,26,46,0.7)" : "#888888", fontSize: 12, marginTop: 2 }}>
+                          {preferredUnit === 'ml' ? `${oz} oz` : `${ozToMl(oz)} ml`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-                <TouchableOpacity style={[styles.modalCancel, { marginTop: 12 }]} onPress={closeGoalModal}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+                <TouchableOpacity style={[lightCancelBtn, { marginTop: 12 }]} onPress={closeGoalModal}>
+                  <Text style={lightCancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -5300,16 +5456,16 @@ export default function WaterTracker() {
             {goalTab === "suggested" && (
               <View>
                 {/* Weight */}
-                <View style={styles.inputModeHeader}>
-                  <Text style={styles.modalFieldLabel}>Weight</Text>
-                  <View style={styles.modeToggle}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6, marginBottom: 4 }}>
+                  <Text style={lightFieldLabel}>Weight</Text>
+                  <View style={lightModeToggle}>
                     {(["scroll", "type"] as const).map((m) => (
                       <TouchableOpacity
                         key={m}
-                        style={[styles.modeBtn, weightMode === m && { backgroundColor: stage.color }]}
+                        style={[lightModeBtn, weightMode === m && lightModeBtnActive]}
                         onPress={() => switchWeightMode(m)}
                       >
-                        <Text style={[styles.modeBtnText, weightMode === m && styles.modeBtnTextActive]}>
+                        <Text style={[lightModeBtnText, weightMode === m && lightModeBtnTextActive]}>
                           {m === "scroll" ? "Scroll" : "Type"}
                         </Text>
                       </TouchableOpacity>
@@ -5320,6 +5476,7 @@ export default function WaterTracker() {
                   <View style={styles.pickerRow}>
                     {bodyUnit === "metric" ? (
                       <ScrollPicker
+                        variant="lightNavy"
                         items={Array.from({ length: 146 }, (_, i) => i + 36)}
                         selectedIndex={Math.max(0, Math.min(145, Math.round(suggWeightLbs / 2.20462) - 36))}
                         onIndexChange={(i) => setSuggWeightLbs(Math.round((i + 36) * 2.20462))}
@@ -5327,6 +5484,7 @@ export default function WaterTracker() {
                       />
                     ) : (
                       <ScrollPicker
+                        variant="lightNavy"
                         items={Array.from({ length: 321 }, (_, i) => i + 80)}
                         selectedIndex={suggWeightLbs - 80}
                         onIndexChange={(i) => setSuggWeightLbs(i + 80)}
@@ -5337,46 +5495,46 @@ export default function WaterTracker() {
                 ) : bodyUnit === "metric" ? (
                   <View>
                     <TextInput
-                      style={styles.typeInput}
+                      style={lightTypeInput}
                       placeholder="Weight in kg"
-                      placeholderTextColor="#AAAAAA"
+                      placeholderTextColor="#a8a8a8"
                       keyboardType="numeric"
                       inputAccessoryViewID={KB_ACCESSORY_ID}
                       value={typeWeightKg}
                       onChangeText={setTypeWeightKg}
                     />
                     {typeWeightKg.length > 0 && (() => { const w = parseFloat(typeWeightKg); return isNaN(w) || w < 36 || w > 181; })() && (
-                      <Text style={styles.validationError}>Please enter a valid weight (36–181 kg)</Text>
+                      <Text style={lightValidationError}>Please enter a valid weight (36–181 kg)</Text>
                     )}
                   </View>
                 ) : (
                   <View>
                     <TextInput
-                      style={styles.typeInput}
+                      style={lightTypeInput}
                       placeholder="Weight in lbs"
-                      placeholderTextColor="#AAAAAA"
+                      placeholderTextColor="#a8a8a8"
                       keyboardType="numeric"
                       inputAccessoryViewID={KB_ACCESSORY_ID}
                       value={typeWeight}
                       onChangeText={setTypeWeight}
                     />
                     {typeWeight.length > 0 && (() => { const w = parseFloat(typeWeight); return isNaN(w) || w < 80 || w > 400; })() && (
-                      <Text style={styles.validationError}>Please enter a valid weight (80–400 lbs)</Text>
+                      <Text style={lightValidationError}>Please enter a valid weight (80–400 lbs)</Text>
                     )}
                   </View>
                 )}
 
                 {/* Height */}
-                <View style={styles.inputModeHeader}>
-                  <Text style={styles.modalFieldLabel}>Height</Text>
-                  <View style={styles.modeToggle}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }}>
+                  <Text style={lightFieldLabel}>Height</Text>
+                  <View style={lightModeToggle}>
                     {(["scroll", "type"] as const).map((m) => (
                       <TouchableOpacity
                         key={m}
-                        style={[styles.modeBtn, heightMode === m && { backgroundColor: stage.color }]}
+                        style={[lightModeBtn, heightMode === m && lightModeBtnActive]}
                         onPress={() => switchHeightMode(m)}
                       >
-                        <Text style={[styles.modeBtnText, heightMode === m && styles.modeBtnTextActive]}>
+                        <Text style={[lightModeBtnText, heightMode === m && lightModeBtnTextActive]}>
                           {m === "scroll" ? "Scroll" : "Type"}
                         </Text>
                       </TouchableOpacity>
@@ -5387,6 +5545,7 @@ export default function WaterTracker() {
                   <View style={styles.pickerRow}>
                     {bodyUnit === "metric" ? (
                       <ScrollPicker
+                        variant="lightNavy"
                         items={Array.from({ length: 101 }, (_, i) => i + 120)}
                         selectedIndex={Math.max(0, Math.min(100, Math.round(suggFeet * 30.48 + suggInches * 2.54) - 120))}
                         onIndexChange={(i) => {
@@ -5400,12 +5559,14 @@ export default function WaterTracker() {
                     ) : (
                       <>
                         <ScrollPicker
+                          variant="lightNavy"
                           items={[4, 5, 6, 7]}
                           selectedIndex={suggFeet - 4}
                           onIndexChange={(i) => setSuggFeet(i + 4)}
                           label="ft"
                         />
                         <ScrollPicker
+                          variant="lightNavy"
                           items={Array.from({ length: 12 }, (_, i) => i)}
                           selectedIndex={suggInches}
                           onIndexChange={(i) => setSuggInches(i)}
@@ -5417,34 +5578,34 @@ export default function WaterTracker() {
                 ) : bodyUnit === "metric" ? (
                   <View>
                     <TextInput
-                      style={styles.typeInput}
+                      style={lightTypeInput}
                       placeholder="Height in cm"
-                      placeholderTextColor="#AAAAAA"
+                      placeholderTextColor="#a8a8a8"
                       keyboardType="numeric"
                       inputAccessoryViewID={KB_ACCESSORY_ID}
                       value={typeHeightCm}
                       onChangeText={setTypeHeightCm}
                     />
                     {typeHeightCm.length > 0 && (() => { const c = parseFloat(typeHeightCm); return isNaN(c) || c < 120 || c > 220; })() && (
-                      <Text style={styles.validationError}>Please enter a valid height (120–220 cm)</Text>
+                      <Text style={lightValidationError}>Please enter a valid height (120–220 cm)</Text>
                     )}
                   </View>
                 ) : (
                   <View>
-                    <View style={styles.typeHeightRow}>
+                    <View style={{ flexDirection: "row", gap: 10 }}>
                       <TextInput
-                        style={[styles.typeInput, { flex: 1 }]}
+                        style={[lightTypeInput, { flex: 1 }]}
                         placeholder="ft"
-                        placeholderTextColor="#AAAAAA"
+                        placeholderTextColor="#a8a8a8"
                         keyboardType="numeric"
                         inputAccessoryViewID={KB_ACCESSORY_ID}
                         value={typeFeet}
                         onChangeText={setTypeFeet}
                       />
                       <TextInput
-                        style={[styles.typeInput, { flex: 1 }]}
+                        style={[lightTypeInput, { flex: 1 }]}
                         placeholder="in"
-                        placeholderTextColor="#AAAAAA"
+                        placeholderTextColor="#a8a8a8"
                         keyboardType="numeric"
                         inputAccessoryViewID={KB_ACCESSORY_ID}
                         value={typeInches}
@@ -5456,64 +5617,86 @@ export default function WaterTracker() {
                       const i = parseFloat(typeInches);
                       return isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11;
                     })() && (
-                      <Text style={styles.validationError}>Please enter a valid height (ft: 4–7, in: 0–11)</Text>
+                      <Text style={lightValidationError}>Please enter a valid height (ft: 4–7, in: 0–11)</Text>
                     )}
                   </View>
                 )}
 
                 {/* Activity Level */}
-                <Text style={styles.modalFieldLabel}>Activity Level</Text>
-                <View style={styles.activityRow}>
-                  {(["sedentary", "moderate", "active"] as const).map((level) => (
-                    <TouchableOpacity
-                      key={level}
-                      style={[
-                        styles.activityBtn,
-                        suggActivity === level && { backgroundColor: stage.color, borderColor: stage.color },
-                      ]}
-                      onPress={() => setSuggActivity(level)}
-                    >
-                      <Text style={[styles.activityBtnText, suggActivity === level && styles.activityBtnTextActive]}>
-                        {level === "sedentary" ? "Sedentary" : level === "moderate" ? "Moderate" : "Very Active"}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                <Text style={[lightFieldLabel, { marginTop: 14 }]}>Activity Level</Text>
+                <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
+                  {(["sedentary", "moderate", "active"] as const).map((level) => {
+                    const selected = suggActivity === level;
+                    return (
+                      <TouchableOpacity
+                        key={level}
+                        style={{
+                          flex: 1,
+                          backgroundColor: selected ? ACCENT_YELLOW : "#ffffff",
+                          borderRadius: 10,
+                          paddingVertical: 11,
+                          alignItems: "center",
+                          borderWidth: 1,
+                          borderColor: selected ? ACCENT_YELLOW : "rgba(0,0,0,0.10)",
+                        }}
+                        onPress={() => setSuggActivity(level)}
+                      >
+                        <Text style={{
+                          color: LIGHT_NAVY_DEEP,
+                          fontSize: 11,
+                          fontWeight: "700",
+                          textAlign: "center",
+                        }}>
+                          {level === "sedentary" ? "Sedentary" : level === "moderate" ? "Moderate" : "Very Active"}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
-                {/* Recommended Result */}
-                <View style={styles.suggestedResult}>
-                  <Text style={styles.suggestedResultLabel}>Recommended daily intake</Text>
+                {/* Recommended Result — water-tinted highlight card */}
+                <View style={{
+                  alignItems: "center",
+                  paddingVertical: 16,
+                  marginTop: 16,
+                  backgroundColor: ACCENT_WATER_TINT,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: ACCENT_WATER_BORDER,
+                }}>
+                  <Text style={{ color: "#666666", fontSize: 13, marginBottom: 4 }}>Recommended daily intake</Text>
                   {suggestedOz !== null ? (
                     <>
-                      <Text style={[styles.suggestedOz, { color: stage.color }]}>
+                      <Text style={{ fontSize: 28, fontWeight: "bold", color: LIGHT_NAVY_DEEP }}>
                         {preferredUnit === 'ml' ? `${ozToMl(suggestedOz)} ml` : `${suggestedOz} oz`}
                       </Text>
-                      <Text style={styles.suggestedMl}>
+                      <Text style={{ color: "#666666", fontSize: 14, marginTop: 2 }}>
                         {preferredUnit === 'ml' ? `${suggestedOz} oz` : `${ozToMl(suggestedOz)} ml`}
                       </Text>
                       {suggestedOz === 128 && (
-                        <Text style={styles.suggestedCap}>Max recommendation is 1 gallon (128oz)</Text>
+                        <Text style={{ color: "#888888", fontSize: 11, marginTop: 4 }}>Max recommendation is 1 gallon (128oz)</Text>
                       )}
                     </>
                   ) : (
-                    <Text style={styles.suggestedPlaceholder}>Enter your details above</Text>
+                    <Text style={{ color: "#888888", fontSize: 13, textAlign: "center", paddingHorizontal: 16 }}>Enter your details above</Text>
                   )}
                 </View>
 
-                <View style={styles.modalBtnRow}>
-                  <TouchableOpacity style={styles.modalCancel} onPress={closeGoalModal}>
-                    <Text style={styles.modalCancelText}>Cancel</Text>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+                  <TouchableOpacity style={lightCancelBtn} onPress={closeGoalModal}>
+                    <Text style={lightCancelText}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalConfirm, { backgroundColor: suggestedOz !== null ? stage.color : "#CCCCCC" }]}
+                    style={[lightPrimaryBtn, suggestedOz === null && { backgroundColor: "rgba(0,0,0,0.15)" }]}
                     onPress={handleUseSuggestedGoal}
                     disabled={suggestedOz === null}
                   >
-                    <Text style={styles.modalConfirmText}>Use This Goal</Text>
+                    <Text style={[lightPrimaryText, suggestedOz === null && { color: "rgba(255,255,255,0.55)" }]}>Use This Goal</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
+                  </View>
                 </View>
               {/* Android: floating Done toolbar above keyboard */}
               {Platform.OS === "android" && kbHeight > 0 && (
@@ -5591,16 +5774,16 @@ export default function WaterTracker() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowSettingsModal(false)}
       >
-        <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
-          <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)" }}>
+        <View style={{ flex: 1, backgroundColor: LIGHT_BODY }}>
+          <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
+              <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
               <TouchableOpacity
                 onPress={() => setShowSettingsModal(false)}
                 activeOpacity={0.7}
                 style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
               >
-                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -5616,11 +5799,11 @@ export default function WaterTracker() {
                 {/* Apple Health toggle — only shown on iOS */}
                 {Platform.OS === "ios" && (
                   <View style={{ marginTop: 20 }}>
-                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>APPLE HEALTH</Text>
+                    <Text style={settingsSection}>APPLE HEALTH</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                       <View style={{ flex: 1, marginRight: 16 }}>
-                        <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>Sync to Apple Health</Text>
-                        <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                        <Text style={settingsRowTitle}>Sync to Apple Health</Text>
+                        <Text style={settingsRowSub}>
                           {healthPermissionGranted
                             ? "Save each drink to Apple Health as a Water sample"
                             : "Permission not granted — tap Allow in the system dialog to enable"}
@@ -5629,12 +5812,12 @@ export default function WaterTracker() {
                       <Switch
                         value={healthSyncEnabled && healthPermissionGranted}
                         onValueChange={handleHealthToggle}
-                        trackColor={{ false: "#cccccc", true: "#34C759" }}
+                        trackColor={{ false: "rgba(255,255,255,0.15)", true: "#34C759" }}
                         thumbColor="#ffffff"
-                        ios_backgroundColor="#e0e0e0"
+                        ios_backgroundColor="rgba(0,0,0,0.10)"
                       />
                     </View>
-                    <View style={{ marginTop: 10, height: 1, backgroundColor: "rgba(200,160,0,0.3)" }} />
+                    <View style={settingsDivider} />
                     <Text style={{ color: "#888888", fontSize: 11, marginTop: 10, textAlign: "center" }}>
                       Existing Health data is never deleted when sync is turned off
                     </Text>
@@ -5642,18 +5825,18 @@ export default function WaterTracker() {
                 )}
 
                 {Platform.OS !== "ios" && (
-                  <Text style={{ color: "#555555", fontSize: 13, textAlign: "center", marginTop: 20, lineHeight: 20 }}>
+                  <Text style={{ color: "#666666", fontSize: 13, textAlign: "center", marginTop: 20, lineHeight: 20 }}>
                     Apple Health is only available on iPhone.
                   </Text>
                 )}
 
                 {/* Notifications section */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>NOTIFICATIONS</Text>
+                  <Text style={settingsSection}>NOTIFICATIONS</Text>
                   {notifPermissionStatus === "denied" && (
                     <TouchableOpacity
                       onPress={() => Linking.openURL("app-settings:").catch(() => {})}
-                      style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,59,48,0.08)", borderWidth: 1, borderColor: "rgba(255,59,48,0.3)", borderRadius: 10, padding: 12, marginBottom: 14 }}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(192,21,42,0.08)", borderWidth: 1, borderColor: "rgba(192,21,42,0.30)", borderRadius: 10, padding: 12, marginBottom: 14 }}
                     >
                       <Text style={{ fontSize: 16 }}>🔕</Text>
                       <Text style={{ flex: 1, color: "#C0152A", fontSize: 12, lineHeight: 18 }}>
@@ -5671,14 +5854,14 @@ export default function WaterTracker() {
                     ] as { label: string; sub: string; key: string; val: boolean; set: (v: boolean) => void }[]
                   ).map((row, i) => (
                     <View key={row.key}>
-                      {i > 0 && <View style={{ height: 1, backgroundColor: "rgba(200,160,0,0.3)", marginVertical: 12 }} />}
+                      {i > 0 && <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginVertical: 12 }} />}
                       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                         <View style={{ flex: 1, marginRight: 16 }}>
                           <Text style={{
                             color: i === 0 ? "#1a1a2e" : (notifMasterEnabled ? "#1a1a2e" : "rgba(26,26,46,0.35)"),
                             fontSize: i === 0 ? 15 : 14, fontWeight: i === 0 ? "600" : "500", marginBottom: 2,
                           }}>{row.label}</Text>
-                          <Text style={{ color: "#555555", fontSize: 11, lineHeight: 16 }}>{row.sub}</Text>
+                          <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, lineHeight: 16 }}>{row.sub}</Text>
                         </View>
                         <Switch
                           value={row.val && (i === 0 || notifMasterEnabled)}
@@ -5706,9 +5889,9 @@ export default function WaterTracker() {
                             else if (row.key === 'notif_streak_enabled')   prefOverride.streak   = v;
                             rescheduleSmartNotifications(curPct, curStreak, Math.max(0, g - h), prefOverride);
                           }}
-                          trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                          trackColor={settingsSwitchTrack}
                           thumbColor="#ffffff"
-                          ios_backgroundColor="#e0e0e0"
+                          ios_backgroundColor="rgba(0,0,0,0.10)"
                         />
                       </View>
                     </View>
@@ -5717,11 +5900,11 @@ export default function WaterTracker() {
 
                 {/* Drinks section — alcoholic-drinks toggle */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>DRINKS</Text>
+                  <Text style={settingsSection}>DRINKS</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View style={{ flex: 1, marginRight: 16 }}>
-                      <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>Show Alcoholic Drinks</Text>
-                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                      <Text style={settingsRowTitle}>Show Alcoholic Drinks</Text>
+                      <Text style={settingsRowSub}>
                         Adds Beer, Wine, Cocktail and Spirits to the drink picker. Existing logs are unaffected.
                       </Text>
                     </View>
@@ -5731,9 +5914,9 @@ export default function WaterTracker() {
                         setShowAlcoholicDrinks(val);
                         try { await pSetItem("show_alcoholic_drinks", String(val)); } catch {}
                       }}
-                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      trackColor={settingsSwitchTrack}
                       thumbColor="#ffffff"
-                      ios_backgroundColor="#e0e0e0"
+                      ios_backgroundColor="rgba(0,0,0,0.10)"
                     />
                   </View>
                 </View>
@@ -5742,12 +5925,12 @@ export default function WaterTracker() {
                     for users who don't want the option at all. iOS 16.2+ only. */}
                 {liveActivityAvailable() && (
                   <View style={{ marginTop: 24 }}>
-                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>LIVE ACTIVITY</Text>
+                    <Text style={settingsSection}>LIVE ACTIVITY</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                       <View style={{ flex: 1, marginRight: 16 }}>
-                        <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>Show option on Home</Text>
-                        <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
-                          Adds a "Show today on Lock Screen" button under Quick Add. Tapping it puts a live tank on your Lock Screen and Dynamic Island until you hit your goal, midnight rolls over, or 4 hours pass without logging.
+                        <Text style={settingsRowTitle}>Show option on Home</Text>
+                        <Text style={settingsRowSub}>
+                          Adds a "Show today on Lock Screen" button under Quick Add. Tapping it puts a live tank on your Lock Screen and Dynamic Island. It clears when you hit your goal, and reopening the app clears it automatically after midnight or 4 hours without logging.
                         </Text>
                       </View>
                       <Switch
@@ -5760,9 +5943,9 @@ export default function WaterTracker() {
                             setTankActivityOn(false);
                           }
                         }}
-                        trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                        trackColor={settingsSwitchTrack}
                         thumbColor="#ffffff"
-                        ios_backgroundColor="#e0e0e0"
+                        ios_backgroundColor="rgba(0,0,0,0.10)"
                       />
                     </View>
                   </View>
@@ -5770,13 +5953,13 @@ export default function WaterTracker() {
 
                 {/* Sound Effects toggle */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>SOUND</Text>
+                  <Text style={settingsSection}>SOUND</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View style={{ flex: 1, marginRight: 16 }}>
-                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.4)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
+                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.35)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
                         Sound Effects{!isPro ? " 🔒" : ""}
                       </Text>
-                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                      <Text style={settingsRowSub}>
                         Water pours, log chimes, badge unlocks and more
                       </Text>
                     </View>
@@ -5788,16 +5971,16 @@ export default function WaterTracker() {
                         setSoundEnabled(val);
                         try { await AsyncStorage.setItem("sound_enabled", String(val)); } catch {}
                       }}
-                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      trackColor={settingsSwitchTrack}
                       thumbColor="#ffffff"
-                      ios_backgroundColor="#e0e0e0"
+                      ios_backgroundColor="rgba(0,0,0,0.10)"
                     />
                   </View>
                 </View>
 
                 {/* Sound Pack selector */}
                 <View style={{ marginTop: 20 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 12 }}>SOUND PACK</Text>
+                  <Text style={[settingsSection, { marginBottom: 12 }]}>SOUND PACK</Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                     {ALL_SOUND_PACKS.map((pack) => {
                       const isSelected = selectedSoundPack === pack.id;
@@ -5809,11 +5992,11 @@ export default function WaterTracker() {
                           style={{
                             width: "47%",
                             borderRadius: 12,
-                            borderWidth: isSelected ? 2 : 1,
-                            borderColor: isSelected ? "#c8a000" : "rgba(200,160,0,0.25)",
-                            backgroundColor: isSelected ? "rgba(200,160,0,0.08)" : "rgba(0,0,0,0.03)",
+                            borderWidth: isSelected ? 1.5 : 1,
+                            borderColor: isSelected ? ACCENT_WATER_BORDER : "rgba(0,0,0,0.10)",
+                            backgroundColor: isSelected ? ACCENT_WATER_TINT : "#ffffff",
                             padding: 12,
-                            opacity: locked ? 0.65 : 1,
+                            opacity: locked ? 0.55 : 1,
                           }}
                           onPress={async () => {
                             if (locked) { openPaywallFromSettings(); return; }
@@ -5828,14 +6011,14 @@ export default function WaterTracker() {
                           {pack.isPro && (
                             <View style={{
                               position: "absolute", top: 6, right: 6,
-                              backgroundColor: "#c8a000", borderRadius: 4,
+                              backgroundColor: LIGHT_NAVY, borderRadius: 4,
                               paddingHorizontal: 5, paddingVertical: 2,
                             }}>
                               <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
                             </View>
                           )}
                           <Text style={{ fontSize: 26, marginBottom: 4 }}>{pack.emoji}</Text>
-                          <Text style={{ color: isSelected ? "#c8a000" : "#1a1a2e", fontSize: 13, fontWeight: "700", marginBottom: 2 }}>
+                          <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "700", marginBottom: 2 }}>
                             {pack.name}
                           </Text>
                           <Text style={{ color: "#666666", fontSize: 10, lineHeight: 14 }} numberOfLines={2}>
@@ -5846,7 +6029,7 @@ export default function WaterTracker() {
                             style={{
                               position: "absolute", bottom: 8, right: 8,
                               width: 26, height: 26, borderRadius: 13,
-                              backgroundColor: previewingPack === pack.id ? "#c8a000" : "rgba(200,160,0,0.15)",
+                              backgroundColor: previewingPack === pack.id ? LIGHT_NAVY : "rgba(0,136,255,0.15)",
                               alignItems: "center", justifyContent: "center",
                             }}
                             onPress={async () => {
@@ -5874,10 +6057,10 @@ export default function WaterTracker() {
                     style={{
                       marginTop: 12,
                       borderRadius: 12,
-                      borderWidth: 1.5,
-                      borderColor: "rgba(200,160,0,0.5)",
+                      borderWidth: 1,
+                      borderColor: ACCENT_WATER_BORDER,
                       borderStyle: "dashed",
-                      backgroundColor: "rgba(200,160,0,0.06)",
+                      backgroundColor: ACCENT_WATER_TINT,
                       padding: 14,
                       flexDirection: "row",
                       alignItems: "center",
@@ -5894,15 +6077,15 @@ export default function WaterTracker() {
                   >
                     <Text style={{ fontSize: 22 }}>🎙</Text>
                     <View style={{ flex: 1 }}>
-                      <Text style={{ color: "#c8a000", fontSize: 14, fontWeight: "800", letterSpacing: 0.3 }}>
+                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 14, fontWeight: "800", letterSpacing: 0.3 }}>
                         Record Your Own Sounds
                       </Text>
-                      <Text style={{ color: "#666", fontSize: 11, marginTop: 2, lineHeight: 15 }}>
+                      <Text style={{ color: "#666666", fontSize: 11, marginTop: 2, lineHeight: 15 }}>
                         Up to 5 clips each for the drink splash and goal celebration.
                       </Text>
                     </View>
                     <View style={{
-                      backgroundColor: "#c8a000", borderRadius: 6,
+                      backgroundColor: LIGHT_NAVY, borderRadius: 6,
                       paddingHorizontal: 8, paddingVertical: 3,
                     }}>
                       <Text style={{ color: "#ffffff", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 }}>PRO</Text>
@@ -5912,13 +6095,13 @@ export default function WaterTracker() {
 
                 {/* Haptic Feedback toggle */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>HAPTICS</Text>
+                  <Text style={settingsSection}>HAPTICS</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View style={{ flex: 1, marginRight: 16 }}>
-                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.4)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
+                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.35)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
                         Haptic Feedback{!isPro ? " 🔒" : ""}
                       </Text>
-                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                      <Text style={settingsRowSub}>
                         Vibration on taps, drink logs, goals and milestones
                       </Text>
                     </View>
@@ -5929,20 +6112,20 @@ export default function WaterTracker() {
                         setHapticsEnabled(val);
                         try { await AsyncStorage.setItem("haptics_enabled", String(val)); } catch {}
                       }}
-                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      trackColor={settingsSwitchTrack}
                       thumbColor="#ffffff"
-                      ios_backgroundColor="#e0e0e0"
+                      ios_backgroundColor="rgba(0,0,0,0.10)"
                     />
                   </View>
                 </View>
 
                 {/* Preferred unit (oz / ml) */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 6 }}>UNITS</Text>
-                  <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18, marginBottom: 10 }}>
+                  <Text style={[settingsSection, { marginBottom: 6 }]}>UNITS</Text>
+                  <Text style={[settingsRowSub, { marginBottom: 10 }]}>
                     Choose which appears larger. Both stay visible everywhere.
                   </Text>
-                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.04)", borderRadius: 10, padding: 3 }}>
+                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 10, padding: 3 }}>
                     {(["oz", "ml"] as const).map((u) => {
                       const active = preferredUnit === u;
                       return (
@@ -5951,7 +6134,7 @@ export default function WaterTracker() {
                           activeOpacity={0.8}
                           style={{
                             flex: 1,
-                            backgroundColor: active ? "#c8a000" : "transparent",
+                            backgroundColor: active ? LIGHT_NAVY : "transparent",
                             borderRadius: 8,
                             paddingVertical: 10,
                             alignItems: "center",
@@ -5963,7 +6146,7 @@ export default function WaterTracker() {
                           }}
                         >
                           <Text style={{
-                            color: active ? "#ffffff" : "#1a1a2e",
+                            color: active ? "#ffffff" : "#666666",
                             fontSize: 14, fontWeight: "800", letterSpacing: 0.5,
                           }}>{u.toUpperCase()}</Text>
                         </TouchableOpacity>
@@ -5974,11 +6157,11 @@ export default function WaterTracker() {
 
                 {/* Body measurements (lbs+ft/in vs kg+cm) — drives the Suggest goal tab */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 6 }}>BODY MEASUREMENTS</Text>
-                  <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18, marginBottom: 10 }}>
+                  <Text style={[settingsSection, { marginBottom: 6 }]}>BODY MEASUREMENTS</Text>
+                  <Text style={[settingsRowSub, { marginBottom: 10 }]}>
                     For the Suggested goal calculator. Pick your preferred system.
                   </Text>
-                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.04)", borderRadius: 10, padding: 3 }}>
+                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 10, padding: 3 }}>
                     {([
                       { key: "imperial" as const, label: "LBS / FT" },
                       { key: "metric" as const, label: "KG / CM" },
@@ -5990,7 +6173,7 @@ export default function WaterTracker() {
                           activeOpacity={0.8}
                           style={{
                             flex: 1,
-                            backgroundColor: active ? "#c8a000" : "transparent",
+                            backgroundColor: active ? LIGHT_NAVY : "transparent",
                             borderRadius: 8,
                             paddingVertical: 10,
                             alignItems: "center",
@@ -6001,7 +6184,7 @@ export default function WaterTracker() {
                           }}
                         >
                           <Text style={{
-                            color: active ? "#ffffff" : "#1a1a2e",
+                            color: active ? "#ffffff" : "#666666",
                             fontSize: 14, fontWeight: "800", letterSpacing: 0.5,
                           }}>{label}</Text>
                         </TouchableOpacity>
@@ -6013,18 +6196,18 @@ export default function WaterTracker() {
                 {/* Dev-only: demo data for App Store screenshots (never ships — gated by __DEV__) */}
                 {__DEV__ && (
                   <View style={{ marginTop: 24 }}>
-                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>SCREENSHOTS (DEV)</Text>
+                    <Text style={settingsSection}>SCREENSHOTS (DEV)</Text>
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        backgroundColor: "#c8a000", borderRadius: 12,
+                        backgroundColor: LIGHT_NAVY, borderRadius: 12,
                         paddingVertical: 14, paddingHorizontal: 16, gap: 8,
                       }}
                       onPress={() => seedDemoData("primed").catch(() => {})}
                       activeOpacity={0.85}
                     >
                       <Text style={{ fontSize: 18 }}>🎯</Text>
-                      <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>
+                      <Text style={{ color: "#ffffff", fontSize: 15, fontWeight: "800" }}>
                         Seed — Primed Goal
                       </Text>
                     </TouchableOpacity>
@@ -6034,14 +6217,14 @@ export default function WaterTracker() {
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        backgroundColor: "#c8a000", borderRadius: 12,
+                        backgroundColor: LIGHT_NAVY, borderRadius: 12,
                         paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 16,
                       }}
                       onPress={() => seedDemoData("full").catch(() => {})}
                       activeOpacity={0.85}
                     >
                       <Text style={{ fontSize: 18 }}>🏆</Text>
-                      <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>
+                      <Text style={{ color: "#ffffff", fontSize: 15, fontWeight: "800" }}>
                         Seed — Full (Goal Hit)
                       </Text>
                     </TouchableOpacity>
@@ -6051,14 +6234,14 @@ export default function WaterTracker() {
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 12,
+                        borderWidth: 1, borderColor: "rgba(26,10,58,0.35)", borderRadius: 12,
                         paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 12,
                       }}
                       onPress={() => seedDemoData("mid").catch(() => {})}
                       activeOpacity={0.85}
                     >
                       <Text style={{ fontSize: 18 }}>🌓</Text>
-                      <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>
+                      <Text style={{ color: LIGHT_NAVY, fontSize: 15, fontWeight: "700" }}>
                         Seed — In Progress (~50%)
                       </Text>
                     </TouchableOpacity>
@@ -6068,7 +6251,7 @@ export default function WaterTracker() {
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        borderWidth: 1.5, borderColor: "rgba(192,21,42,0.5)", borderRadius: 12,
+                        borderWidth: 1, borderColor: "rgba(192,21,42,0.4)", borderRadius: 12,
                         paddingVertical: 12, paddingHorizontal: 16, gap: 8, marginTop: 16,
                       }}
                       onPress={() => clearDemoData().catch(() => {})}
@@ -6084,9 +6267,9 @@ export default function WaterTracker() {
 
                 {/* Feedback */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>FEEDBACK</Text>
+                  <Text style={settingsSection}>FEEDBACK</Text>
                   <TouchableOpacity
-                    style={{ borderWidth: 1.5, borderColor: "rgba(200,160,0,0.4)", borderRadius: 12, paddingVertical: 13, alignItems: "center" }}
+                    style={{ borderWidth: 1, borderColor: "rgba(26,10,58,0.30)", backgroundColor: "#ffffff", borderRadius: 12, paddingVertical: 13, alignItems: "center" }}
                     onPress={() => {
                       setShowSettingsModal(false);
                       setTimeout(() => {
@@ -6095,7 +6278,7 @@ export default function WaterTracker() {
                     }}
                     activeOpacity={0.85}
                   >
-                    <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "700" }}>💬 Send Feedback</Text>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 15, fontWeight: "700" }}>💬 Send Feedback</Text>
                   </TouchableOpacity>
                   <Text style={{ color: "#888888", fontSize: 12, marginTop: 8, textAlign: "center" }}>
                     Found a bug or have an idea? Let us know.
@@ -6104,9 +6287,9 @@ export default function WaterTracker() {
 
                 {/* About */}
                 <View style={{ marginTop: 32, marginBottom: 8, alignItems: "center" }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>ABOUT</Text>
+                  <Text style={settingsSection}>ABOUT</Text>
 
-                  <Text style={{ color: "#1a1a2e", fontSize: 14, fontWeight: "700" }}>Hydro Hero</Text>
+                  <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 14, fontWeight: "700" }}>Hydro Hero</Text>
                   <TouchableOpacity onLongPress={confirmResetProForTesting} delayLongPress={1200} activeOpacity={1}>
                     <Text style={{ color: "#888888", fontSize: 11, marginTop: 2 }}>
                       Version {Constants.expoConfig?.version ?? "1.0.0"} (Build {Constants.expoConfig?.ios?.buildNumber ?? ""})
@@ -6114,18 +6297,18 @@ export default function WaterTracker() {
                   </TouchableOpacity>
 
                   <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/privacy-policy.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 14 }}>
-                    <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
+                    <Text style={{ color: "#666666", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/support.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 6 }}>
-                    <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Support</Text>
+                    <Text style={{ color: "#666666", fontSize: 12, textDecorationLine: "underline" }}>Support</Text>
                   </TouchableOpacity>
 
                   <View style={{ marginTop: 18, alignItems: "center" }}>
-                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 8 }}>CREDITS</Text>
+                    <Text style={[settingsSection, { marginBottom: 8 }]}>CREDITS</Text>
                     <Text style={{ color: "#888888", fontSize: 11, textAlign: "center", lineHeight: 16 }}>
                       Beverage icons by{" "}
                       <Text
-                        style={{ color: "#888888", textDecorationLine: "underline" }}
+                        style={{ color: "#666666", textDecorationLine: "underline" }}
                         onPress={() => Linking.openURL("https://tabler.io/icons").catch(() => {})}
                       >
                         Tabler Icons
@@ -6276,6 +6459,61 @@ export default function WaterTracker() {
     </View>
   );
 }
+
+// ─── Light+navy modal palette (form tokens) ──────────────────────────────────
+// Shared button/input/segment tokens used across every modal. Base colors
+// (LIGHT_BODY / LIGHT_NAVY / LIGHT_NAVY_DEEP / ACCENT_WATER_*) are declared
+// near the top of the file so they're in scope for early StyleSheet.create
+// blocks; the form tokens below only need to be in scope for JSX.
+// Pale water-blue accent for selected chip fills. Kept the ACCENT_YELLOW
+// identifier from an earlier experiment to minimize churn across modals.
+const ACCENT_YELLOW = "#B3DDFA";
+const lightCancelBtn = {
+  flex: 1 as const,
+  backgroundColor: "transparent",
+  borderRadius: 14,
+  height: 52,
+  justifyContent: "center" as const,
+  alignItems: "center" as const,
+  borderWidth: 1,
+  borderColor: "rgba(0,0,0,0.12)",
+};
+const lightCancelText = { color: LIGHT_NAVY_DEEP, fontSize: 16, fontWeight: "600" as const };
+const lightPrimaryBtn = {
+  flex: 1 as const,
+  backgroundColor: LIGHT_NAVY,
+  borderRadius: 14,
+  height: 52,
+  justifyContent: "center" as const,
+  alignItems: "center" as const,
+};
+const lightPrimaryText = { color: "#ffffff", fontWeight: "800" as const, fontSize: 16 };
+const lightFieldLabel = { color: LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "600" as const };
+const lightModeToggle = { flexDirection: "row" as const, backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 8, padding: 2 };
+const lightModeBtn = { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6 };
+const lightModeBtnActive = { backgroundColor: LIGHT_NAVY };
+const lightModeBtnText = { fontSize: 12, fontWeight: "600" as const, color: "#666666" };
+const lightModeBtnTextActive = { color: "#ffffff" };
+const lightTypeInput = {
+  backgroundColor: "#ffffff",
+  color: LIGHT_NAVY_DEEP,
+  borderRadius: 10,
+  paddingHorizontal: 14,
+  paddingVertical: 11,
+  fontSize: 16,
+  borderWidth: 1,
+  borderColor: "rgba(0,0,0,0.12)",
+  marginBottom: 2,
+};
+const lightValidationError = { color: "#c0152a", fontSize: 11, marginTop: 3, marginBottom: 2 };
+
+// Settings-modal shared tokens (light+navy theme).
+const settingsSection = { color: "#1a0a3a", fontSize: 11, fontWeight: "800" as const, letterSpacing: 1, marginBottom: 14 };
+const settingsRowTitle = { color: "#1a1a2e", fontSize: 15, fontWeight: "600" as const, marginBottom: 3 };
+const settingsRowSub = { color: "#666666", fontSize: 12, lineHeight: 18 };
+const settingsDivider = { marginTop: 10, height: 1, backgroundColor: "rgba(0,0,0,0.08)" };
+// Navy "on" — Chanda's call: toggles navy, tinted highlights stay blue.
+const settingsSwitchTrack = { false: "rgba(0,0,0,0.15)", true: "#1a0a3a" };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#e8a5a5" },
