@@ -1485,18 +1485,18 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
 }
 const cbStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%" },
-  header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
+  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%", borderTopWidth: 1, borderColor: "rgba(255,215,0,0.28)" },
+  header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" },
   title: { color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800" },
   subtitle: { color: "#666666", fontSize: 12, marginTop: 3 },
   counter: { fontSize: 13, fontWeight: "700", marginTop: 6 },
   closeBtn: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
   closeTxt: { color: "#888888", fontSize: 18 },
   actionRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,0,0,0.12)", alignItems: "center", backgroundColor: "#ffffff" },
-  actionTxt: { color: LIGHT_NAVY_DEEP, fontSize: 12, fontWeight: "700" },
+  actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", backgroundColor: "#ffffff" },
+  actionTxt: { color: "#c8a000", fontSize: 12, fontWeight: "700" },
   hint: { color: "#C0152A", fontSize: 12, fontWeight: "600", marginBottom: 8 },
-  divider: { height: 1, backgroundColor: "rgba(0,0,0,0.08)", marginVertical: 8 },
+  divider: { height: 1, backgroundColor: "rgba(255,215,0,0.22)", marginVertical: 8 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: "transparent", gap: 12 },
   rowSel: { backgroundColor: "#ffffff", borderColor: "rgba(0,0,0,0.08)" },
   rowActive: { backgroundColor: "rgba(0,136,255,0.12)", borderColor: "rgba(0,136,255,0.55)", borderWidth: 1.5, shadowColor: LIGHT_NAVY, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
@@ -1706,9 +1706,9 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
                 {/* Header */}
-                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
                     <TouchableOpacity onPress={onCancel} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -1811,7 +1811,7 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                               )}
 
                               {/* Popular Sizes (per-row) */}
-                              <Text style={{ color: LIGHT_NAVY, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginTop: 14, marginBottom: 8 }}>
+                              <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginTop: 14, marginBottom: 8 }}>
                                 POPULAR SIZES
                               </Text>
                               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
@@ -4945,8 +4945,8 @@ export default function WaterTracker() {
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
-                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
                       <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
                       <TouchableOpacity onPress={closeCustomModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -5044,8 +5044,8 @@ export default function WaterTracker() {
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
-              <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
-                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+              <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💾 Save as Preset</Text>
                     <TouchableOpacity onPress={() => setShowSavePresetModal(false)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -5330,9 +5330,9 @@ export default function WaterTracker() {
               tab's ScrollPickers. iOS users dismiss the keyboard via the
               InputAccessoryView Done button below. */}
           <View style={styles.modalOverlay}>
-              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", padding: 0, overflow: "hidden" }]}>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", padding: 0, overflow: "hidden" }]}>
                   {/* Header */}
-                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
                       <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Set Daily Goal</Text>
                       <TouchableOpacity onPress={closeGoalModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -5775,7 +5775,7 @@ export default function WaterTracker() {
         onRequestClose={() => setShowSettingsModal(false)}
       >
         <View style={{ flex: 1, backgroundColor: LIGHT_BODY }}>
-          <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+          <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
               <TouchableOpacity
@@ -6508,10 +6508,12 @@ const lightTypeInput = {
 const lightValidationError = { color: "#c0152a", fontSize: 11, marginTop: 3, marginBottom: 2 };
 
 // Settings-modal shared tokens (light+navy theme).
-const settingsSection = { color: "#1a0a3a", fontSize: 11, fontWeight: "800" as const, letterSpacing: 1, marginBottom: 14 };
+// Section labels use the muted brand gold so the modal echoes the Home hero
+// accent without pushing gold into CTAs/toggles.
+const settingsSection = { color: "#c8a000", fontSize: 11, fontWeight: "800" as const, letterSpacing: 1, marginBottom: 14 };
 const settingsRowTitle = { color: "#1a1a2e", fontSize: 15, fontWeight: "600" as const, marginBottom: 3 };
 const settingsRowSub = { color: "#666666", fontSize: 12, lineHeight: 18 };
-const settingsDivider = { marginTop: 10, height: 1, backgroundColor: "rgba(0,0,0,0.08)" };
+const settingsDivider = { marginTop: 10, height: 1, backgroundColor: "rgba(255,215,0,0.22)" };
 // Navy "on" — Chanda's call: toggles navy, tinted highlights stay blue.
 const settingsSwitchTrack = { false: "rgba(0,0,0,0.15)", true: "#1a0a3a" };
 

@@ -505,8 +505,8 @@ function RecordSheet({
 
 const s = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 18, height: "92%" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" },
+  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 18, height: "92%", borderTopWidth: 1, borderColor: "rgba(255,215,0,0.28)" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" },
   headerBack: { color: LIGHT_NAVY, fontSize: 14, fontWeight: "700" },
   headerTitle: { color: LIGHT_NAVY_DEEP, fontSize: 17, fontWeight: "800" },
   headerDone: { color: LIGHT_NAVY, fontSize: 15, fontWeight: "800" },
@@ -532,7 +532,7 @@ const s = StyleSheet.create({
 
 const recStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: 24 },
-  sheet: { backgroundColor: LIGHT_BODY, borderRadius: 22, padding: 24, width: "100%", maxWidth: 360, alignItems: "center", borderWidth: 1, borderColor: "rgba(0,0,0,0.08)" },
+  sheet: { backgroundColor: LIGHT_BODY, borderRadius: 22, padding: 24, width: "100%", maxWidth: 360, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,215,0,0.28)" },
   title: { color: LIGHT_NAVY_DEEP, fontSize: 16, fontWeight: "800", marginBottom: 4 },
   subtitle: { color: "#666666", fontSize: 12, marginBottom: 18, textAlign: "center" },
   micWrap: { width: 92, height: 92, alignItems: "center", justifyContent: "center", marginBottom: 12 },
