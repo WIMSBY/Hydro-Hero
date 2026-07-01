@@ -4898,59 +4898,63 @@ export default function WaterTracker() {
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={styles.modalBox}>
-                  {/* Close button */}
-                  <View style={styles.kbToolbar}>
-                    <TouchableOpacity onPress={closeCustomModal}>
-                      <Text style={[styles.kbDoneBtn, { color: GOLD_DIM }]}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.modalTitle}>💧 Enter Amount</Text>
-                  <View style={styles.modalDivider} />
-
-                  {/* Unit toggle */}
-                  <View style={[styles.modalTabs, { marginTop: 8 }]}>
-                    {(["oz", "ml"] as const).map((u) => (
-                      <TouchableOpacity
-                        key={u}
-                        style={[styles.modalTab, customUnit === u ? { backgroundColor: GOLD_DIM } : styles.modalTabInactive]}
-                        onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
-                      >
-                        <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
+                <View style={[styles.modalBox, { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                  {/* Navy header (matches Customize Quick Add) */}
+                  <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
+                      <TouchableOpacity onPress={closeCustomModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
                       </TouchableOpacity>
-                    ))}
+                    </View>
+                    <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Type a custom amount to log</Text>
                   </View>
 
-                  {/* Input */}
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
-                    placeholderTextColor="#AAAAAA"
-                    keyboardType="decimal-pad"
-                    inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
-                    value={customAmount}
-                    onChangeText={setCustomAmount}
-                  />
+                  {/* Body */}
+                  <View style={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 24 }}>
+                    {/* Unit toggle */}
+                    <View style={styles.modalTabs}>
+                      {(["oz", "ml"] as const).map((u) => (
+                        <TouchableOpacity
+                          key={u}
+                          style={[styles.modalTab, customUnit === u ? { backgroundColor: GOLD_DIM } : styles.modalTabInactive]}
+                          onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
+                        >
+                          <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
 
-                  {/* Live conversion */}
-                  {(() => {
-                    const n = parseFloat(customAmount);
-                    if (isNaN(n) || n <= 0) return null;
-                    const label = customUnit === "oz"
-                      ? `= ${ozToMl(n)} ml`
-                      : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
-                    return <Text style={styles.modalMl}>{label}</Text>;
-                  })()}
+                    {/* Input */}
+                    <TextInput
+                      style={styles.modalInput}
+                      placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
+                      placeholderTextColor="#AAAAAA"
+                      keyboardType="decimal-pad"
+                      inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
+                      value={customAmount}
+                      onChangeText={setCustomAmount}
+                    />
 
-                  {/* Buttons */}
-                  <View style={styles.modalBtnRow}>
-                    <TouchableOpacity style={styles.modalCancel} onPress={closeCustomModal}>
-                      <Text style={styles.modalCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: GOLD_DIM }]} onPress={handleCustomAdd}>
-                      <Text style={styles.modalConfirmText}>Add</Text>
-                    </TouchableOpacity>
+                    {/* Live conversion */}
+                    {(() => {
+                      const n = parseFloat(customAmount);
+                      if (isNaN(n) || n <= 0) return null;
+                      const label = customUnit === "oz"
+                        ? `= ${ozToMl(n)} ml`
+                        : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
+                      return <Text style={styles.modalMl}>{label}</Text>;
+                    })()}
+
+                    {/* Buttons */}
+                    <View style={styles.modalBtnRow}>
+                      <TouchableOpacity style={styles.modalCancel} onPress={closeCustomModal}>
+                        <Text style={styles.modalCancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: GOLD_DIM }]} onPress={handleCustomAdd}>
+                        <Text style={styles.modalConfirmText}>Add</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               </TouchableWithoutFeedback>
