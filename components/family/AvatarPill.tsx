@@ -25,7 +25,7 @@ export function AvatarPill() {
       <View style={styles.avatarWrap}>
         <Text style={styles.avatar}>{resolveAvatar(activeProfile.avatarKey)}</Text>
       </View>
-      <Text style={styles.name} numberOfLines={1}>{activeProfile.name}</Text>
+      <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">{activeProfile.name}</Text>
     </TouchableOpacity>
   );
 }
@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 1.5,
     borderColor: 'rgba(255,215,0,0.55)',
-    maxWidth: 180,
+    maxWidth: 260,
   },
   avatarWrap: {
     width: 32,
@@ -53,5 +53,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatar: { fontSize: 20 },
-  name: { color: GOLD, fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
+  name: { color: GOLD, fontSize: 13, fontWeight: '800', letterSpacing: 0.3, flexShrink: 1 },
 });

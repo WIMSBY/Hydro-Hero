@@ -63,7 +63,7 @@ export function HeroSetupModal({ visible, initialHero, onClose, onConfirm }: Pro
             onChangeText={setName}
             placeholder={DEFAULT_HERO_NAME}
             placeholderTextColor="rgba(255,255,255,0.35)"
-            maxLength={24}
+            maxLength={20}
             returnKeyType="done"
           />
 
