@@ -5592,22 +5592,17 @@ export default function WaterTracker() {
         onRequestClose={() => setShowSettingsModal(false)}
       >
         <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
-          <View style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: 'rgba(200,160,0,0.3)',
-          }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a1a2e' }}>⚙️ Settings</Text>
-            <TouchableOpacity
-              onPress={() => setShowSettingsModal(false)}
-              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-              activeOpacity={0.7}
-            >
-              <Text style={{ fontSize: 20, color: '#c8a000' }}>✕</Text>
-            </TouchableOpacity>
+          <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)" }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
+              <TouchableOpacity
+                onPress={() => setShowSettingsModal(false)}
+                activeOpacity={0.7}
+                style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <ScrollView
             style={{ flex: 1 }}
