@@ -4877,7 +4877,7 @@ export default function WaterTracker() {
         <InputAccessoryView nativeID={CUSTOM_ACCESSORY_ID}>
           <View style={styles.iosKbBar}>
             <TouchableOpacity onPress={Keyboard.dismiss}>
-              <Text style={[styles.iosKbDone, { color: stage.color }]}>Done</Text>
+              <Text style={[styles.iosKbDone, { color: GOLD_DIM }]}>Done</Text>
             </TouchableOpacity>
           </View>
         </InputAccessoryView>
@@ -4887,7 +4887,7 @@ export default function WaterTracker() {
       {Platform.OS === "android" && kbHeight > 0 && (
         <View style={[styles.androidKbBar, { bottom: kbHeight }]}>
           <TouchableOpacity onPress={Keyboard.dismiss}>
-            <Text style={[styles.androidKbDone, { color: stage.color }]}>Done</Text>
+            <Text style={[styles.androidKbDone, { color: GOLD_DIM }]}>Done</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -4902,7 +4902,7 @@ export default function WaterTracker() {
                   {/* Close button */}
                   <View style={styles.kbToolbar}>
                     <TouchableOpacity onPress={closeCustomModal}>
-                      <Text style={[styles.kbDoneBtn, { color: stage.color }]}>✕</Text>
+                      <Text style={[styles.kbDoneBtn, { color: GOLD_DIM }]}>✕</Text>
                     </TouchableOpacity>
                   </View>
 
@@ -4914,7 +4914,7 @@ export default function WaterTracker() {
                     {(["oz", "ml"] as const).map((u) => (
                       <TouchableOpacity
                         key={u}
-                        style={[styles.modalTab, customUnit === u ? { backgroundColor: stage.color } : styles.modalTabInactive]}
+                        style={[styles.modalTab, customUnit === u ? { backgroundColor: GOLD_DIM } : styles.modalTabInactive]}
                         onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
                       >
                         <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
@@ -4948,7 +4948,7 @@ export default function WaterTracker() {
                     <TouchableOpacity style={styles.modalCancel} onPress={closeCustomModal}>
                       <Text style={styles.modalCancelText}>Cancel</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: stage.color }]} onPress={handleCustomAdd}>
+                    <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: GOLD_DIM }]} onPress={handleCustomAdd}>
                       <Text style={styles.modalConfirmText}>Add</Text>
                     </TouchableOpacity>
                   </View>
@@ -4961,7 +4961,7 @@ export default function WaterTracker() {
           <InputAccessoryView nativeID={CUSTOM_ACCESSORY_ID}>
             <View style={styles.iosKbBar}>
               <TouchableOpacity onPress={Keyboard.dismiss}>
-                <Text style={[styles.iosKbDone, { color: stage.color }]}>Done</Text>
+                <Text style={[styles.iosKbDone, { color: GOLD_DIM }]}>Done</Text>
               </TouchableOpacity>
             </View>
           </InputAccessoryView>
