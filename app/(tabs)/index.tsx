@@ -1674,7 +1674,7 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
             <TouchableWithoutFeedback onPress={() => {}}>
               <View style={[styles.modalBox, { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
                 {/* Header */}
-                <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)" }}>
+                <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)", borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
                     <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
                     <TouchableOpacity onPress={onCancel} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
@@ -4900,7 +4900,7 @@ export default function WaterTracker() {
               <TouchableWithoutFeedback onPress={() => {}}>
                 <View style={[styles.modalBox, { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
                   {/* Navy header (matches Customize Quick Add) */}
-                  <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)" }}>
+                  <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)", borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
                       <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
                       <TouchableOpacity onPress={closeCustomModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
