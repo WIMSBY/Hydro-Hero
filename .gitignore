@@ -41,6 +41,7 @@ app-example
 # generated native folders
 /ios
 /android
+targets/*/Assets.xcassets/
 
 # Admin tools — local only, never ship
 admin/

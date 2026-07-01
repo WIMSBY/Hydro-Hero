@@ -73,7 +73,14 @@ export function ProProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     try {
       const Purchases = getRevenueCatPurchases();
-      if (!Purchases) return;
+      if (!Purchases) {
+        // RC SDK unavailable (e.g., Simulator). By this point both promo
+        // flags are absent, so the only path that could grant Pro is RC —
+        // and it's not answering. Treat as free so the version-label reset
+        // actually flips an existing Pro user back to free for testing.
+        setIsPro(false);
+        return;
+      }
       const info = await Purchases.getCustomerInfo();
       const active = info?.entitlements?.active ?? {};
       // Single-tier app: any active RevenueCat entitlement means PRO. Avoids

@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   Modal,
   ScrollView,
@@ -10,9 +11,22 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pGetItem } from '../../utils/profileStorage';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, G, Line, Rect, Text as SvgText } from 'react-native-svg';
+import * as Sentry from '@sentry/react-native';
+import { BEVERAGES } from '../../constants/beverages';
+import GoalHistoryCalendar from '../../components/GoalHistoryCalendar';
+import { useProContext } from '../../contexts/ProContext';
+import {
+  buildHydrationCSV,
+  shareExportFile,
+  deleteExportFile,
+  type HydrationExportSummary,
+} from '../../utils/hydrationExport';
+
+const FREE_EXPORT_DAYS = 7;
+const PRO_EXPORT_DAYS = 30;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const GOLD = '#FFD700';
@@ -30,7 +44,7 @@ const BEV_COLORS: Record<string, string> = {
   coconut:    '#8B6914',
   juice:      '#E8920A',
   lemonade:   '#FFD700',
-  fruit:      '#CC4488',
+  preworkout: '#DC2626',
   sports:     '#2E8B4A',
   milk:       '#AAAAAA',
   protein:    '#8844AA',
@@ -38,22 +52,22 @@ const BEV_COLORS: Record<string, string> = {
   wine:       '#8B1A3A',
   cocktail:   '#7B1A8B',
   energy:     '#AACC00',
-  energyshot: '#CC8800',
+  kombucha:   '#C9851F',
   hotchoc:    '#5C3317',
   spirits:    '#AA6622',
 };
 const BEV_LABELS: Record<string, string> = {
   water: 'Water', coffee: 'Coffee', tea: 'Tea', icedtea: 'Iced Tea',
   soda: 'Soda', flavored: 'Flavored Water', coconut: 'Coconut Water',
-  juice: 'Juice', lemonade: 'Lemonade', fruit: 'Fruit Drinks',
+  juice: 'Juice', lemonade: 'Lemonade', preworkout: 'Preworkout',
   sports: 'Sports Drink', milk: 'Milk', protein: 'Protein Shake',
   beer: 'Beer', wine: 'Wine', cocktail: 'Cocktail',
-  energy: 'Energy Drink', energyshot: 'Energy Shot', hotchoc: 'Hot Chocolate', spirits: 'Spirits',
+  energy: 'Energy Drink', kombucha: 'Kombucha', hotchoc: 'Hot Chocolate', spirits: 'Spirits',
 };
 const BEV_KEYS = [
   'water','coffee','tea','icedtea','soda','flavored','coconut',
-  'juice','lemonade','fruit','sports','milk','protein',
-  'beer','wine','cocktail','energy','energyshot','hotchoc','spirits',
+  'juice','lemonade','preworkout','sports','milk','protein',
+  'beer','wine','cocktail','energy','kombucha','hotchoc','spirits',
 ] as const;
 type BevCat = typeof BEV_KEYS[number];
 
@@ -105,8 +119,8 @@ function heatColor(pct: number) {
 function emptyBd(): Record<BevCat, number> {
   return {
     water: 0, coffee: 0, tea: 0, icedtea: 0, soda: 0, flavored: 0, coconut: 0,
-    juice: 0, lemonade: 0, fruit: 0, sports: 0, milk: 0, protein: 0,
-    beer: 0, wine: 0, cocktail: 0, energy: 0, energyshot: 0, hotchoc: 0, spirits: 0,
+    juice: 0, lemonade: 0, preworkout: 0, sports: 0, milk: 0, protein: 0,
+    beer: 0, wine: 0, cocktail: 0, energy: 0, kombucha: 0, hotchoc: 0, spirits: 0,
   };
 }
 /** Safely merge stored breakdown (may have only old 7 keys) with full 20-key default */
@@ -115,6 +129,15 @@ function mergeBd(stored: Record<string, number>): Record<BevCat, number> {
 }
 function formatDate(d: Date) {
   return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+
+function ozToMl(oz: number) {
+  return Math.round(oz * 29.5735);
+}
+
+function fmtAmount(oz: number, preferred: 'oz' | 'ml', precision = 1): string {
+  if (preferred === 'ml') return `${ozToMl(oz)} ml`;
+  return `${oz.toFixed(precision)} oz`;
 }
 
 function computeStreaks(
@@ -173,6 +196,9 @@ export default function StatsScreen() {
   const [longestStreak, setLongestStreak] = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [selectedDay, setSelectedDay] = useState<DayStats | null>(null);
+  const [calGoalHistory, setCalGoalHistory] = useState<Record<string, number>>({});
+  const [calHistory, setCalHistory] = useState<{ date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[]>([]);
+  const [preferredUnit, setPreferredUnit] = useState<'oz' | 'ml'>('oz');
 
   const hasAnyData = weekDays.some((d) => d.hasData) || monthDays.some((d) => d.hasData);
 
@@ -187,15 +213,17 @@ export default function StatsScreen() {
     try {
       const [
         rawHistory, rawGoalHist, rawGoal,
-        rawTodayHyd, rawBreakdown, rawLifetime,
+        rawTodayHyd, rawBreakdown, rawLifetime, rawUnit,
       ] = await Promise.all([
-        AsyncStorage.getItem('water_history'),
-        AsyncStorage.getItem('goal_history'),
-        AsyncStorage.getItem('water_goal'),
-        AsyncStorage.getItem('water_total_hydration'),
-        AsyncStorage.getItem('water_category_breakdown'),
-        AsyncStorage.getItem('lifetime_hydration_oz'),
+        pGetItem('water_history'),
+        pGetItem('goal_history'),
+        pGetItem('water_goal'),
+        pGetItem('water_total_hydration'),
+        pGetItem('water_category_breakdown'),
+        pGetItem('lifetime_hydration_oz'),
+        pGetItem('preferred_unit'),
       ]);
+      if (rawUnit === 'ml' || rawUnit === 'oz') setPreferredUnit(rawUnit);
 
       const goal: number = rawGoal ? JSON.parse(rawGoal) : 64;
       setCurrentGoal(goal);
@@ -204,6 +232,8 @@ export default function StatsScreen() {
       const goalHistory: Record<string, number> = rawGoalHist ? JSON.parse(rawGoalHist) : {};
       const history: { date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[] =
         rawHistory ? JSON.parse(rawHistory) : [];
+      setCalGoalHistory(goalHistory);
+      setCalHistory(history);
       const todayHyd: number = rawTodayHyd ? JSON.parse(rawTodayHyd) : 0;
       const todayBreakdown: Record<BevCat, number> = rawBreakdown ? mergeBd(JSON.parse(rawBreakdown)) : emptyBd();
 
@@ -312,10 +342,10 @@ export default function StatsScreen() {
       ) : (
         <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} bounces={false}>
           {view === 'weekly'
-            ? <WeeklyView days={weekDays} goal={currentGoal} />
+            ? <WeeklyView days={weekDays} goal={currentGoal} currentStreak={currentStreak} preferredUnit={preferredUnit} />
             : <MonthlyView days={monthDays} goal={currentGoal} lifetimeOz={lifetimeOz}
                 longestStreak={longestStreak} currentStreak={currentStreak}
-                onDayPress={(d) => { if (!d.isFuture && d.hasData) setSelectedDay(d); }} />
+                goalHistory={calGoalHistory} history={calHistory} preferredUnit={preferredUnit} />
           }
           <View style={{ height: 32 }} />
         </ScrollView>
@@ -366,7 +396,7 @@ function PopupRow({ label, value, valueColor }: { label: string; value: string; 
 }
 
 // ─── Weekly View ──────────────────────────────────────────────────────────────
-function WeeklyView({ days, goal }: { days: DayStats[]; goal: number }) {
+function WeeklyView({ days, goal, currentStreak, preferredUnit }: { days: DayStats[]; goal: number; currentStreak: number; preferredUnit: 'oz' | 'ml' }) {
   const withData = days.filter((d) => d.hasData);
   const avgHyd = withData.length ? withData.reduce((a, d) => a + d.hydratedOz, 0) / withData.length : 0;
   const bestDay = days.reduce<DayStats | null>((b, d) => !b || d.hydratedOz > b.hydratedOz ? d : b, null);
@@ -380,23 +410,42 @@ function WeeklyView({ days, goal }: { days: DayStats[]; goal: number }) {
   const totalConsumed = withData.reduce((a, d) => a + d.totalOz, 0);
   const efficiency = totalConsumed > 0 ? (totalHyd / totalConsumed) * 100 : 0;
 
+  // Top beverage across the week
+  const topBevKey = (Object.entries(bevTotals) as [string, number][])
+    .sort((a, b) => b[1] - a[1])
+    .find(([, v]) => v > 0)?.[0];
+  const topBev = topBevKey ? BEVERAGES.find((b) => b.key === topBevKey) : null;
+  const bestDayDate = bestDay ? `${bestDay.date.getMonth() + 1}/${bestDay.date.getDate()}` : '—';
+
   return (
     <>
       <View style={s.cardRow}>
-        <SummaryCard label="AVG DAILY" value={`${avgHyd.toFixed(1)} oz`} sub={`${Math.round(avgPct * 100)}% of goal`} />
-        <SummaryCard label="BEST DAY" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} sub={bestDay ? DAY_NAMES[bestDay.date.getDay()] : '—'} />
+        <SummaryCard label="AVG DAILY" value={fmtAmount(avgHyd, preferredUnit)} sub={`${Math.round(avgPct * 100)}% of goal`} />
+        <SummaryCard label="BEST DAY" value={fmtAmount(bestDay?.hydratedOz ?? 0, preferredUnit)} sub={bestDayDate} />
         <GoalRingCard goalsHit={goalsHit} total={7} />
+      </View>
+      <View style={[s.cardRow, { marginTop: 8 }]}>
+        <SummaryCard
+          label="TOP BEVERAGE"
+          value={topBev?.emoji ?? '—'}
+          sub={topBev?.label ?? 'No data'}
+        />
+        <SummaryCard
+          label="DAY STREAK"
+          value={currentStreak > 0 ? `🔥${currentStreak}` : '—'}
+          sub={currentStreak > 0 ? (currentStreak === 1 ? 'day' : 'days') : 'No streak'}
+        />
       </View>
 
       <SectionTitle title="DAILY HYDRATION" />
       <WeeklyBarChart days={days} goal={goal} />
 
-      <SectionTitle title="BEVERAGE MIX THIS WEEK" />
+      <SectionTitle title="BEVERAGE TRENDS" />
       <View style={s.card}>
         {totalBev > 0 ? (
           <>
-            <BeverageStackedBar totals={bevTotals} totalBev={totalBev} />
-            <BeverageLegend totals={bevTotals} />
+            <DailyBevTrendsChart days={days} />
+            <BeverageLegend totals={bevTotals} preferredUnit={preferredUnit} />
           </>
         ) : (
           <Text style={s.noData}>No beverage data this week</Text>
@@ -413,7 +462,7 @@ function WeeklyView({ days, goal }: { days: DayStats[]; goal: number }) {
             <View key={k} style={s.effRow}>
               <View style={[s.effDot, { backgroundColor: BEV_COLORS[k] }]} />
               <Text style={s.effLabel}>{BEV_LABELS[k]}</Text>
-              <Text style={s.effOz}>{bevTotals[k].toFixed(1)} oz</Text>
+              <Text style={s.effOz}>{fmtAmount(bevTotals[k], preferredUnit)}</Text>
             </View>
           ))}
       </View>
@@ -423,12 +472,15 @@ function WeeklyView({ days, goal }: { days: DayStats[]; goal: number }) {
 
 // ─── Monthly View ─────────────────────────────────────────────────────────────
 function MonthlyView({
-  days, goal, lifetimeOz, longestStreak, currentStreak, onDayPress,
+  days, goal, lifetimeOz, longestStreak, currentStreak, goalHistory, history, preferredUnit,
 }: {
   days: DayStats[]; goal: number; lifetimeOz: number;
   longestStreak: number; currentStreak: number;
-  onDayPress: (d: DayStats) => void;
+  goalHistory: Record<string, number>;
+  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCat, number> }[];
+  preferredUnit: 'oz' | 'ml';
 }) {
+  const { isPro, openPaywall } = useProContext();
   const pastWithData = days.filter((d) => d.hasData && !d.isFuture);
   const totalHyd = pastWithData.reduce((a, d) => a + d.hydratedOz, 0);
   const avgHyd = pastWithData.length ? totalHyd / pastWithData.length : 0;
@@ -440,25 +492,163 @@ function MonthlyView({
   return (
     <>
       <View style={s.cardRow}>
-        <SummaryCard label="MONTHLY AVG" value={`${avgHyd.toFixed(1)} oz`} sub="per day" />
-        <SummaryCard label="TOTAL" value={`${totalHyd.toFixed(0)} oz`} sub="true hydration" />
+        <SummaryCard label="MONTHLY AVG" value={fmtAmount(avgHyd, preferredUnit)} sub="per day" />
+        <SummaryCard label="TOTAL" value={fmtAmount(totalHyd, preferredUnit, 0)} sub="true hydration" />
         <SummaryCard label="SUCCESS" value={`${Math.round(successRate)}%`} sub="days hit goal" />
       </View>
 
-      <SectionTitle title={`${MONTH_NAMES[today.getMonth()].toUpperCase()} CALENDAR`} />
-      <MonthCalendar days={days} today={today} onDayPress={onDayPress} />
+      <SectionTitle title="CALENDAR" />
+      <View style={s.card}>
+        <GoalHistoryCalendar goalHistory={goalHistory} history={history} outerPadding={32 + 28} />
+      </View>
 
       <SectionTitle title="MONTHLY TREND" />
-      <TrendChart days={days} goal={goal} />
+      {isPro ? (
+        <TrendChart days={days} goal={goal} />
+      ) : (
+        <LockedSection
+          emoji="📈"
+          headline="Track your trajectory"
+          sub="A line chart of your hydration vs. goal over the month."
+          onUnlock={() => openPaywall()}
+        />
+      )}
 
       <SectionTitle title="PERSONAL RECORDS" />
-      <View style={s.recordGrid}>
-        <RecordCard emoji="💧" label="Best Single Day" value={`${(bestDay?.hydratedOz ?? 0).toFixed(1)} oz`} />
-        <RecordCard emoji="👑" label="Longest Streak" value={`${longestStreak} days`} />
-        <RecordCard emoji="🔥" label="Current Streak" value={`${currentStreak} days`} />
-        <RecordCard emoji="🌊" label="Lifetime Total" value={`${lifetimeOz.toFixed(0)} oz`} />
-      </View>
+      {isPro ? (
+        <View style={s.recordGrid}>
+          <RecordCard emoji="💧" label="Best Single Day" value={fmtAmount(bestDay?.hydratedOz ?? 0, preferredUnit)} />
+          <RecordCard emoji="👑" label="Longest Streak" value={`${longestStreak} days`} />
+          <RecordCard emoji="🔥" label="Current Streak" value={`${currentStreak} days`} />
+          <RecordCard emoji="🌊" label="Lifetime Total" value={fmtAmount(lifetimeOz, preferredUnit, 0)} />
+        </View>
+      ) : (
+        <LockedSection
+          emoji="🏆"
+          headline="Unlock your records"
+          sub="Best day, longest streak, current streak, and lifetime total."
+          onUnlock={() => openPaywall()}
+        />
+      )}
+
+      <SectionTitle title="EXPORT" />
+      <ExportSection />
     </>
+  );
+}
+
+function ExportSection() {
+  const { isPro, openPaywall } = useProContext();
+  const [loading, setLoading] = useState(false);
+  const [summary, setSummary] = useState<HydrationExportSummary | null>(null);
+  const days = isPro ? PRO_EXPORT_DAYS : FREE_EXPORT_DAYS;
+
+  async function handleExport() {
+    setLoading(true);
+    try {
+      const result = await buildHydrationCSV(days);
+      if (!result) {
+        Alert.alert('No History Yet', 'No history to export yet — start logging to build your history!');
+        return;
+      }
+      setSummary(result);
+    } catch (e) {
+      Sentry.captureException(e);
+      Alert.alert('Export Failed', `Something went wrong: ${(e as Error)?.message ?? String(e)}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleShare() {
+    if (!summary) return;
+    try {
+      await shareExportFile(summary.filePath);
+    } catch {
+      Alert.alert('Share Failed', 'Could not open the share sheet. Please try again.');
+    } finally {
+      deleteExportFile(summary.filePath);
+      setSummary(null);
+    }
+  }
+
+  function handleCancel() {
+    if (summary) deleteExportFile(summary.filePath);
+    setSummary(null);
+  }
+
+  return (
+    <>
+      <View style={s.card}>
+        <TouchableOpacity
+          style={[s.exportBtn, loading && { opacity: 0.6 }]}
+          onPress={handleExport}
+          disabled={loading}
+          activeOpacity={0.85}
+        >
+          {loading
+            ? <ActivityIndicator size="small" color={GOLD} />
+            : <Text style={{ fontSize: 18 }}>⬇️</Text>}
+          <Text style={s.exportBtnTxt}>Export {days} days as CSV</Text>
+        </TouchableOpacity>
+        {!isPro && (
+          <TouchableOpacity onPress={() => openPaywall()} activeOpacity={0.7}>
+            <Text style={s.exportProHint}>
+              Get the full {PRO_EXPORT_DAYS} days with <Text style={{ color: GOLD, fontWeight: '800' }}>Pro</Text> →
+            </Text>
+          </TouchableOpacity>
+        )}
+        <Text style={s.exportFootnote}>
+          Your hydration data lives on this device. Your iPhone backup keeps it safe across new devices.
+        </Text>
+      </View>
+
+      <Modal visible={!!summary} transparent animationType="fade" onRequestClose={handleCancel}>
+        <View style={s.exportOverlay}>
+          <View style={s.exportModal}>
+            <Text style={{ fontSize: 36, marginBottom: 8 }}>✅</Text>
+            <Text style={s.exportModalTitle}>Ready to Export!</Text>
+            <Text style={s.exportModalSub}>
+              Your hydration history is packaged and ready to share
+            </Text>
+            <View style={{ width: '100%', gap: 10, marginBottom: 24 }}>
+              {([
+                ['📅', 'Days included', `${summary?.days ?? 0} days`],
+                ['💧', 'Total consumed', `${summary?.totalConsumed ?? 0} oz`],
+                ['✨', 'True hydration', `${summary?.totalHydrated ?? 0} oz`],
+                ['🔥', 'Best streak', `${summary?.bestStreak ?? 0} days`],
+              ] as const).map(([emoji, label, value]) => (
+                <View key={label} style={s.exportStatRow}>
+                  <Text style={s.exportStatLabel}>{emoji} {label}</Text>
+                  <Text style={s.exportStatValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
+            <TouchableOpacity style={s.exportShareBtn} onPress={handleShare} activeOpacity={0.85}>
+              <Text style={s.exportShareTxt}>📤 Share File</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={{ paddingVertical: 12 }} onPress={handleCancel}>
+              <Text style={s.exportCancelTxt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
+}
+
+function LockedSection({
+  emoji, headline, sub, onUnlock,
+}: { emoji: string; headline: string; sub: string; onUnlock: () => void }) {
+  return (
+    <TouchableOpacity style={s.lockedCard} activeOpacity={0.85} onPress={onUnlock}>
+      <Text style={s.lockedEmoji}>{emoji}</Text>
+      <Text style={s.lockedHeadline}>{headline}</Text>
+      <Text style={s.lockedSub}>{sub}</Text>
+      <View style={s.lockedBtn}>
+        <Text style={s.lockedBtnTxt}>⭐ Unlock with Pro</Text>
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -552,18 +742,59 @@ function WeeklyBarChart({ days, goal }: { days: DayStats[]; goal: number }) {
   );
 }
 
-function BeverageStackedBar({ totals, totalBev }: { totals: Record<string, number>; totalBev: number }) {
-  const nonZero = BEV_KEYS.filter((k) => totals[k] > 0);
+function DailyBevTrendsChart({ days }: { days: DayStats[] }) {
+  const { width } = Dimensions.get('window');
+  const svgW = width - 32 - 28; // outer page padding + card inner padding
+  const chartH = 130;
+  const padL = 24, padR = 4, padT = 8, padB = 18;
+  const innerW = svgW - padL - padR;
+  const colW = innerW / 7;
+  const barW = Math.min(24, colW * 0.62);
+
+  const dayTotals = days.map((d) => Object.values(d.breakdown).reduce((a, b) => a + b, 0));
+  const maxOz = Math.max(8, ...dayTotals);
+
   return (
-    <View style={{ height: 28, flexDirection: 'row', borderRadius: 14, overflow: 'hidden' }}>
-      {nonZero.map((k) => (
-        <View key={k} style={{ flex: totals[k] / totalBev, backgroundColor: BEV_COLORS[k] }} />
-      ))}
-    </View>
+    <Svg width={svgW} height={padT + chartH + padB}>
+      {/* Y guide lines + labels */}
+      {[0, 0.5, 1].map((frac) => {
+        const y = padT + chartH - frac * chartH;
+        const oz = Math.round(frac * maxOz);
+        return (
+          <G key={frac}>
+            <Line x1={padL} y1={y} x2={svgW - padR} y2={y}
+              stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+            <SvgText x={padL - 4} y={y + 3} fontSize={8}
+              fill="rgba(255,255,255,0.45)" textAnchor="end">{oz}</SvgText>
+          </G>
+        );
+      })}
+      {/* Per-day stacked bars */}
+      {days.map((day, i) => {
+        const x = padL + colW * i + (colW - barW) / 2;
+        let stackY = padT + chartH;
+        const segments = BEV_KEYS
+          .filter((k) => (day.breakdown[k] ?? 0) > 0)
+          .map((k) => {
+            const h = (day.breakdown[k] / maxOz) * chartH;
+            stackY -= h;
+            return <Rect key={k} x={x} y={stackY} width={barW} height={h} fill={BEV_COLORS[k]} rx={2} />;
+          });
+        return (
+          <G key={day.dateKey}>
+            {segments}
+            <SvgText x={x + barW / 2} y={padT + chartH + 12}
+              fontSize={9} fill="rgba(255,255,255,0.6)" textAnchor="middle">
+              {DOW_ABBR[day.date.getDay()]}
+            </SvgText>
+          </G>
+        );
+      })}
+    </Svg>
   );
 }
 
-function BeverageLegend({ totals }: { totals: Record<string, number> }) {
+function BeverageLegend({ totals, preferredUnit }: { totals: Record<string, number>; preferredUnit: 'oz' | 'ml' }) {
   const nonZero = BEV_KEYS.filter((k) => totals[k] > 0);
   return (
     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
@@ -571,7 +802,7 @@ function BeverageLegend({ totals }: { totals: Record<string, number> }) {
         <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
           <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: BEV_COLORS[k] }} />
           <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>
-            {BEV_LABELS[k]}  {totals[k].toFixed(1)}oz
+            {BEV_LABELS[k]}  {preferredUnit === 'ml' ? `${ozToMl(totals[k])}ml` : `${totals[k].toFixed(1)}oz`}
           </Text>
         </View>
       ))}
@@ -852,4 +1083,56 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   popupCloseTxt: { color: GOLD, fontSize: 14, fontWeight: '700' },
+
+  // Locked section (free tier in Stats)
+  lockedCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    padding: 22,
+    alignItems: 'center',
+  },
+  lockedEmoji: { fontSize: 36, marginBottom: 8 },
+  lockedHeadline: { color: '#fff', fontSize: 15, fontWeight: '800', textAlign: 'center', marginBottom: 4 },
+  lockedSub: { color: 'rgba(255,255,255,0.55)', fontSize: 12, textAlign: 'center', lineHeight: 17, marginBottom: 14, maxWidth: 280 },
+  lockedBtn: {
+    backgroundColor: GOLD,
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  lockedBtnTxt: { color: '#0a0520', fontSize: 13, fontWeight: '800', letterSpacing: 0.3 },
+
+  // Export section
+  exportBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: GOLD, borderRadius: 12,
+    paddingVertical: 14, paddingHorizontal: 16, gap: 8,
+  },
+  exportBtnTxt: { color: GOLD, fontSize: 15, fontWeight: '700' },
+  exportProHint: { color: 'rgba(255,255,255,0.55)', fontSize: 12, textAlign: 'center', marginTop: 10 },
+  exportFootnote: { color: 'rgba(255,255,255,0.4)', fontSize: 11, marginTop: 12, textAlign: 'center', lineHeight: 16 },
+
+  exportOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  exportModal: {
+    backgroundColor: '#0d0030', borderRadius: 20,
+    borderWidth: 2, borderColor: 'rgba(255,215,0,0.5)',
+    padding: 28, width: '100%', alignItems: 'center',
+  },
+  exportModalTitle: { color: GOLD, fontSize: 22, fontWeight: '900', marginBottom: 4 },
+  exportModalSub: { color: 'rgba(255,255,255,0.55)', fontSize: 13, marginBottom: 20, textAlign: 'center' },
+  exportStatRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10,
+    paddingVertical: 10, paddingHorizontal: 14,
+  },
+  exportStatLabel: { color: 'rgba(255,255,255,0.65)', fontSize: 13 },
+  exportStatValue: { color: GOLD, fontSize: 14, fontWeight: '700' },
+  exportShareBtn: {
+    width: '100%', backgroundColor: GOLD, borderRadius: 14,
+    paddingVertical: 16, alignItems: 'center', marginBottom: 10,
+  },
+  exportShareTxt: { color: '#0a0520', fontSize: 16, fontWeight: '900' },
+  exportCancelTxt: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
 });

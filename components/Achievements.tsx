@@ -6,7 +6,7 @@
  * and wrapped in try/catch so no badge failure can crash the app.
  */
 
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { pGetItem, pSetItem } from "../utils/profileStorage";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -27,9 +27,9 @@ const BADGE_SIZE = 70;
 const UNLOCK_DISMISS_LABELS = ["AWESOME!", "NICE!", "LOVE IT!", "KEEP GOING!", "GOT IT!"];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type BevCategory = "water" | "soda" | "coffee" | "juice" | "sports" | "beer" | "cocktail";
+export type BevCategory = "water" | "soda" | "coffee" | "juice" | "sports" | "beer" | "cocktail";
 
-interface BadgeCheckData {
+export interface BadgeCheckData {
   streak: number;
   goalHistory: Record<string, number>;
   totalHydration: number;
@@ -44,7 +44,7 @@ interface BadgeCheckData {
   nowHour: number;
 }
 
-interface BadgeDef {
+export interface BadgeDef {
   id: string;
   name: string;
   emoji: string;
@@ -77,7 +77,7 @@ export interface AchievementsProps {
 }
 
 // ─── Badge definitions ────────────────────────────────────────────────────────
-const ALL_BADGES: BadgeDef[] = [
+export const ALL_BADGES: BadgeDef[] = [
   // Streak
   {
     id: "first_drop", name: "First Drop", emoji: "💧",
@@ -649,7 +649,7 @@ function Achievements({
   useEffect(() => {
     (async () => {
       try {
-        const saved = await AsyncStorage.getItem("unlocked_badges");
+        const saved = await pGetItem("unlocked_badges");
         if (saved) {
           const parsed: UnlockedBadge[] = JSON.parse(saved);
           setUnlockedBadges(parsed);
@@ -704,10 +704,10 @@ function Achievements({
       // Save with one retry on failure to prevent badge loss on crash
       (async () => {
         try {
-          await AsyncStorage.setItem("unlocked_badges", JSON.stringify(updated));
+          await pSetItem("unlocked_badges", JSON.stringify(updated));
         } catch {
           try {
-            await AsyncStorage.setItem("unlocked_badges", JSON.stringify(updated));
+            await pSetItem("unlocked_badges", JSON.stringify(updated));
           } catch {}
         }
       })();
@@ -742,7 +742,7 @@ function Achievements({
       if (stillValid.length === unlockedRef.current.length) return;
       unlockedRef.current = stillValid;
       setUnlockedBadges(stillValid);
-      AsyncStorage.setItem("unlocked_badges", JSON.stringify(stillValid)).catch(() => {});
+      pSetItem("unlocked_badges", JSON.stringify(stillValid)).catch(() => {});
     } catch {}
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revalidateTrigger, loaded]);

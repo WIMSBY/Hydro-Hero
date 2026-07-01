@@ -1,25 +1,51 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { BevCategory, BevDef, BEVERAGES } from "../../constants/beverages";
+import { pGetItem, pSetItem, pRemoveItem, pMultiGet } from "../../utils/profileStorage";
+import { BevCategory, BevDef, BEVERAGES, ALCOHOLIC_BEVS } from "../../constants/beverages";
 import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hydration/LastDrinkReveal";
 import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
 import Constants from "expo-constants";
-import Achievements from "../../components/Achievements";
 import Onboarding from "../../components/Onboarding";
+import CustomSoundsModal from "../../components/CustomSoundsModal";
 import {
   initSounds, teardownSounds, reloadSounds, setSoundEnabled,
   playButtonTapSound,
-  playWaterLogSound, playWaterFillSound, playJackpotSound,
-  playBadgeUnlockSound, playStreakSound, playMorningResetSound,
+  playWaterLogSound, playJackpotSound, playDropletSound,
+  playStreakSound, playMorningResetSound, playRevealSound,
   setActivePack, previewPack, stopPreview, ALL_SOUND_PACKS, DEFAULT_PACK_ID,
 } from "../../utils/SoundManager";
 import { deleteWaterSample, initHealthKit, isHealthAvailable, saveWaterSample } from "../../services/AppleHealth";
 import { syncWidgetData } from "../../utils/WidgetDataSync";
+import { startTankActivity, updateTankActivity, endTankActivity, liveActivityAvailable } from "../../utils/LiveActivitySync";
+import {
+  evaluateAllActive,
+  loadProgresses,
+  saveProgresses,
+  type ProgressMap,
+  type DayData,
+} from "../../utils/MissionEngine";
+import { startMissionWithPowers } from "../../utils/Rewards";
+import { getMission, type Reward } from "../../constants/missions";
+import { Hero, freshHero, STARTER_EMBLEMS } from "../../constants/hero";
+import { loadHero, saveHero, markSetupSeen, wasSetupSeen } from "../../utils/HeroStore";
+import { HeroSetupModal } from "../../components/HeroSetupModal";
+import { AvatarPill } from "../../components/family/AvatarPill";
+import { useProfile } from "../../contexts/ProfileContext";
+import { evaluateInactiveProfiles } from "../../utils/MultiProfileEngine";
+import { drainSiriQueue } from "../../utils/SiriQueue";
+import { syncSiriCatalog } from "../../utils/SiriCatalogSync";
+import { syncSiriUnit } from "../../utils/SiriUnitSync";
+import {
+  detectPendingBadges,
+  loadUnlockedBadgeIds,
+  setPendingBadgeCount,
+} from "../../utils/badgeDetection";
+import type { BadgeDef } from "../../components/Achievements";
 import { seedDemoData, clearDemoData } from "../../utils/devSeed";
 import { initWatch, teardownWatch, sendHydrationUpdate, setWatchMessageHandler } from "../../utils/WatchManager";
 import { useIsFocused } from "@react-navigation/native";
+import { router } from "expo-router";
+import { setSettingsModalOpener } from "../../utils/settingsModal";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { File as FSFile, Paths as FSPaths } from "expo-file-system";
-import * as Sharing from "expo-sharing";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as Haptics from "expo-haptics";
@@ -85,13 +111,11 @@ function formatOz(oz: number): string {
 const POPULAR_PRESETS = [
   { oz: 8,    label: "8oz",   sub: "small glass" },
   { oz: 12,   label: "12oz",  sub: "can" },
-  { oz: 16,   label: "16oz",  sub: "med bottle" },
+  { oz: 16,   label: "16oz",  sub: "pint glass" },
   { oz: 16.9, label: "16.9oz",sub: "std bottle" },
   { oz: 20,   label: "20oz",  sub: "lg bottle" },
-  { oz: 24,   label: "24oz",  sub: "lg cup" },
-  { oz: 32,   label: "32oz",  sub: "Stanley sm" },
-  { oz: 40,   label: "40oz",  sub: "Stanley lg" },
-  { oz: 64,   label: "64oz",  sub: "half gallon" },
+  { oz: 32,   label: "32oz",  sub: "big tumbler" },
+  { oz: 40,   label: "40oz",  sub: "xl tumbler" },
 ];
 
 interface Preset { id: string; label: string; oz: number; category: BevCategory; }
@@ -99,7 +123,7 @@ interface DrinkEntry { oz: number; category: BevCategory; timestamp: number; hyd
 
 const CATEGORIES = BEVERAGES;
 
-const DEFAULT_VISIBLE_BEVS: BevCategory[] = ["water", "coffee", "soda", "juice", "sports", "beer", "cocktail"];
+const DEFAULT_VISIBLE_BEVS: BevCategory[] = ["water", "coffee", "tea", "soda", "juice", "sports", "milk", "beer", "cocktail"];
 
 // Build lookup maps for O(1) access
 const BEV_MAP = new Map<string, BevDef>(CATEGORIES.map((c) => [c.key, c]));
@@ -110,8 +134,8 @@ function getBev(key: string): BevDef {
 
 const EMPTY_BREAKDOWN: Record<BevCategory, number> = {
   water: 0, coffee: 0, tea: 0, icedtea: 0, soda: 0, flavored: 0, coconut: 0,
-  juice: 0, lemonade: 0, fruit: 0, sports: 0, milk: 0, protein: 0,
-  beer: 0, wine: 0, cocktail: 0, energy: 0, energyshot: 0, hotchoc: 0, spirits: 0,
+  juice: 0, lemonade: 0, preworkout: 0, sports: 0, milk: 0, protein: 0,
+  beer: 0, wine: 0, cocktail: 0, energy: 0, kombucha: 0, hotchoc: 0, spirits: 0,
 };
 
 function calcHydratedOz(oz: number, category: BevCategory): number {
@@ -123,337 +147,28 @@ function mergeBreakdown(stored: Record<string, number>): Record<BevCategory, num
   return { ...EMPTY_BREAKDOWN, ...stored } as Record<BevCategory, number>;
 }
 
+/**
+ * Format an oz value as either "X oz" or "Y ml" depending on the user's
+ * preferred-unit setting. Use this at the call site of any single-unit
+ * display so it tracks the preference.
+ */
+function fmtAmount(oz: number, preferred: 'oz' | 'ml', opts: { precision?: number } = {}): string {
+  if (preferred === 'ml') return `${ozToMl(oz)} ml`;
+  const p = opts.precision ?? 1;
+  return `${oz.toFixed(p)} oz`;
+}
+
 function ozToMl(oz: number) {
   return Math.round(oz * 29.5735);
 }
 
 const SCREEN_W = Dimensions.get("window").width;
 
-// --- Trophy System ---
-interface Trophy {
-  days: number;
-  emoji: string;
-  title: string;
-  subtitle: string;
-}
-
-const STREAK_TROPHIES: Trophy[] = [
-  { days: 3,  emoji: "🌱", title: "First Steps",       subtitle: "3 day streak"   },
-  { days: 7,  emoji: "💧", title: "One Week",          subtitle: "7 day streak"   },
-  { days: 14, emoji: "⭐", title: "Two Weeks",         subtitle: "14 day streak"  },
-  { days: 21, emoji: "🔥", title: "Three Weeks",       subtitle: "21 day streak"  },
-  { days: 28, emoji: "💪", title: "Four Weeks",        subtitle: "28 day streak"  },
-  { days: 35, emoji: "🏅", title: "Five Weeks",        subtitle: "35 day streak"  },
-  { days: 42, emoji: "🥉", title: "Six Weeks",         subtitle: "42 day streak"  },
-  { days: 49, emoji: "🥈", title: "Seven Weeks",       subtitle: "49 day streak"  },
-  { days: 56, emoji: "🥇", title: "Eight Weeks",       subtitle: "56 day streak"  },
-  { days: 63, emoji: "🏆", title: "Nine Weeks",        subtitle: "63 day streak"  },
-  { days: 70, emoji: "👑", title: "Ten Weeks",         subtitle: "70 day streak"  },
-  { days: 84, emoji: "💎", title: "Twelve Weeks",      subtitle: "84 day streak"  },
-];
-
-function calcMaxStreak(goalHistory: Record<string, number>): number {
-  const completedKeys = Object.keys(goalHistory).filter((k) => goalHistory[k] >= 1.0);
-  if (completedKeys.length === 0) return 0;
-  const dates = completedKeys
-    .map((k) => { const [, y, m, d] = k.split("_"); return new Date(parseInt(y), parseInt(m) - 1, parseInt(d)); })
-    .sort((a, b) => a.getTime() - b.getTime());
-  let max = 1, cur = 1;
-  for (let i = 1; i < dates.length; i++) {
-    const diff = (dates[i].getTime() - dates[i - 1].getTime()) / 86400000;
-    if (diff === 1) { cur++; if (cur > max) max = cur; }
-    else cur = 1;
-  }
-  return max;
-}
-
-function TrophyCase({ goalHistory }: { goalHistory: Record<string, number> }) {
-  const [expanded, setExpanded] = useState(false);
-  const maxStreak = useMemo(() => calcMaxStreak(goalHistory), [goalHistory]);
-  const earned = STREAK_TROPHIES.filter((t) => maxStreak >= t.days);
-  const locked = STREAK_TROPHIES.filter((t) => maxStreak < t.days);
-  const next = locked[0];
-
-  return (
-    <View style={trophyStyles.wrapper}>
-      <TouchableOpacity style={trophyStyles.header} onPress={() => setExpanded((e) => !e)} activeOpacity={0.8}>
-        <Text style={trophyStyles.headerTitle}>🏆 Trophy Case</Text>
-        <View style={trophyStyles.headerRight}>
-          <Text style={trophyStyles.earnedCount}>{earned.length}/{STREAK_TROPHIES.length}</Text>
-          <Text style={trophyStyles.chevron}>{expanded ? "▲" : "▼"}</Text>
-        </View>
-      </TouchableOpacity>
-
-      {!expanded && earned.length > 0 && (
-        <View style={trophyStyles.previewRow}>
-          {earned.slice(-5).map((t) => (
-            <Text key={t.days} style={trophyStyles.previewEmoji}>{t.emoji}</Text>
-          ))}
-          {locked.length > 0 && <Text style={trophyStyles.previewLocked}>+{locked.length} locked</Text>}
-        </View>
-      )}
-
-      {expanded && (
-        <View>
-          {next && (
-            <View style={trophyStyles.nextCard}>
-              <Text style={trophyStyles.nextLabel}>Next trophy in</Text>
-              <Text style={trophyStyles.nextDays}>{next.days - maxStreak} more day{next.days - maxStreak !== 1 ? "s" : ""}</Text>
-              <Text style={trophyStyles.nextName}>{next.emoji} {next.title}</Text>
-            </View>
-          )}
-          <Text style={trophyStyles.sectionLabel}>Earned</Text>
-          {earned.length === 0
-            ? <Text style={trophyStyles.emptyText}>Hit a 3-day streak to earn your first trophy!</Text>
-            : (
-              <View style={trophyStyles.grid}>
-                {earned.map((t) => (
-                  <View key={t.days} style={trophyStyles.trophyCard}>
-                    <Text style={trophyStyles.trophyEmoji}>{t.emoji}</Text>
-                    <Text style={trophyStyles.trophyTitle}>{t.title}</Text>
-                    <Text style={trophyStyles.trophySub}>{t.subtitle}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          <Text style={trophyStyles.sectionLabel}>Locked</Text>
-          <View style={trophyStyles.grid}>
-            {locked.map((t) => (
-              <View key={t.days} style={[trophyStyles.trophyCard, trophyStyles.trophyLocked]}>
-                <Text style={[trophyStyles.trophyEmoji, { opacity: 0.25 }]}>{t.emoji}</Text>
-                <Text style={[trophyStyles.trophyTitle, { color: "rgba(255,255,255,0.3)" }]}>{t.title}</Text>
-                <Text style={[trophyStyles.trophySub, { color: "rgba(255,255,255,0.2)" }]}>{t.subtitle}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const trophyStyles = StyleSheet.create({
-  wrapper: { marginHorizontal: 24, marginTop: 20, marginBottom: 8 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  headerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  earnedCount: { color: "rgba(255,255,255,0.7)", fontSize: 13 },
-  chevron: { color: "#ffffff", fontSize: 12 },
-  previewRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  previewEmoji: { fontSize: 24 },
-  previewLocked: { fontSize: 12, color: "rgba(255,255,255,0.4)", marginLeft: 4 },
-  nextCard: { backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 12, padding: 12, marginBottom: 14, alignItems: "center" },
-  nextLabel: { color: "rgba(255,255,255,0.6)", fontSize: 11, marginBottom: 2 },
-  nextDays: { color: "#ffffff", fontSize: 22, fontWeight: "800" },
-  nextName: { color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 2 },
-  sectionLabel: { color: "rgba(255,255,255,0.5)", fontSize: 11, fontWeight: "700", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8, marginTop: 4 },
-  emptyText: { color: "rgba(255,255,255,0.55)", fontSize: 13, fontStyle: "italic" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
-  trophyCard: { width: "28%", backgroundColor: "rgba(255,255,255,0.15)", borderRadius: 12, padding: 10, alignItems: "center", gap: 4 },
-  trophyLocked: { backgroundColor: "rgba(255,255,255,0.05)" },
-  trophyEmoji: { fontSize: 28 },
-  trophyTitle: { color: "#ffffff", fontSize: 11, fontWeight: "700", textAlign: "center" },
-  trophySub: { color: "rgba(255,255,255,0.6)", fontSize: 9, textAlign: "center" },
-});
-
 // --- Goal History Calendar ---
 function getDateKey(d: Date) {
   return `water_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
 }
 
-function getDayColor(pct: number | undefined): string {
-  if (pct === undefined) return "transparent";
-  if (pct >= 1.0) return "#0D6EE8";
-  if (pct >= 0.75) return "#1E9E4A";
-  if (pct >= 0.50) return "#E8920A";
-  if (pct >= 0.25) return "#D94E00";
-  if (pct > 0) return "#C0152A";
-  return "transparent";
-}
-
-interface GoalHistoryProps {
-  goalHistory: Record<string, number>;
-  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[];
-}
-
-const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-
-function GoalHistory({ goalHistory, history }: GoalHistoryProps) {
-  const today = new Date();
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth()); // 0-indexed
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-
-  // Navigate months
-  function prevMonth() {
-    if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
-    else setViewMonth(m => m - 1);
-  }
-  function nextMonth() {
-    const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
-    if (isCurrentMonth) return;
-    if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
-    else setViewMonth(m => m + 1);
-  }
-
-  // Build full month grid
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const firstDOW = new Date(viewYear, viewMonth, 1).getDay();
-  type DayItem = { date: Date; key: string } | null;
-  const cells: DayItem[] = [
-    ...Array(firstDOW).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, i) => {
-      const d = new Date(viewYear, viewMonth, i + 1);
-      return { date: d, key: getDateKey(d) };
-    }),
-  ];
-
-  // Streak (always from today backwards) — memoized to avoid 366 Date constructions per render
-  const streak = useMemo(() => {
-    let s = 0;
-    const base = new Date();
-    for (let i = 0; i <= 365; i++) {
-      const d = new Date(base);
-      d.setDate(base.getDate() - i);
-      if ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) s++;
-      else break;
-    }
-    return s;
-  }, [goalHistory]);
-
-  const isCurrentMonth = viewYear === today.getFullYear() && viewMonth === today.getMonth();
-  const selectedEntry = selectedDate ? history.find((h) => h.date === selectedDate) : null;
-  const selectedPct = selectedDate ? (goalHistory[selectedDate] ?? 0) : 0;
-
-  const { width: screenWidth } = useWindowDimensions();
-  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const GAP = 4;
-  // Wrapper has marginHorizontal: 24 (48 total). Each cell adds GAP of margin.
-  // Cap so 7 cells + 7 gaps always fit on one row.
-  const CELL = Math.max(34, Math.floor((screenWidth - 48) / 7) - GAP);
-
-  return (
-    <View style={calStyles.wrapper}>
-      {/* Header row: prev / month+year / next */}
-      <View style={calStyles.monthNav}>
-        <TouchableOpacity onPress={prevMonth} style={calStyles.navBtn}>
-          <Text style={calStyles.navArrow}>‹</Text>
-        </TouchableOpacity>
-        <Text style={calStyles.monthTitle}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
-        <TouchableOpacity onPress={nextMonth} style={[calStyles.navBtn, isCurrentMonth && { opacity: 0.3 }]} disabled={isCurrentMonth}>
-          <Text style={calStyles.navArrow}>›</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Streak */}
-      <View style={calStyles.streakRow}>
-        <Text style={calStyles.streakText}>
-          {streak > 0 ? `🔥 ${streak} Day Streak!` : "Start your streak today! 💧"}
-        </Text>
-      </View>
-
-      {/* Day of week labels */}
-      <View style={calStyles.dowRow}>
-        {DOW.map((d) => (
-          <Text key={d} style={[calStyles.dowLabel, { width: CELL, marginHorizontal: GAP / 2 }]}>{d}</Text>
-        ))}
-      </View>
-
-      {/* Calendar grid */}
-      <View style={calStyles.grid}>
-        {cells.map((item, idx) => {
-          if (!item) return <View key={`pad-${idx}`} style={{ width: CELL, height: CELL, margin: GAP / 2 }} />;
-          const pct = goalHistory[item.key];
-          const bgColor = getDayColor(pct);
-          const dayNum = item.date.getDate();
-          const isFuture = item.date > today;
-          const isToday = item.key === getDateKey(today);
-          const hasData = pct !== undefined && !isFuture;
-          const isSelected = selectedDate === item.key;
-          return (
-            <TouchableOpacity
-              key={item.key}
-              onPress={() => !isFuture && setSelectedDate(isSelected ? null : item.key)}
-              activeOpacity={isFuture ? 1 : 0.7}
-              style={[
-                calStyles.dayCell,
-                { width: CELL, height: CELL, margin: GAP / 2, borderRadius: CELL / 2, backgroundColor: hasData ? bgColor : "transparent" },
-                !hasData && !isFuture && { borderWidth: 1.5, borderColor: "rgba(255,255,255,0.2)" },
-                isToday && { borderWidth: 2, borderColor: "rgba(255,255,255,0.9)" },
-                isSelected && { borderWidth: 2.5, borderColor: "#ffffff" },
-              ]}
-            >
-              <Text style={[calStyles.dayNum, { color: isFuture ? "rgba(255,255,255,0.15)" : hasData ? "#ffffff" : "rgba(255,255,255,0.35)" }]}>
-                {dayNum}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Legend */}
-      <View style={calStyles.legendRow}>
-        {[
-          { color: "#0D6EE8", label: "100%" },
-          { color: "#1E9E4A", label: "75%" },
-          { color: "#E8920A", label: "50%" },
-          { color: "#D94E00", label: "25%" },
-          { color: "#C0152A", label: "<25%" },
-        ].map(({ color, label }) => (
-          <View key={label} style={calStyles.legendItem}>
-            <View style={[calStyles.legendDot, { backgroundColor: color }]} />
-            <Text style={calStyles.legendLabel}>{label}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Selected day detail */}
-      {selectedDate && (
-        <View style={calStyles.detailCard}>
-          <Text style={calStyles.detailDate}>{formatDate(selectedDate)}</Text>
-          <Text style={calStyles.detailItem}>
-            {selectedPct >= 1 ? "✅" : "❌"} Hydration: {selectedEntry ? selectedEntry.oz.toFixed(1) : "0"} oz ({Math.round(selectedPct * 100)}%)
-          </Text>
-          {selectedEntry?.breakdown && CATEGORIES.filter((c) => (selectedEntry.breakdown![c.key] || 0) > 0).map((cat) => (
-            <View key={cat.key} style={calStyles.detailBevRow}>
-              <View style={[calStyles.detailDot, { backgroundColor: cat.color }]} />
-              <Text style={calStyles.detailBevLabel}>{cat.label}</Text>
-              <Text style={calStyles.detailBevOz}>{(selectedEntry.breakdown![cat.key] || 0).toFixed(1)} oz</Text>
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
-  );
-}
-
-const calStyles = StyleSheet.create({
-  wrapper: { marginHorizontal: 24, marginTop: 8 },
-  monthNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  navBtn: { padding: 6 },
-  navArrow: { fontSize: 28, color: "#ffffff", fontWeight: "300", lineHeight: 30 },
-  monthTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  sectionTitle: { color: "#ffffff", fontSize: 16, fontWeight: "600", marginBottom: 10 },
-  streakRow: { marginBottom: 10 },
-  streakText: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  dowRow: { flexDirection: "row", marginBottom: 4 },
-  dowLabel: { textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.6)", fontWeight: "600" },
-  grid: { flexDirection: "row", flexWrap: "wrap" },
-  dayCell: { alignItems: "center", justifyContent: "center" },
-  dayNum: { fontSize: 11, fontWeight: "700" },
-  legendRow: { flexDirection: "row", gap: 10, marginTop: 10, flexWrap: "wrap" },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendLabel: { fontSize: 10, color: "rgba(255,255,255,0.75)" },
-  detailCard: { marginTop: 12, backgroundColor: "rgba(0,0,0,0.2)", borderRadius: 12, padding: 12 },
-  detailDate: { color: "#ffffff", fontSize: 13, fontWeight: "700", marginBottom: 6 },
-  detailRow: { marginBottom: 2 },
-  detailItem: { color: "rgba(255,255,255,0.9)", fontSize: 12, marginBottom: 2 },
-  detailBevRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 3 },
-  detailDot: { width: 8, height: 8, borderRadius: 4 },
-  detailBevLabel: { flex: 1, fontSize: 11, color: "rgba(255,255,255,0.8)" },
-  detailBevOz: { fontSize: 11, color: "#ffffff", fontWeight: "600" },
-});
 
 type Stage = { color: string; bg: string; headerBg: string; label: string };
 
@@ -471,11 +186,6 @@ function getTodayKey() {
   return `water_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
 }
 
-function formatDate(dateStr: string) {
-  const [, y, m, d] = dateStr.split("_");
-  return `${m}/${d}/${y}`;
-}
-
 // --- Scroll Picker ---
 const PICKER_ITEM_H = 36;
 const PICKER_VISIBLE = 3;
@@ -485,11 +195,13 @@ interface ScrollPickerProps {
   selectedIndex: number;
   onIndexChange: (index: number) => void;
   label: string;
+  variant?: "light" | "lightNavy";
 }
 
-function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPickerProps) {
+function ScrollPicker({ items, selectedIndex, onIndexChange, label, variant = "light" }: ScrollPickerProps) {
   const scrollRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(selectedIndex);
+  const s = variant === "lightNavy" ? pickerStylesLightNavy : pickerStyles;
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -505,7 +217,7 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPick
   };
 
   return (
-    <View style={pickerStyles.wrapper}>
+    <View style={s.wrapper}>
       <ScrollView
         ref={scrollRef}
         style={{ height: PICKER_ITEM_H * PICKER_VISIBLE }}
@@ -524,12 +236,12 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPick
         {items.map((item, i) => {
           const dist = Math.abs(i - activeIndex);
           return (
-            <View key={i} style={pickerStyles.item}>
+            <View key={i} style={s.item}>
               <Text style={[
-                pickerStyles.itemBase,
-                dist === 0 && pickerStyles.itemCenter,
-                dist === 1 && pickerStyles.itemNear,
-                dist >= 2 && pickerStyles.itemFar,
+                s.itemBase,
+                dist === 0 && s.itemCenter,
+                dist === 1 && s.itemNear,
+                dist >= 2 && s.itemFar,
               ]}>
                 {item}
               </Text>
@@ -537,8 +249,8 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label }: ScrollPick
           );
         })}
       </ScrollView>
-      <View style={pickerStyles.highlight} pointerEvents="none" />
-      <Text style={pickerStyles.unitLabel}>{label}</Text>
+      <View style={s.highlight} pointerEvents="none" />
+      <Text style={s.unitLabel}>{label}</Text>
     </View>
   );
 }
@@ -564,175 +276,28 @@ const pickerStyles = StyleSheet.create({
   unitLabel: { color: "#888888", fontSize: 11, marginTop: 2, marginBottom: 4 },
 });
 
-// --- Weekly Summary Card ---
-function WeeklySummaryCard({ history, goalHistory }: {
-  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[];
-  goalHistory: Record<string, number>;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  const { avgOz, bestDay, bestDayLabel, topBev, topBevTotal } = useMemo(() => {
-    const base = new Date();
-    const l7: typeof history = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(base);
-      d.setDate(base.getDate() - i);
-      const entry = history.find((h) => h.date === getDateKey(d));
-      if (entry) l7.push(entry);
-    }
-    const avg = l7.length > 0 ? (l7.reduce((s, e) => s + e.oz, 0) / 7).toFixed(1) : "—";
-    const best = l7.reduce<typeof history[0] | null>((b, e) => (!b || e.oz > b.oz ? e : b), null);
-    const bDay = best ? `${best.oz.toFixed(0)} oz` : "—";
-    const bLabel = best ? (() => { const [,, m, d] = best.date.split("_"); return `${m}/${d}`; })() : "";
-    const totals: Record<string, number> = {};
-    CATEGORIES.forEach((c) => { totals[c.key] = 0; });
-    l7.forEach((e) => { if (e.breakdown) CATEGORIES.forEach((c) => { totals[c.key] += e.breakdown![c.key] || 0; }); });
-    const top = CATEGORIES.reduce((b, c) => (totals[c.key] || 0) > (totals[b.key] || 0) ? c : b, CATEGORIES[0]);
-    return { avgOz: avg, bestDay: bDay, bestDayLabel: bLabel, topBev: top, topBevTotal: totals[top.key] || 0 };
-  }, [history]);
-
-  const streak = useMemo(() => {
-    let s = 0;
-    const base = new Date();
-    for (let i = 0; i <= 365; i++) {
-      const d = new Date(base);
-      d.setDate(base.getDate() - i);
-      if ((goalHistory[getDateKey(d)] ?? 0) >= 1.0) s++; else break;
-    }
-    return s;
-  }, [goalHistory]);
-
-  return (
-    <View style={weeklyStyles.wrapper}>
-      <TouchableOpacity style={weeklyStyles.header} onPress={() => setExpanded((e) => !e)} activeOpacity={0.8}>
-        <Text style={weeklyStyles.title}>📊 Weekly Summary</Text>
-        <Text style={weeklyStyles.chevron}>{expanded ? "▲" : "▼"}</Text>
-      </TouchableOpacity>
-      {expanded && (
-        <View style={weeklyStyles.grid}>
-          <View style={weeklyStyles.tile}>
-            <Text style={weeklyStyles.tileValue}>{avgOz}</Text>
-            <Text style={weeklyStyles.tileLabel}>Avg oz/day</Text>
-          </View>
-          <View style={weeklyStyles.tile}>
-            <Text style={weeklyStyles.tileValue}>{bestDay}</Text>
-            <Text style={weeklyStyles.tileLabel}>Best day {bestDayLabel}</Text>
-          </View>
-          <View style={weeklyStyles.tile}>
-            <Text style={weeklyStyles.tileValue}>{topBevTotal > 0 ? topBev.emoji : "—"}</Text>
-            <Text style={weeklyStyles.tileLabel}>{topBevTotal > 0 ? topBev.label : "No data"}</Text>
-          </View>
-          <View style={weeklyStyles.tile}>
-            <Text style={weeklyStyles.tileValue}>{streak > 0 ? `🔥${streak}` : "—"}</Text>
-            <Text style={weeklyStyles.tileLabel}>Day streak</Text>
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const weeklyStyles = StyleSheet.create({
-  wrapper: { marginHorizontal: 24, marginTop: 20 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  chevron: { color: "#ffffff", fontSize: 12 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
-  tile: { width: "46%", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 12, padding: 14, alignItems: "center" },
-  tileValue: { color: "#ffffff", fontSize: 22, fontWeight: "800" },
-  tileLabel: { color: "rgba(255,255,255,0.65)", fontSize: 11, marginTop: 2, textAlign: "center" },
+// Light-body variant: navy highlight bar over #E8ECF2 grey backdrop.
+const pickerStylesLightNavy = StyleSheet.create({
+  wrapper: { alignItems: "center", backgroundColor: "#E8ECF2", borderRadius: 10, paddingHorizontal: 6 },
+  item: { height: PICKER_ITEM_H, justifyContent: "center", alignItems: "center", minWidth: 52 },
+  itemBase: { color: "#1a1a2e", fontSize: 13, opacity: 0.25 },
+  itemCenter: { fontSize: 16, fontWeight: "700", opacity: 1 },
+  itemNear: { fontSize: 14, opacity: 0.45 },
+  itemFar: { fontSize: 13, opacity: 0.15 },
+  highlight: {
+    position: "absolute",
+    top: PICKER_ITEM_H,
+    left: 0,
+    right: 0,
+    height: PICKER_ITEM_H,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "rgba(0,136,255,0.30)",
+    backgroundColor: "rgba(0,136,255,0.10)",
+  },
+  unitLabel: { color: "#888888", fontSize: 11, marginTop: 2, marginBottom: 4 },
 });
 
-// --- Beverage Trends Chart ---
-const SCREEN_W_CHART = Dimensions.get("window").width;
-
-function BevTrendsChart({ history }: {
-  history: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[];
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const today = new Date();
-
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today); d.setDate(today.getDate() - (6 - i));
-    const key = getDateKey(d);
-    const entry = history.find((h) => h.date === key);
-    const breakdown: Record<BevCategory, number> = entry?.breakdown ? mergeBreakdown(entry.breakdown) : { ...EMPTY_BREAKDOWN };
-    const total = Object.values(breakdown).reduce((s, v) => s + v, 0);
-    const label = ["Su","Mo","Tu","We","Th","Fr","Sa"][d.getDay()];
-    return { key, label, breakdown, total };
-  });
-
-  const maxOz = Math.max(8, ...days.map((d) => d.total));
-  const CHART_W = SCREEN_W_CHART - 48;
-  const CHART_H = 120;
-  const BAR_AREA_W = CHART_W - 28;
-  const BAR_W = (BAR_AREA_W / 7) * 0.65;
-  const BAR_GAP = BAR_AREA_W / 7;
-  const LEFT = 28;
-
-  return (
-    <View style={chartStyles.wrapper}>
-      <TouchableOpacity style={chartStyles.header} onPress={() => setExpanded((e) => !e)} activeOpacity={0.8}>
-        <Text style={chartStyles.title}>📈 Beverage Trends</Text>
-        <Text style={chartStyles.chevron}>{expanded ? "▲" : "▼"}</Text>
-      </TouchableOpacity>
-      {expanded && (
-        <View style={{ marginTop: 12 }}>
-          <Svg width={CHART_W} height={CHART_H + 24}>
-            {/* Y guide lines */}
-            {[0, 0.5, 1].map((frac) => {
-              const y = CHART_H - frac * CHART_H;
-              return (
-                <G key={frac}>
-                  <Line x1={LEFT} y1={y} x2={CHART_W} y2={y} stroke="rgba(255,255,255,0.15)" strokeWidth={1} />
-                  <SvgText x={LEFT - 4} y={y + 4} fontSize={8} fill="rgba(255,255,255,0.5)" textAnchor="end">
-                    {Math.round(frac * maxOz)}
-                  </SvgText>
-                </G>
-              );
-            })}
-            {/* Bars */}
-            {days.map((day, i) => {
-              const x = LEFT + i * BAR_GAP + (BAR_GAP - BAR_W) / 2;
-              let stackY = CHART_H;
-              return (
-                <G key={day.key}>
-                  {CATEGORIES.filter((c) => (day.breakdown[c.key] || 0) > 0).map((cat) => {
-                    const barH = (day.breakdown[cat.key] / maxOz) * CHART_H;
-                    stackY -= barH;
-                    return <Rect key={cat.key} x={x} y={stackY} width={BAR_W} height={barH} fill={cat.color} rx={2} />;
-                  })}
-                  <SvgText x={x + BAR_W / 2} y={CHART_H + 14} fontSize={9} fill="rgba(255,255,255,0.7)" textAnchor="middle">
-                    {day.label}
-                  </SvgText>
-                </G>
-              );
-            })}
-          </Svg>
-          <View style={chartStyles.legend}>
-            {CATEGORIES.filter((c) => days.some((d) => (d.breakdown[c.key] || 0) > 0)).map((cat) => (
-              <View key={cat.key} style={chartStyles.legendItem}>
-                <View style={[chartStyles.legendDot, { backgroundColor: cat.color }]} />
-                <Text style={chartStyles.legendLabel}>{cat.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const chartStyles = StyleSheet.create({
-  wrapper: { marginHorizontal: 24, marginTop: 20 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  title: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
-  chevron: { color: "#ffffff", fontSize: 12 },
-  legend: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 8 },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendLabel: { fontSize: 13, color: "rgba(255,255,255,0.85)" },
-});
 
 // --- Weather Banner ---
 function WeatherBanner({ tempF, extraOz, onApply, onDismiss, stageColor }: {
@@ -768,49 +333,131 @@ const bannerStyles = StyleSheet.create({
 });
 
 // --- Presets Row ---
-function PresetsRow({ presets, onSelect, onDelete }: {
-  presets: Preset[]; onSelect: (p: Preset) => void; onDelete: (id: string) => void;
+function WiggleChip({ children, editMode, index }: { children: React.ReactNode; editMode: boolean; index: number }) {
+  const rot = useSharedValue(0);
+  useEffect(() => {
+    if (editMode) {
+      const amp = index % 2 === 0 ? 1.6 : 1.4;
+      const dur = 90 + (index % 3) * 8;
+      rot.value = withRepeat(
+        withSequence(
+          withTiming(-amp, { duration: dur }),
+          withTiming(amp, { duration: dur }),
+        ),
+        -1,
+        true,
+      );
+    } else {
+      cancelAnimation(rot);
+      rot.value = withTiming(0, { duration: 120 });
+    }
+  }, [editMode, index, rot]);
+  const aStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${rot.value}deg` }] }));
+  return <Reanimated.View style={aStyle}>{children}</Reanimated.View>;
+}
+
+function PresetsRow({ presets, onSelect, onDelete, onReorder, isPro }: {
+  presets: Preset[];
+  onSelect: (p: Preset) => void;
+  onDelete: (id: string) => void;
+  onReorder: (next: Preset[]) => void;
+  isPro: boolean;
 }) {
   const cat = (p: Preset) => CATEGORIES.find((c) => c.key === p.category)!;
+  const canReorder = isPro && presets.length > 1;
+  const canEdit = presets.length > 0;
+  const [editMode, setEditMode] = useState(false);
+  useEffect(() => { if (!canEdit && editMode) setEditMode(false); }, [canEdit, editMode]);
+  const enterEdit = () => {
+    if (!canEdit || editMode) return;
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); } catch {}
+    setEditMode(true);
+  };
+  const confirmDelete = (p: Preset) => Alert.alert("Delete Preset", `Remove "${p.label}"?`, [
+    { text: "Cancel", style: "cancel" },
+    { text: "Delete", style: "destructive", onPress: () => onDelete(p.id) },
+  ]);
+  const renderItem = ({ item, drag, isActive, getIndex }: RenderItemParams<Preset>) => {
+    const idx = getIndex() ?? 0;
+    return (
+      <ScaleDecorator>
+        <WiggleChip editMode={editMode && canReorder && !isActive} index={idx}>
+          <View style={[presetStyles.chipWrap, isActive && { opacity: 0.85 }]}>
+            <TouchableOpacity
+              style={[presetStyles.chip, { borderLeftColor: cat(item).color }]}
+              onPress={() => { if (!editMode) { playButtonTapSound(); onSelect(item); } }}
+              onLongPress={canEdit ? () => {
+                if (!editMode) enterEdit();
+                if (canReorder) drag();
+              } : undefined}
+              delayLongPress={editMode ? 120 : 260}
+              disabled={isActive}
+              activeOpacity={editMode ? 1 : 0.8}
+            >
+              <Text style={presetStyles.chipEmoji}>{cat(item).emoji}</Text>
+              <View>
+                <Text style={presetStyles.chipLabel}>{item.label}</Text>
+                <Text style={[presetStyles.chipSub, { color: cat(item).color }]}>{item.oz} oz</Text>
+              </View>
+            </TouchableOpacity>
+            {editMode && (
+              <TouchableOpacity
+                style={presetStyles.deleteBtn}
+                onPress={() => { playButtonTapSound(); confirmDelete(item); }}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityLabel={`Delete ${item.label}`}
+              >
+                <Text style={presetStyles.deleteX}>×</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </WiggleChip>
+      </ScaleDecorator>
+    );
+  };
   return (
     <View style={presetStyles.wrapper}>
-      <Text style={presetStyles.label}>⚡ Quick Presets</Text>
-      <FlatList
+      <View style={presetStyles.headerRow}>
+        <Text style={presetStyles.label}>⚡ QUICK PRESETS</Text>
+        {editMode && (
+          <TouchableOpacity onPress={() => { playButtonTapSound(); setEditMode(false); }} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+            <Text style={presetStyles.doneBtn}>Done</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      <DraggableFlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         data={presets}
         keyExtractor={(p) => p.id}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 2 }}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[presetStyles.chip, { borderLeftColor: cat(item).color }]}
-            onPress={() => onSelect(item)}
-            onLongPress={() => Alert.alert("Delete Preset", `Remove "${item.label}"?`, [
-              { text: "Cancel", style: "cancel" },
-              { text: "Delete", style: "destructive", onPress: () => onDelete(item.id) },
-            ])}
-            activeOpacity={0.8}
-          >
-            <Text style={presetStyles.chipEmoji}>{cat(item).emoji}</Text>
-            <View>
-              <Text style={presetStyles.chipLabel}>{item.label}</Text>
-              <Text style={[presetStyles.chipSub, { color: cat(item).color }]}>{item.oz} oz</Text>
-            </View>
-          </TouchableOpacity>
-        )}
+        contentContainerStyle={{ gap: 10, paddingHorizontal: 4, paddingTop: 8, paddingBottom: 2 }}
+        renderItem={renderItem}
+        onDragEnd={({ data }) => onReorder(data)}
+        activationDistance={canReorder ? 6 : 10000}
       />
-      <Text style={presetStyles.hint}>Long-press to delete</Text>
+      <Text style={presetStyles.hint}>
+        {editMode
+          ? canReorder
+            ? "Drag to reorder · Tap × to delete · Done when finished"
+            : "Tap × to delete · Done when finished"
+          : "Long-press to edit"}
+      </Text>
     </View>
   );
 }
 
 const presetStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 24, marginTop: 16 },
-  label: { color: "#ffffff", fontSize: 13, fontWeight: "700", marginBottom: 8 },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  label: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8 },
+  doneBtn: { color: "#FFD700", fontSize: 13, fontWeight: "800", letterSpacing: 0.5 },
+  chipWrap: { position: "relative" },
   chip: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, borderLeftWidth: 3 },
   chipEmoji: { fontSize: 20 },
   chipLabel: { color: "#ffffff", fontSize: 12, fontWeight: "600" },
   chipSub: { fontSize: 11, fontWeight: "700" },
+  deleteBtn: { position: "absolute", top: -7, right: -7, width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.92)", borderWidth: 1, borderColor: "rgba(255,255,255,0.45)", alignItems: "center", justifyContent: "center" },
+  deleteX: { color: "#ffffff", fontSize: 15, fontWeight: "700", lineHeight: 17, marginTop: -1 },
   hint: { color: "rgba(255,255,255,0.3)", fontSize: 10, marginTop: 4 },
 });
 
@@ -819,6 +466,16 @@ const presetStyles = StyleSheet.create({
 // ==========================================
 const GOLD = "#FFD700";
 const GOLD_DIM = "#c8a000";
+
+// Light+navy modal palette (see below-file docstring for full token set).
+// Hoisted here so the modal-component-scoped StyleSheets (cbStyles at ~1497
+// and the QuickAdd modal component at ~1715) can reference them; the rest of
+// the light+navy design tokens live in the trailer near styles.
+const LIGHT_BODY = "#F0F2F5";
+const LIGHT_NAVY = "#1a0a3a";
+const LIGHT_NAVY_DEEP = "#1a1a2e";
+const ACCENT_WATER_TINT = "rgba(0,136,255,0.10)";
+const ACCENT_WATER_BORDER = "rgba(0,136,255,0.42)";
 // --- Star Particles ---
 function StarParticles() {
   const N = 14;
@@ -855,7 +512,7 @@ function StarParticles() {
 
 // --- Marquee Header ---
 const MQ_LIGHTS = 6;
-function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number }) {
+function MarqueeHeader({ goal, hydration, preferredUnit }: { goal: number; hydration: number; preferredUnit: 'oz' | 'ml' }) {
   const lightAnims = useRef(Array.from({ length: MQ_LIGHTS * 2 }, () => new Animated.Value(0.2))).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const focused = useIsFocused();
@@ -892,7 +549,8 @@ function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number })
     };
   }, [focused, lightAnims, pulseAnim]);
   const won = hydration >= goal;
-  const remaining = Math.max(0, goal - hydration).toFixed(1);
+  const remainingOz = Math.max(0, goal - hydration);
+  const remaining = preferredUnit === 'ml' ? `${ozToMl(remainingOz)} ml` : `${remainingOz.toFixed(1)} oz`;
   return (
     <View style={mqStyles.wrapper}>
       <View style={mqStyles.lightsRow}>
@@ -908,7 +566,7 @@ function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number })
       </View>
       <Animated.View style={[mqStyles.badge, { transform: [{ scale: pulseAnim }] }]}>
         <Text style={won ? mqStyles.wonText : mqStyles.remainText}>
-          {won ? "🎯 GOAL REACHED! 🎯" : `💧 ${remaining} oz to go`}
+          {won ? "🎯 GOAL REACHED! 🎯" : `💧 ${remaining} to go`}
         </Text>
       </Animated.View>
       <View style={mqStyles.lightsRow}>
@@ -918,7 +576,7 @@ function MarqueeHeader({ goal, hydration }: { goal: number; hydration: number })
   );
 }
 const mqStyles = StyleSheet.create({
-  wrapper: { backgroundColor: "#12063A", borderWidth: 2, borderColor: GOLD, borderRadius: 16, marginHorizontal: 12, marginTop: 50, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" },
+  wrapper: { backgroundColor: "#12063A", borderWidth: 2, borderColor: GOLD, borderRadius: 16, marginHorizontal: 12, marginTop: 100, paddingVertical: 10, paddingHorizontal: 16, alignItems: "center" },
   lightsRow: { flexDirection: "row", justifyContent: "space-around", width: "100%", marginVertical: 4 },
   light: { width: 11, height: 11, borderRadius: 6, backgroundColor: GOLD },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 },
@@ -1060,7 +718,7 @@ function adDiamondPath(cx: number, cy: number, r: number): string {
 }
 
 // All static decoration — never re-renders with phase/water animation
-const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: number }) {
+const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal, preferredUnit }: { vGoal: number; preferredUnit: 'oz' | 'ml' }) {
   return (
     <Svg width={AD_SVG_W} height={AD_SVG_H}>
       <Defs>
@@ -1132,7 +790,7 @@ const VaultStaticSVG = React.memo(function VaultStaticSVG({ vGoal }: { vGoal: nu
             <Line x1={AD_TANK_X - 8} y1={tY} x2={AD_TANK_X} y2={tY} stroke="rgba(255,215,0,0.6)" strokeWidth={1.5} />
             <SvgText x={AD_TANK_X - 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="end" fontWeight="600">{Math.round(m * 100)}%</SvgText>
             <Line x1={AD_TANK_X + AD_TANK_W} y1={tY} x2={AD_TANK_X + AD_TANK_W + 8} y2={tY} stroke="rgba(255,215,0,0.6)" strokeWidth={1.5} />
-            <SvgText x={AD_TANK_X + AD_TANK_W + 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="start" fontWeight="600">{Math.round(m * vGoal)}oz</SvgText>
+            <SvgText x={AD_TANK_X + AD_TANK_W + 10} y={tY + 4} fontSize={9} fill="rgba(255,215,0,0.75)" textAnchor="start" fontWeight="600">{preferredUnit === 'ml' ? `${ozToMl(m * vGoal)}ml` : `${Math.round(m * vGoal)}oz`}</SvgText>
           </G>
         );
       })}
@@ -1329,12 +987,14 @@ function ArtDecoVault({
   pct, oz, goal: vGoal,
   loggedCategory, lastReelOz, logNonce,
   onSpoutRef, onTankFill, onLaunchDroplet,
+  preferredUnit,
 }: {
   pct: number; oz: number; goal: number;
   loggedCategory: BevCategory; lastReelOz: number; logNonce: number;
   onSpoutRef?: (x: number, y: number) => void;
   onTankFill?: () => void;
   onLaunchDroplet?: (start: {x:number;y:number}, end: {x:number;y:number}, onLand: () => void) => void;
+  preferredUnit: 'oz' | 'ml';
 }) {
   const hydOz = lastReelOz > 0 ? calcHydratedOz(lastReelOz, loggedCategory) : 0;
   const beverage: BevDef = getBev(loggedCategory);
@@ -1443,6 +1103,7 @@ function ArtDecoVault({
     if (!ringPos) return;
     const anchor = vaultWaterAnchorRef.current;
     if (!anchor) return;
+    playDropletSound();
     anchor.measureInWindow((x, y, w, h) => {
       onLaunchDroplet(ringPos, { x: x + w / 2, y: y + h / 2 }, onReachTank);
     });
@@ -1477,7 +1138,7 @@ function ArtDecoVault({
 
         {/* ── Static decoration — never re-renders with phase ── */}
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-          <VaultStaticSVG vGoal={vGoal} />
+          <VaultStaticSVG vGoal={vGoal} preferredUnit={preferredUnit} />
         </View>
 
         {/* ── Animated water SVG — only AnimatedWaterSVG re-renders at 60fps ── */}
@@ -1506,6 +1167,7 @@ function ArtDecoVault({
               beverage={beverage}
               ozLogged={lastReelOz}
               hydratedOz={hydOz}
+              preferredUnit={preferredUnit}
               onHandoffStart={handleHandoffStart}
             />
           ) : (
@@ -1529,10 +1191,10 @@ function ArtDecoVault({
             {`${Math.round(pct * 100)}%`}
           </Text>
           <Text style={{ fontSize: 11, fontWeight: "700", color: "rgba(200,240,255,0.92)", marginTop: 4 }}>
-            {`${oz.toFixed(1)} oz hydrated`}
+            {`${fmtAmount(oz, preferredUnit)} hydrated`}
           </Text>
           <Text style={{ fontSize: 9, color: "rgba(255,215,0,0.7)", marginTop: 3 }}>
-            {`${ozToMl(oz)} ml`}
+            {preferredUnit === 'ml' ? `${oz.toFixed(1)} oz` : `${ozToMl(oz)} ml`}
           </Text>
         </View>
 
@@ -1609,10 +1271,18 @@ interface ChooseBevsModalProps {
   visible: boolean;
   current: BevCategory[];
   usage: Record<BevCategory, number>;
+  // When false, alcoholic bevs are excluded from the picker entirely.
+  showAlcoholic: boolean;
+  isPro: boolean;
+  onPaywallTrigger: () => void;
   onSave: (selection: BevCategory[]) => void;
   onCancel: () => void;
 }
-function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBevsModalProps) {
+function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPaywallTrigger, onSave, onCancel }: ChooseBevsModalProps) {
+  const pickerCategories = useMemo(
+    () => (showAlcoholic ? CATEGORIES : CATEGORIES.filter((b) => !ALCOHOLIC_BEVS.has(b.key))),
+    [showAlcoholic],
+  );
   const [selected, setSelected] = useState<BevCategory[]>(current);
   const [hint, setHint] = useState("");
 
@@ -1641,8 +1311,8 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
   );
   const unselectedBevs = useMemo(() => {
     const selSet = new Set(selected);
-    return CATEGORIES.filter((b) => !selSet.has(b.key));
-  }, [selected]);
+    return pickerCategories.filter((b) => !selSet.has(b.key));
+  }, [selected, pickerCategories]);
 
   function sortByMostUsed() {
     // Stable sort: keep current order when usage is equal (0–0 included).
@@ -1677,7 +1347,7 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
           >
             <Text style={cbStyles.rowEmoji}>{item.emoji}</Text>
             <View style={{ flex: 1 }}>
-              <Text style={[cbStyles.rowName, { color: GOLD }]}>{item.label}</Text>
+              <Text style={cbStyles.rowName}>{item.label}</Text>
               <Text style={cbStyles.rowEff}>{Math.round(item.eff * 100)}% hydration</Text>
             </View>
             <Text style={cbStyles.check}>✓</Text>
@@ -1695,11 +1365,11 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
           {/* Header */}
           <View style={cbStyles.header}>
             <View style={{ flex: 1 }}>
-              <Text style={cbStyles.title}>Choose Your Beverages</Text>
+              <Text style={cbStyles.title}>Customize Your Beverages</Text>
               <Text style={cbStyles.subtitle}>Long-press a tile to drag and reorder</Text>
               <Text style={cbStyles.counter}>
-                <Text style={{ color: GOLD }}>{selected.length}</Text>
-                <Text style={{ color: "rgba(255,255,255,0.5)" }}> of 20 selected</Text>
+                <Text style={{ color: LIGHT_NAVY }}>{selected.length}</Text>
+                <Text style={{ color: "#666666" }}> of 20 selected</Text>
               </Text>
             </View>
             <TouchableOpacity onPress={onCancel} style={cbStyles.closeBtn}>
@@ -1711,19 +1381,27 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
           <View style={cbStyles.actionRow}>
             <TouchableOpacity
               style={cbStyles.actionBtn}
-              onPress={() => { setSelected(CATEGORIES.map((b) => b.key)); setHint(""); }}
+              onPress={() => {
+                if (!isPro) { onPaywallTrigger(); return; }
+                setSelected(pickerCategories.map((b) => b.key)); setHint("");
+              }}
             >
               <Text style={cbStyles.actionTxt}>All</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={cbStyles.actionBtn}
-              onPress={() => { setSelected([CATEGORIES[0].key]); setHint(""); }}
+              onPress={() => { setSelected([pickerCategories[0].key]); setHint(""); }}
             >
               <Text style={cbStyles.actionTxt}>Clear</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={cbStyles.actionBtn}
-              onPress={() => { setSelected([...DEFAULT_VISIBLE_BEVS]); setHint(""); }}
+              onPress={() => {
+                const defaults = showAlcoholic
+                  ? DEFAULT_VISIBLE_BEVS
+                  : DEFAULT_VISIBLE_BEVS.filter((k) => !ALCOHOLIC_BEVS.has(k));
+                setSelected([...defaults]); setHint("");
+              }}
             >
               <Text style={cbStyles.actionTxt}>Defaults</Text>
             </TouchableOpacity>
@@ -1753,21 +1431,37 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
                 unselectedBevs.length > 0 ? (
                   <>
                     <View style={cbStyles.divider} />
-                    {unselectedBevs.map((bev) => (
-                      <TouchableOpacity
-                        key={bev.key}
-                        style={cbStyles.row}
-                        onPress={() => toggle(bev.key)}
-                        activeOpacity={0.75}
-                      >
-                        <View style={cbStyles.dragHandlePlaceholder} />
-                        <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
-                        <View style={{ flex: 1 }}>
-                          <Text style={cbStyles.rowName}>{bev.label}</Text>
-                          <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
+                    {unselectedBevs.map((bev) => {
+                      // A removed default is re-addable for free; only the 13
+                      // non-default extras are paywalled.
+                      const isLocked = !isPro && !DEFAULT_VISIBLE_BEVS.includes(bev.key);
+                      return (
+                        <TouchableOpacity
+                          key={bev.key}
+                          style={[cbStyles.row, isLocked && { opacity: 0.45 }]}
+                          onPress={() => {
+                            if (isLocked) { onPaywallTrigger(); return; }
+                            toggle(bev.key);
+                          }}
+                          activeOpacity={0.75}
+                        >
+                          <View style={cbStyles.dragHandlePlaceholder} />
+                          <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={cbStyles.rowName}>{bev.label}</Text>
+                            <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
+                          </View>
+                          {isLocked && (
+                            <View style={{
+                              backgroundColor: LIGHT_NAVY, borderRadius: 5,
+                              paddingHorizontal: 6, paddingVertical: 2,
+                            }}>
+                              <Text style={{ color: "#ffffff", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
                   </>
                 ) : null
               }
@@ -1790,33 +1484,33 @@ function ChooseBevsModal({ visible, current, usage, onSave, onCancel }: ChooseBe
   );
 }
 const cbStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: "#0d0030", borderTopLeftRadius: 24, borderTopRightRadius: 24, borderTopWidth: 2, borderColor: GOLD, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "60%" },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%" },
   header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
-  title: { color: GOLD, fontSize: 18, fontWeight: "800" },
-  subtitle: { color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 3 },
+  title: { color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800" },
+  subtitle: { color: "#666666", fontSize: 12, marginTop: 3 },
   counter: { fontSize: 13, fontWeight: "700", marginTop: 6 },
   closeBtn: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  closeTxt: { color: "rgba(255,255,255,0.6)", fontSize: 18 },
+  closeTxt: { color: "#888888", fontSize: 18 },
   actionRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", backgroundColor: "rgba(255,215,0,0.07)" },
-  actionTxt: { color: GOLD_DIM, fontSize: 12, fontWeight: "700" },
-  hint: { color: "#FF8800", fontSize: 12, fontWeight: "600", marginBottom: 8 },
-  divider: { height: 1, backgroundColor: "rgba(255,215,0,0.25)", marginVertical: 8 },
+  actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(0,0,0,0.12)", alignItems: "center", backgroundColor: "#ffffff" },
+  actionTxt: { color: LIGHT_NAVY_DEEP, fontSize: 12, fontWeight: "700" },
+  hint: { color: "#C0152A", fontSize: 12, fontWeight: "600", marginBottom: 8 },
+  divider: { height: 1, backgroundColor: "rgba(0,0,0,0.08)", marginVertical: 8 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: "transparent", gap: 12 },
-  rowSel: { backgroundColor: "rgba(255,215,0,0.08)", borderColor: "rgba(255,215,0,0.35)" },
-  rowActive: { backgroundColor: "rgba(255,215,0,0.28)", borderColor: GOLD, borderWidth: 2, shadowColor: GOLD, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  rowSel: { backgroundColor: "#ffffff", borderColor: "rgba(0,0,0,0.08)" },
+  rowActive: { backgroundColor: "rgba(0,136,255,0.12)", borderColor: "rgba(0,136,255,0.55)", borderWidth: 1.5, shadowColor: LIGHT_NAVY, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   dragArea: { width: 36, alignSelf: "stretch", alignItems: "center", justifyContent: "center", marginLeft: -4 },
-  dragHandle: { color: GOLD_DIM, fontSize: 22, fontWeight: "900", letterSpacing: -2, lineHeight: 22 },
+  dragHandle: { color: "#888888", fontSize: 22, fontWeight: "900", letterSpacing: -2, lineHeight: 22 },
   dragHandlePlaceholder: { width: 36 },
   rowTapZone: { flex: 1, flexDirection: "row", alignItems: "center", gap: 12 },
   rowEmoji: { fontSize: 22, width: 30, textAlign: "center" },
-  rowName: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
-  rowEff: { color: "rgba(255,255,255,0.45)", fontSize: 11, marginTop: 1 },
-  check: { color: GOLD, fontSize: 18, fontWeight: "800" },
+  rowName: { color: LIGHT_NAVY_DEEP, fontSize: 14, fontWeight: "600" },
+  rowEff: { color: "#666666", fontSize: 11, marginTop: 1 },
+  check: { color: LIGHT_NAVY, fontSize: 18, fontWeight: "800" },
   btnRow: { paddingVertical: 16 },
-  saveBtn: { paddingVertical: 14, borderRadius: 12, backgroundColor: GOLD, alignItems: "center" },
-  saveTxt: { color: "#000000", fontSize: 14, fontWeight: "800" },
+  saveBtn: { paddingVertical: 14, borderRadius: 12, backgroundColor: LIGHT_NAVY, alignItems: "center" },
+  saveTxt: { color: "#ffffff", fontSize: 14, fontWeight: "800" },
 });
 
 // --- Beverage Selector ---
@@ -1829,11 +1523,10 @@ function getBevSizing(total: number): { emojiSize: number; labelSize: number; pa
 }
 
 function BeverageSelector({
-  selected, onSelect, onCustom, visibleBevs, onEditBevs,
+  selected, onSelect, visibleBevs, onEditBevs,
 }: {
   selected: BevCategory;
   onSelect: (c: BevCategory) => void;
-  onCustom: () => void;
   visibleBevs: BevCategory[];
   onEditBevs: () => void;
 }) {
@@ -1862,7 +1555,11 @@ function BeverageSelector({
           isSel && bev ? { borderColor: bev.color, backgroundColor: bev.color + "22" } : null,
           isCustom ? bvStyles.customBtn : null,
         ]}
-        onPress={() => { playButtonTapSound(); if (isCustom) { onCustom(); } else { onSelect(key as BevCategory); } }}
+        onPress={() => {
+          playButtonTapSound();
+          if (isCustom) { onEditBevs(); }
+          else { onSelect(key as BevCategory); }
+        }}
         activeOpacity={0.8}
       >
         <Text style={{ fontSize: sizing.emojiSize }}>{emoji}</Text>
@@ -1884,10 +1581,7 @@ function BeverageSelector({
   return (
     <View style={bvStyles.wrapper}>
       <View style={bvStyles.labelRow}>
-        <Text style={bvStyles.sectionLabel}>SELECT A BEVERAGE  ⌄</Text>
-        <TouchableOpacity onPress={onEditBevs} style={bvStyles.editBtn} activeOpacity={0.7}>
-          <Text style={bvStyles.editTxt}>✏️</Text>
-        </TouchableOpacity>
+        <Text style={bvStyles.sectionLabel}>SELECT A BEVERAGE</Text>
       </View>
       {useScroll ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingVertical: 2 }}>
@@ -1905,8 +1599,8 @@ const bvStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 12, marginTop: 10 },
   labelRow: { flexDirection: "row", alignItems: "center", marginBottom: 6 },
   sectionLabel: { flex: 1, color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8 },
-  editBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,215,0,0.12)", borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", justifyContent: "center" },
-  editTxt: { fontSize: 13 },
+  editBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" },
+  editTxt: { fontSize: 17, lineHeight: 22 },
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   btn: { backgroundColor: "rgba(255,255,255,0.06)", borderRadius: 10, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)", minWidth: 52 },
   customBtn: { borderColor: "rgba(255,215,0,0.35)", borderStyle: "dashed", backgroundColor: "rgba(255,255,255,0.06)" },
@@ -1914,16 +1608,22 @@ const bvStyles = StyleSheet.create({
 });
 
 // --- Quick Bet Buttons ---
-function QuickBets({ onBet, spinning, amounts }: { onBet: (oz: number) => void; spinning: boolean; amounts: number[] }) {
+function QuickBets({ onBet, spinning, amounts, preferredUnit }: { onBet: (oz: number) => void; spinning: boolean; amounts: number[]; preferredUnit: 'oz' | 'ml' }) {
   return (
     <View style={qbStyles.wrapper}>
       <View style={qbStyles.grid}>
-        {amounts.map((oz, i) => (
-          <TouchableOpacity key={i} style={[qbStyles.btn, spinning && qbStyles.dis]} onPress={() => { if (!spinning) { playButtonTapSound(); onBet(oz); } }} activeOpacity={0.8}>
-            <Text style={qbStyles.ozTxt}>{formatOz(oz)} oz</Text>
-            <Text style={qbStyles.mlTxt}>{ozToMl(oz)} ml</Text>
-          </TouchableOpacity>
-        ))}
+        {amounts.map((oz, i) => {
+          const ozText = `${formatOz(oz)} oz`;
+          const mlText = `${ozToMl(oz)} ml`;
+          const primary = preferredUnit === 'oz' ? ozText : mlText;
+          const secondary = preferredUnit === 'oz' ? mlText : ozText;
+          return (
+            <TouchableOpacity key={i} style={[qbStyles.btn, spinning && qbStyles.dis]} onPress={() => { if (!spinning) { playButtonTapSound(); onBet(oz); } }} activeOpacity={0.8}>
+              <Text style={qbStyles.ozTxt}>{primary}</Text>
+              <Text style={qbStyles.mlTxt}>{secondary}</Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </View>
   );
@@ -1947,13 +1647,33 @@ interface QuickAddCustomModalProps {
 }
 function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: QuickAddCustomModalProps) {
   const [drafts, setDrafts] = useState<string[]>(currentAmounts.map(String));
-  const [focused, setFocused] = useState<number | null>(null);
+  // `expanded` = index of the currently open row, or null if none. Only one
+  // row can be expanded at a time. Modal opens with Button 1 expanded so the
+  // user has an immediate target for presets.
+  const [expanded, setExpanded] = useState<number | null>(null);
   const inputRefs = useRef<(import("react-native").TextInput | null)[]>([]);
+  const scrollRef = useRef<ScrollView | null>(null);
+  const rowYRefs = useRef<number[]>([]);
 
-  // Sync drafts when modal opens
   useEffect(() => {
-    if (visible) setDrafts(currentAmounts.map((oz) => formatOz(oz)));
+    if (visible) {
+      setDrafts(currentAmounts.map((oz) => formatOz(oz)));
+      setExpanded(0);
+    } else {
+      setExpanded(null);
+    }
   }, [visible, currentAmounts]);
+
+  // Scroll the expanded row into view so its preset panel is visible.
+  useEffect(() => {
+    if (expanded === null) return;
+    const y = rowYRefs.current[expanded];
+    if (y === undefined) return;
+    const t = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+    }, 60);
+    return () => clearTimeout(t);
+  }, [expanded]);
 
   function setSlot(i: number, val: string) {
     setDrafts((prev) => { const next = [...prev]; next[i] = val; return next; });
@@ -1978,11 +1698,6 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
     }
   }
 
-  function applyPreset(oz: number) {
-    const slot = focused ?? 0;
-    setSlot(slot, formatOz(oz));
-  }
-
   const allValid = drafts.every(isValid);
 
   return (
@@ -1991,91 +1706,163 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.modalBox, { paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
                 {/* Header */}
-                <View style={{ backgroundColor: "#1a0a3a", paddingTop: 18, paddingBottom: 14, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.2)" }}>
+                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text style={{ color: GOLD, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
                     <TouchableOpacity onPress={onCancel} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                      <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                      <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Tap a slot to edit, then tap a preset to fill it</Text>
+                  <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>Tap a button to edit its amount</Text>
                 </View>
 
-                <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  ref={scrollRef}
+                  style={{ maxHeight: 480 }}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={false}
+                >
                   <View style={{ paddingHorizontal: 18, paddingTop: 14 }}>
 
-                    {/* Slot rows */}
+                    {/* Expandable button rows */}
                     {drafts.map((val, i) => {
-                      const isFocused = focused === i;
+                      const isExpanded = expanded === i;
                       const valid = isValid(val);
                       const mlVal = valid ? `${ozToMl(parseFloat(val))} ml` : "—";
+                      const defaultOz = QUICK_ADD_DEFAULTS[i];
+                      const isDefault = valid && parseFloat(val) === defaultOz;
+                      const currentOzNum = valid ? parseFloat(val) : NaN;
                       return (
-                        <View key={i} style={{ marginBottom: 10 }}>
-                          <View style={{
-                            flexDirection: "row", alignItems: "center",
-                            backgroundColor: "rgba(255,215,0,0.08)",
-                            borderRadius: 12, borderWidth: 1.5,
-                            borderColor: isFocused ? "#c8a000" : (valid ? "rgba(200,160,0,0.35)" : "#FF6B6B"),
-                            paddingHorizontal: 12,
-                            minHeight: 52,
-                          }}>
-                            <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700", width: 48 }}>Slot {i + 1}</Text>
-                            <TextInput
-                              ref={(r) => { inputRefs.current[i] = r; }}
-                              value={val}
-                              onChangeText={(t) => setSlot(i, t)}
-                              onFocus={() => setFocused(i)}
-                              onBlur={() => setFocused((f) => f === i ? null : f)}
-                              keyboardType="decimal-pad"
-                              style={{ flex: 1, color: "#1a1a2e", fontSize: 18, fontWeight: "700", paddingVertical: 10 }}
-                              selectTextOnFocus
-                              returnKeyType="done"
-                              placeholderTextColor="#aaaaaa"
-                            />
+                        <View
+                          key={i}
+                          onLayout={(e) => { rowYRefs.current[i] = e.nativeEvent.layout.y; }}
+                          style={{ marginBottom: 10 }}
+                        >
+                          {/* Header (always visible, tap to expand/collapse) */}
+                          <TouchableOpacity
+                            activeOpacity={0.85}
+                            onPress={() => setExpanded(isExpanded ? null : i)}
+                            accessibilityLabel={`Button ${i + 1}: ${val} oz. ${isExpanded ? 'Tap to collapse' : 'Tap to edit'}`}
+                            style={{
+                              flexDirection: "row", alignItems: "center",
+                              backgroundColor: isExpanded ? ACCENT_WATER_TINT : "#ffffff",
+                              borderTopLeftRadius: 12, borderTopRightRadius: 12,
+                              borderBottomLeftRadius: isExpanded ? 0 : 12,
+                              borderBottomRightRadius: isExpanded ? 0 : 12,
+                              borderWidth: 1,
+                              borderColor: isExpanded ? ACCENT_WATER_BORDER : (valid ? "rgba(0,0,0,0.10)" : "#FF6B6B"),
+                              borderBottomWidth: isExpanded ? 0 : 1,
+                              paddingHorizontal: 14,
+                              minHeight: 52,
+                            }}
+                          >
+                            <Text style={{ color: "#666666", fontSize: 12, fontWeight: "700", width: 66 }}>Button {i + 1}</Text>
+                            <Text style={{
+                              flex: 1,
+                              color: valid ? LIGHT_NAVY_DEEP : "#CC2200",
+                              fontSize: 18, fontWeight: "800",
+                            }}>
+                              {val || "—"} <Text style={{ fontSize: 13, fontWeight: "600", color: "#888" }}>oz</Text>
+                            </Text>
                             <Text style={{ color: "#888888", fontSize: 12, marginRight: 10, minWidth: 54, textAlign: "right" }}>{mlVal}</Text>
-                            <TouchableOpacity onPress={() => resetSlot(i)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                              style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(0,0,0,0.08)", alignItems: "center", justifyContent: "center" }}>
-                              <Text style={{ color: "#888888", fontSize: 13, lineHeight: 16 }}>✕</Text>
-                            </TouchableOpacity>
-                          </View>
-                          {!valid && val.length > 0 && (
-                            <Text style={{ color: "#CC2200", fontSize: 11, marginTop: 3, marginLeft: 4 }}>Enter a value between 1 and 128 oz</Text>
+                            <Text style={{ color: LIGHT_NAVY, fontSize: 14, fontWeight: "800", width: 16, textAlign: "center" }}>
+                              {isExpanded ? "▾" : "▸"}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {/* Expanded editor panel */}
+                          {isExpanded && (
+                            <View style={{
+                              backgroundColor: ACCENT_WATER_TINT,
+                              borderWidth: 1, borderTopWidth: 0,
+                              borderColor: ACCENT_WATER_BORDER,
+                              borderBottomLeftRadius: 12, borderBottomRightRadius: 12,
+                              paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14,
+                            }}>
+                              {/* Editable input */}
+                              <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+                                <View style={{
+                                  flexDirection: "row", alignItems: "center",
+                                  backgroundColor: "#ffffff",
+                                  borderWidth: 1, borderColor: valid ? "rgba(0,0,0,0.12)" : "#FF6B6B",
+                                  borderRadius: 10, paddingHorizontal: 12, paddingVertical: 6,
+                                  flex: 1,
+                                }}>
+                                  <TextInput
+                                    ref={(r) => { inputRefs.current[i] = r; }}
+                                    value={val}
+                                    onChangeText={(t) => setSlot(i, t)}
+                                    keyboardType="decimal-pad"
+                                    style={{ flex: 1, color: LIGHT_NAVY_DEEP, fontSize: 20, fontWeight: "700", paddingVertical: 4 }}
+                                    selectTextOnFocus
+                                    returnKeyType="done"
+                                    placeholder={formatOz(defaultOz)}
+                                    placeholderTextColor="#a8a8a8"
+                                  />
+                                  <Text style={{ color: "#888", fontSize: 15, fontWeight: "700", marginLeft: 4 }}>oz</Text>
+                                </View>
+                                <Text style={{ color: "#666666", fontSize: 13, fontWeight: "600", minWidth: 60 }}>= {mlVal}</Text>
+                              </View>
+
+                              {!valid && val.length > 0 && (
+                                <Text style={{ color: "#C0152A", fontSize: 11, marginTop: 6 }}>Enter a value between 1 and 128 oz</Text>
+                              )}
+
+                              {/* Popular Sizes (per-row) */}
+                              <Text style={{ color: LIGHT_NAVY, fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginTop: 14, marginBottom: 8 }}>
+                                POPULAR SIZES
+                              </Text>
+                              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
+                                {POPULAR_PRESETS.map((p) => {
+                                  const isSelected = currentOzNum === p.oz;
+                                  return (
+                                    <TouchableOpacity
+                                      key={p.oz}
+                                      onPress={() => setSlot(i, formatOz(p.oz))}
+                                      activeOpacity={0.7}
+                                      style={{
+                                        borderRadius: 20, borderWidth: 1,
+                                        borderColor: isSelected ? LIGHT_NAVY : "rgba(0,0,0,0.15)",
+                                        backgroundColor: isSelected ? LIGHT_NAVY : "#ffffff",
+                                        paddingHorizontal: 12, paddingVertical: 6,
+                                        alignItems: "center",
+                                      }}>
+                                      <Text style={{ color: isSelected ? "#ffffff" : LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "700" }}>{p.label}</Text>
+                                      <Text style={{ color: isSelected ? "rgba(255,255,255,0.7)" : "#888888", fontSize: 9, marginTop: 1 }}>{p.sub}</Text>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+
+                              {/* Reset to default (per-row) */}
+                              <TouchableOpacity
+                                onPress={() => resetSlot(i)}
+                                disabled={isDefault}
+                                activeOpacity={0.7}
+                                accessibilityLabel={`Reset Button ${i + 1} to default of ${formatOz(defaultOz)} oz`}
+                                style={{
+                                  flexDirection: "row", alignItems: "center", justifyContent: "center",
+                                  marginTop: 12, borderRadius: 10, borderWidth: 1,
+                                  borderColor: isDefault ? "rgba(0,0,0,0.12)" : "rgba(26,10,58,0.35)",
+                                  paddingVertical: 9, paddingHorizontal: 12,
+                                  opacity: isDefault ? 0.5 : 1,
+                                }}>
+                                <Text style={{ color: LIGHT_NAVY, fontSize: 12, fontWeight: "700" }}>
+                                  ↺  Reset to default ({formatOz(defaultOz)} oz)
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
                           )}
                         </View>
                       );
                     })}
 
-                    {/* Popular Sizes */}
-                    <View style={{ marginTop: 8, marginBottom: 4 }}>
-                      <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 10 }}>
-                        POPULAR SIZES{focused !== null ? `  →  filling Slot ${focused + 1}` : "  (tap a slot to select it)"}
-                      </Text>
-                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
-                        {POPULAR_PRESETS.map((p) => (
-                          <TouchableOpacity
-                            key={p.oz}
-                            onPress={() => applyPreset(p.oz)}
-                            activeOpacity={0.7}
-                            style={{
-                              borderRadius: 20, borderWidth: 1.5,
-                              borderColor: "#c8a000",
-                              backgroundColor: "rgba(255,215,0,0.07)",
-                              paddingHorizontal: 12, paddingVertical: 6,
-                              alignItems: "center",
-                            }}>
-                            <Text style={{ color: "#c8a000", fontSize: 13, fontWeight: "700" }}>{p.label}</Text>
-                            <Text style={{ color: "#999999", fontSize: 9, marginTop: 1 }}>{p.sub}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    </View>
-
                     {/* Reset All */}
                     <TouchableOpacity onPress={resetAll}
-                      style={{ alignSelf: "flex-start", borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14, marginBottom: 6, backgroundColor: "transparent" }}>
-                      <Text style={{ color: "#c8a000", fontSize: 13, fontWeight: "700" }}>↺ Reset All to Defaults</Text>
+                      style={{ alignSelf: "flex-start", borderWidth: 1, borderColor: "rgba(26,10,58,0.35)", borderRadius: 10, paddingHorizontal: 16, paddingVertical: 9, marginTop: 14, marginBottom: 6, backgroundColor: "transparent" }}>
+                      <Text style={{ color: LIGHT_NAVY, fontSize: 13, fontWeight: "700" }}>↺ Reset All to Defaults</Text>
                     </TouchableOpacity>
                   </View>
                 </ScrollView>
@@ -2084,18 +1871,18 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                 {Platform.OS === "ios" && (
                   <View style={{ backgroundColor: "#f0f0f0", flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: 1, borderTopColor: "#dddddd" }}>
                     <TouchableOpacity onPress={Keyboard.dismiss} hitSlop={{ top: 8, bottom: 8, left: 16, right: 8 }}>
-                      <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>Done</Text>
+                      <Text style={{ color: LIGHT_NAVY, fontSize: 15, fontWeight: "700" }}>Done</Text>
                     </TouchableOpacity>
                   </View>
                 )}
 
                 {/* Action buttons */}
-                <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "rgba(200,160,0,0.2)" }}>
-                  <TouchableOpacity onPress={onCancel} style={{ flex: 1, height: 50, borderRadius: 14, backgroundColor: "#EEEEEE", alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: "#555555", fontSize: 16, fontWeight: "600" }}>Cancel</Text>
+                <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 18, paddingVertical: 16, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.06)" }}>
+                  <TouchableOpacity onPress={onCancel} style={{ flex: 1, height: 50, borderRadius: 14, backgroundColor: "transparent", borderWidth: 1, borderColor: "rgba(0,0,0,0.12)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 16, fontWeight: "600" }}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={handleSave} disabled={!allValid} style={{ flex: 2, height: 50, borderRadius: 14, backgroundColor: allValid ? "#c8a000" : "rgba(200,160,0,0.25)", alignItems: "center", justifyContent: "center" }}>
-                    <Text style={{ color: allValid ? "#ffffff" : "#aaaaaa", fontSize: 16, fontWeight: "800" }}>Save</Text>
+                  <TouchableOpacity onPress={handleSave} disabled={!allValid} style={{ flex: 2, height: 50, borderRadius: 14, backgroundColor: allValid ? LIGHT_NAVY : "rgba(26,10,58,0.20)", alignItems: "center", justifyContent: "center" }}>
+                    <Text style={{ color: "#ffffff", fontSize: 16, fontWeight: "800" }}>Save</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2113,9 +1900,9 @@ function ResultBox({ message }: { message: string | null }) {
   const rawOzNum = rawOzMatch ? parseFloat(rawOzMatch[1]) : 0;
   const isJackpot = !!message?.includes("GOAL");
   return (
-    <View style={rbStyles.wrapper}>
+    <View style={[rbStyles.wrapper, !message && rbStyles.wrapperIdle]}>
       <Text style={message ? rbStyles.result : rbStyles.idle}>
-        {message ?? "Select your drink and tap an amount to log it!"}
+        {message ?? "Select your drink and tap an amount to reveal hydration"}
       </Text>
       {message && (
         <Text style={rbStyles.sub}>
@@ -2129,7 +1916,8 @@ function ResultBox({ message }: { message: string | null }) {
 }
 const rbStyles = StyleSheet.create({
   wrapper: { marginHorizontal: 12, marginTop: 10, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 12, padding: 12, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)", minHeight: 58, justifyContent: "center" },
-  idle: { color: "rgba(255,255,255,0.7)", fontSize: 14, textAlign: "center", fontStyle: "italic" },
+  wrapperIdle: { backgroundColor: "rgba(0,0,0,0.2)", borderColor: "rgba(255,255,255,0.1)" },
+  idle: { color: "rgba(255,255,255,0.35)", fontSize: 14, textAlign: "center", fontStyle: "italic", fontWeight: "500" },
   result: { color: GOLD, fontSize: 16, fontWeight: "700", textAlign: "center" },
   sub: { color: "rgba(255,255,255,0.8)", fontSize: 13, textAlign: "center", marginTop: 4 },
 });
@@ -2142,6 +1930,7 @@ function StatsBar({
   streak,
   healthActive,
   onHealthPress,
+  preferredUnit,
 }: {
   goal: number;
   hydration: number;
@@ -2149,11 +1938,17 @@ function StatsBar({
   streak: number;
   healthActive: boolean;
   onHealthPress: () => void;
+  preferredUnit: 'oz' | 'ml';
 }) {
+  const consumedOz = `${statIntake.toFixed(1)} oz`;
+  const consumedMl = `${ozToMl(statIntake)} ml`;
+  const goalLabel = preferredUnit === 'ml' ? `${ozToMl(statGoal)} ml` : `${Math.round(statGoal)} oz`;
+  const hydratedLabel = preferredUnit === 'ml' ? `${ozToMl(hydration)} ml` : `${hydration.toFixed(1)} oz`;
+  const hydratedPct = Math.round((statGoal > 0 ? hydration / statGoal : 0) * 100);
   const secs = [
-    { label: "DAILY GOAL", val: `${Math.round(statGoal)} oz` },
-    { label: "HYDRATED", val: `${hydration.toFixed(1)} oz\n${Math.round((statGoal > 0 ? hydration / statGoal : 0) * 100)}%` },
-    { label: "CONSUMED", val: `${statIntake.toFixed(1)} oz\n${ozToMl(statIntake)} ml` },
+    { label: "DAILY GOAL", val: goalLabel },
+    { label: "HYDRATED", val: `${hydratedLabel}\n${hydratedPct}%` },
+    { label: "CONSUMED", val: preferredUnit === 'oz' ? `${consumedOz}\n${consumedMl}` : `${consumedMl}\n${consumedOz}` },
     { label: "STREAK", val: streak > 0 ? `${streak} 🔥` : "0" },
   ];
   return (
@@ -2188,10 +1983,11 @@ const stbStyles = StyleSheet.create({
 });
 
 // --- Drink Log ---
-function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
+function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [], preferredUnit }: {
   breakdown: Record<BevCategory, number>;
   intake: number;
   entries?: DrinkEntry[];
+  preferredUnit: 'oz' | 'ml';
 }) {
   const { colors, isDark } = useTheme();
   const catEntries = CATEGORIES.filter((c) => breakdown[c.key] > 0);
@@ -2208,9 +2004,9 @@ function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
               <View key={cat.key} style={dlStyles.row}>
                 <View style={[dlStyles.dot, { backgroundColor: cat.color }]} />
                 <Text style={[dlStyles.name, { color: colors.text }]}>{cat.emoji} {cat.label}</Text>
-                <Text style={[dlStyles.raw, { color: colors.textSub }]}>{raw.toFixed(1)} oz</Text>
+                <Text style={[dlStyles.raw, { color: colors.textSub }]}>{preferredUnit === 'ml' ? `${ozToMl(raw)} ml` : `${raw.toFixed(1)} oz`}</Text>
                 <Text style={[dlStyles.effTxt, { color: colors.textMuted }]}>{Math.round(getBev(cat.key).eff * 100)}%</Text>
-                <Text style={[dlStyles.hyd, { color: isDark ? "#88ccff" : "#0066cc" }]}>→{hyd.toFixed(1)}oz</Text>
+                <Text style={[dlStyles.hyd, { color: isDark ? "#88ccff" : "#0066cc" }]}>→{preferredUnit === 'ml' ? `${ozToMl(hyd)}ml` : `${hyd.toFixed(1)}oz`}</Text>
                 <Text style={[dlStyles.share, { color: cat.color }]}>{share}%</Text>
               </View>
             );
@@ -2228,7 +2024,7 @@ function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [] }: {
               <View key={i} style={dlStyles.entryRow}>
                 <View style={[dlStyles.dot, { backgroundColor: cat.color }]} />
                 <Text style={[dlStyles.entryText, { color: colors.text }]}>
-                  {cat.emoji} {formatOz(e.oz)} oz {cat.label}
+                  {cat.emoji} {preferredUnit === 'ml' ? `${ozToMl(e.oz)} ml` : `${formatOz(e.oz)} oz`} {cat.label}
                 </Text>
                 <Text style={[dlStyles.entryTime, { color: colors.textMuted }]}>
                   {formatEntryTime(e.timestamp)}
@@ -2265,9 +2061,9 @@ const undoStyles = StyleSheet.create({
     borderRadius: 12, backgroundColor: "rgba(0,0,0,0.3)",
     borderWidth: 1.5, borderColor: GOLD_DIM, alignItems: "center",
   },
-  btnDisabled: { borderColor: "rgba(255,255,255,0.15)", opacity: 0.45 },
+  btnDisabled: { borderColor: "rgba(255,255,255,0.1)", backgroundColor: "rgba(0,0,0,0.2)" },
   btnText: { color: GOLD, fontSize: 15, fontWeight: "700" },
-  btnTextDisabled: { color: "rgba(255,255,255,0.35)" },
+  btnTextDisabled: { color: "rgba(255,255,255,0.35)", fontStyle: "italic", fontWeight: "500", fontSize: 14 },
 });
 
 // --- Entry Time Formatter ---
@@ -2751,9 +2547,119 @@ const factStyles = StyleSheet.create({
   hint: { fontSize: 11, color: "rgba(255,255,255,0.4)" },
 });
 
+// ─── Mission Complete Card ────────────────────────────────────────────────────
+// Build 33 Day 5. Fires when the engine flips a mission to "completed" — usually
+// at the first app foreground after midnight on the qualifying day. Reuses the
+// jackpot sound for the unlock punch; the visual is calmer than GoalCelebration
+// so the two don't fight when both happen near each other.
+
+type MissionCompletion = {
+  missionId: string;
+  missionName: string;
+  emblem: string;
+  rewards: Reward[];
+};
+
+const REWARD_KIND_LABEL: Record<Reward["kind"], string> = {
+  sigil: "SIGIL",
+  power: "POWER",
+  cosmetic: "COSMETIC",
+};
+
+function MissionCompleteCard({
+  completion,
+  onDismiss,
+}: {
+  completion: MissionCompletion | null;
+  onDismiss: () => void;
+}) {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const emblemScale = useRef(new Animated.Value(0.3)).current;
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!completion) {
+      setVisible(false);
+      return;
+    }
+    setVisible(true);
+    fadeAnim.setValue(0);
+    emblemScale.setValue(0.3);
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }),
+      Animated.spring(emblemScale, { toValue: 1, friction: 5, tension: 80, useNativeDriver: true }),
+    ]).start();
+    try { playJackpotSound(); } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completion?.missionId]);
+
+  if (!visible || !completion) return null;
+
+  function handleDismiss() {
+    Animated.timing(fadeAnim, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+      setVisible(false);
+      onDismiss();
+    });
+  }
+
+  return (
+    <Animated.View style={[missionCompleteStyles.overlay, { opacity: fadeAnim }]} pointerEvents="box-none">
+      <View style={missionCompleteStyles.card}>
+        <Animated.Text style={[missionCompleteStyles.emblem, { transform: [{ scale: emblemScale }] }]}>
+          {completion.emblem}
+        </Animated.Text>
+        <Text style={missionCompleteStyles.label}>MISSION COMPLETE</Text>
+        <Text style={missionCompleteStyles.missionName}>{completion.missionName}</Text>
+
+        <View style={missionCompleteStyles.rewardList}>
+          {completion.rewards.map((r) => (
+            <View key={r.id} style={missionCompleteStyles.rewardRow}>
+              <Text style={missionCompleteStyles.rewardKind}>{REWARD_KIND_LABEL[r.kind]}</Text>
+              <Text style={missionCompleteStyles.rewardName} numberOfLines={2}>{r.name}</Text>
+            </View>
+          ))}
+        </View>
+
+        <TouchableOpacity style={missionCompleteStyles.dismissBtn} onPress={handleDismiss} activeOpacity={0.85}>
+          <Text style={missionCompleteStyles.dismissText}>Claim Reward</Text>
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+const missionCompleteStyles = StyleSheet.create({
+  overlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0,0,10,0.78)", zIndex: 9991,
+    alignItems: "center", justifyContent: "center",
+  },
+  card: {
+    backgroundColor: "#0d0030",
+    borderWidth: 2.5, borderColor: GOLD,
+    borderRadius: 24, padding: 28, alignItems: "center", width: "84%",
+    shadowColor: GOLD, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 20, elevation: 20,
+  },
+  emblem: { fontSize: 72, marginBottom: 8 },
+  label: { color: GOLD, fontSize: 11, fontWeight: "900", letterSpacing: 2.4, marginBottom: 6 },
+  missionName: { color: "#ffffff", fontSize: 22, fontWeight: "900", textAlign: "center", marginBottom: 18 },
+  rewardList: { width: "100%", gap: 8, marginBottom: 22 },
+  rewardRow: {
+    flexDirection: "row", alignItems: "center", gap: 10,
+    backgroundColor: "rgba(255,215,0,0.10)",
+    borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12,
+    borderWidth: 1, borderColor: "rgba(255,215,0,0.25)",
+  },
+  rewardKind: { color: GOLD, fontSize: 9, fontWeight: "900", letterSpacing: 1.2, width: 64 },
+  rewardName: { color: "#ffffff", fontSize: 13, fontWeight: "600", flex: 1 },
+  dismissBtn: { backgroundColor: GOLD, borderRadius: 14, paddingHorizontal: 32, paddingVertical: 13 },
+  dismissText: { color: "#000000", fontSize: 16, fontWeight: "800", letterSpacing: 0.5 },
+});
+
 export default function WaterTracker() {
   const tabBarHeight = useBottomTabBarHeight();
   const { isPro, openPaywall, checkProStatus } = useProContext();
+  const { activeProfile, syncActiveProfileName, profileVersion } = useProfile();
   const [intake, setIntake] = useState(0);
   const [goal, setGoal] = useState(DEFAULT_GOAL);
   const [history, setHistory] = useState<
@@ -2769,7 +2675,9 @@ export default function WaterTracker() {
   // Goal modal tab state
   const [goalTab, setGoalTab] = useState<"custom" | "gallon" | "suggested">("custom");
 
-  // Suggested tab state
+  // Suggested tab state. Imperial fields are canonical; metric values are
+  // derived for display and converted back on input change. Separate "type"
+  // strings per unit so the keyboard input mirrors what the user typed.
   const [suggWeightLbs, setSuggWeightLbs] = useState(150);
   const [suggFeet, setSuggFeet] = useState(5);
   const [suggInches, setSuggInches] = useState(7);
@@ -2779,6 +2687,8 @@ export default function WaterTracker() {
   const [typeWeight, setTypeWeight] = useState("");
   const [typeFeet, setTypeFeet] = useState("");
   const [typeInches, setTypeInches] = useState("");
+  const [typeWeightKg, setTypeWeightKg] = useState("");
+  const [typeHeightCm, setTypeHeightCm] = useState("");
   const [kbHeight, setKbHeight] = useState(0);
   const KB_ACCESSORY_ID = "modal-kb-done";
   const CUSTOM_ACCESSORY_ID = "custom-kb-done";
@@ -2802,8 +2712,6 @@ export default function WaterTracker() {
   const [lifetimeCoffeeLogs, setLifetimeCoffeeLogs] = useState(0);
   const [lifetimeBeerLogs, setLifetimeBeerLogs] = useState(0);
   const [firstDrinkTime, setFirstDrinkTime] = useState<string | null>(null);
-  const [achievementTrigger, setAchievementTrigger] = useState(0);
-  const [achievementRevalidate, setAchievementRevalidate] = useState(0);
 
   // Weather
   const [weatherBannerOz, setWeatherBannerOz] = useState<8 | 16 | null>(null);
@@ -2814,8 +2722,13 @@ export default function WaterTracker() {
   const [selectedCategory, setSelectedCategory] = useState<BevCategory>("water");
   const [spinning, setSpinning] = useState(false);
   const [jackpotSpinning, setJackpotSpinning] = useState(false);
+  // Set true synchronously in handleBet when the pour will trigger the goal
+  // celebration. onTankFill checks this and skips the splash so only the
+  // jackpot sound plays for goal hits. Cleared by the onTankFill consumer.
+  const skipNextSplashRef = useRef(false);
   const [reelConfettiVisible, setReelConfettiVisible] = useState(false);
   const [reelFrameY, setReelFrameY] = useState(300);
+  const [bevSelectorFrameY, setBevSelectorFrameY] = useState(0);
   const screenShakeAnim = useRef(new Animated.Value(0)).current;
   const mainScrollRef = useRef<any>(null);
   const [resultMessage, setResultMessage] = useState<string | null>(null);
@@ -2828,6 +2741,8 @@ export default function WaterTracker() {
   // is identical to the previous log.
   const [logNonce, setLogNonce] = useState(0);
   const [pendingBetOz, setPendingBetOz] = useState<number | null>(null);
+  // Multi-quantity for the Confirm Drink modal (× 1–5 servings of the same drink).
+  const [pendingQty, setPendingQty] = useState(1);
   const [displayedHydration, setDisplayedHydration] = useState(0);
 
   // Particle spray — origin updates after GlassTank layout
@@ -2873,6 +2788,13 @@ export default function WaterTracker() {
   const [showHealthModal, setShowHealthModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
 
+  // The Settings tab in the bottom bar calls requestOpenSettings() to open
+  // this modal. Register the opener while Home is mounted.
+  useEffect(() => {
+    setSettingsModalOpener(() => setShowSettingsModal(true));
+    return () => setSettingsModalOpener(null);
+  }, []);
+
   // Quick Add customization
   const [quickAddAmounts, setQuickAddAmounts] = useState<number[]>(QUICK_ADD_DEFAULTS);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
@@ -2880,35 +2802,196 @@ export default function WaterTracker() {
   // Haptics
   const [hapticsEnabled, setHapticsEnabled] = useState(true);
 
+  // Preferred display unit. Affects which unit shows large/first on Quick
+  // Add tiles, the CONSUMED stat row, and the Custom Amount input default.
+  // Both units stay visible everywhere — this only controls primary/secondary.
+  const [preferredUnit, setPreferredUnit] = useState<'oz' | 'ml'>('oz');
+  const [bodyUnit, setBodyUnit] = useState<'imperial' | 'metric'>('imperial');
+  // Open the Custom Amount modal with the unit toggle defaulted to the user's
+  // preferred unit. The user can still flip it mid-flow.
+  const openCustomModal = () => { setCustomUnit(preferredUnit); setShowCustomModal(true); };
+
   // Sound pack
   const [selectedSoundPack, setSelectedSoundPack] = useState(DEFAULT_PACK_ID);
   const [previewingPack, setPreviewingPack] = useState<string | null>(null);
+  const [showCustomSounds, setShowCustomSounds] = useState(false);
 
   // Beverage customization
   const [selectedBeverages, setSelectedBeverages] = useState<BevCategory[]>(DEFAULT_VISIBLE_BEVS);
   const [showChooseBevs, setShowChooseBevs] = useState(false);
   const [catPickerShowAll, setCatPickerShowAll] = useState(false);
+  // Hide alcoholic beverages (beer/wine/cocktail/spirits) from drink pickers.
+  // Off by default; toggle in Settings → DRINKS. Filters at render only —
+  // existing logged entries and historical breakdowns still resolve normally.
+  const [showAlcoholicDrinks, setShowAlcoholicDrinks] = useState(false);
 
   // Individual drink log entries with timestamps
   const [drinkLogEntries, setDrinkLogEntries] = useState<DrinkEntry[]>([]);
 
+  // Live Activity (tank droplet on Lock Screen / Dynamic Island).
+  // tankActivityOn is opt-in per day — never auto-starts. Auto-ends at goal
+  // hit, midnight rollover, or 4 hours since the last logged drink.
+  // showLiveActivityOption is the Settings master switch — when false, the
+  // opt-in chip on Home is hidden entirely (for users who don't want even
+  // the offer).
+  const [tankActivityOn, setTankActivityOn] = useState(false);
+  const [showLiveActivityOption, setShowLiveActivityOption] = useState(true);
+  // Ref mirrors so the closed-over AppState idle listener sees fresh values
+  // without re-subscribing. addWater bumps lastLogTsRef directly; the effect
+  // below keeps it correct after undo / hydrate-from-storage.
+  const tankActivityOnRef = useRef(false);
+  useEffect(() => { tankActivityOnRef.current = tankActivityOn; }, [tankActivityOn]);
+  const lastLogTsRef = useRef<number | null>(null);
+  useEffect(() => {
+    const last = drinkLogEntries[drinkLogEntries.length - 1];
+    lastLogTsRef.current = last ? last.timestamp : null;
+  }, [drinkLogEntries]);
+
+  // ─── Hero: persistence + first-launch onboarding ───────────────────────────
+  // Three paths converge here:
+  //   (1) Fresh install on the bootstrap profile → show the Hero modal so
+  //       Dylan's welcome moment fires.
+  //   (2) Existing pre-1.1.0 user (any goal_history) → silently mark seen,
+  //       never auto-open. They can engage from the Missions tab.
+  //   (3) User switched to a freshly-created sub-profile (profileVersion>0)
+  //       → silently lazy-create a Hero from the profile name the parent
+  //       (or user) typed at creation. No second prompt for the kid.
+  const [hero, setHero] = useState<Hero | null>(null);
+  const [showHeroSetup, setShowHeroSetup] = useState(false);
+  const [heroSetupEditing, setHeroSetupEditing] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [h, seen, goalHistRaw] = await Promise.all([
+        loadHero(),
+        wasSetupSeen(),
+        pGetItem("goal_history"),
+      ]);
+      if (cancelled) return;
+      setHero(h);
+      if (!h && !seen) {
+        let hasPriorData = false;
+        try {
+          const parsed = goalHistRaw ? JSON.parse(goalHistRaw) : null;
+          hasPriorData = !!parsed && Object.keys(parsed).length > 0;
+        } catch {}
+        const isSubProfileSwitch = profileVersion > 0;
+        if (hasPriorData) {
+          await markSetupSeen();
+        } else if (isSubProfileSwitch && activeProfile?.name) {
+          const newHero = freshHero(activeProfile.name, STARTER_EMBLEMS[0].id);
+          await saveHero(newHero);
+          if (!cancelled) setHero(newHero);
+          await markSetupSeen();
+        } else {
+          setShowHeroSetup(true);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ─── Missions: progress + engine wiring ────────────────────────────────────
+  // Day 2 of the Missions feature. Active progresses live in AsyncStorage
+  // under a single key (see MissionEngine). The engine catches up any
+  // active missions whenever inputs change — covers mount, midnight
+  // rollover (goalHistory updates), and AppState foreground (which also
+  // updates goalHistory via checkDateAndMaybeReset).
+  //
+  // Today is intentionally NOT evaluated — only finalized past days flow
+  // through the engine. See MissionEngine.ts header.
+  const [missionProgresses, setMissionProgresses] = useState<ProgressMap>({});
+  useEffect(() => { loadProgresses().then(setMissionProgresses); }, []);
+
+  // water_history snapshots are the source of truth for past-day breakdowns
+  // and hourBuckets (used by abstain / dailyMin / hourlyMinimum rules). Live
+  // here as state so lookupDay is a sync callback the engine can call freely.
+  type HistEntry = {
+    date: string;
+    oz: number;
+    goal: number;
+    breakdown?: Partial<Record<BevCategory, number>>;
+    hourBuckets?: Record<number, number>;
+  };
+  const [waterHistoryForEngine, setWaterHistoryForEngine] = useState<HistEntry[]>([]);
+  useEffect(() => {
+    pGetItem("water_history").then((raw) => {
+      if (!raw) return;
+      try { setWaterHistoryForEngine(JSON.parse(raw)); } catch {}
+    });
+  }, []);
+
+  const lookupDay = useCallback((dateKey: string): DayData => {
+    const histEntry = waterHistoryForEngine.find((h) => h.date === dateKey);
+    return {
+      date: dateKey,
+      goalHit: (goalHistory[dateKey] ?? 0) >= 1.0,
+      breakdown: histEntry?.breakdown ?? {},
+      hourBuckets: histEntry?.hourBuckets,
+    };
+  }, [goalHistory, waterHistoryForEngine]);
+
+  useEffect(() => {
+    let cancelled = false;
+    evaluateAllActive(new Date(), lookupDay).then(({ map, changed }) => {
+      if (cancelled || changed.length === 0) return;
+      setMissionProgresses(map);
+      // Day 5: queue completion cards for any missions that just flipped to
+      // "completed" status. `changed` only ever contains missions that were
+      // "active" before the eval (engine skips non-active early), so a
+      // status of "completed" here means it just unlocked.
+      const justCompleted: MissionCompletion[] = [];
+      for (const p of changed) {
+        if (p.status !== "completed") continue;
+        const m = getMission(p.missionId);
+        if (!m) continue;
+        justCompleted.push({
+          missionId: p.missionId,
+          missionName: m.name,
+          emblem: m.emblem,
+          rewards: m.rewards,
+        });
+      }
+      if (justCompleted.length > 0) {
+        setMissionCompletionQueue((q) => [...q, ...justCompleted]);
+      }
+    });
+    return () => { cancelled = true; };
+    // Intentionally omit missionProgresses from deps: the engine already
+    // skips no-op missions, and re-running on its own output would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookupDay]);
+
   // Streak milestone confetti card
   const [streakMilestone, setStreakMilestone] = useState<number | null>(null);
+
+  // Mission completion celebration queue. Multiple missions can complete in a
+  // single engine eval (e.g., midnight rollover finishes both Origin Story and
+  // Tea Time on the same night) — we show one card at a time and pop the head
+  // when the user dismisses.
+  const [missionCompletionQueue, setMissionCompletionQueue] = useState<MissionCompletion[]>([]);
 
   // Post-jackpot fact/joke card
   const [showFactCard, setShowFactCard] = useState(false);
 
-  // CSV export
-  const [exportLoading, setExportLoading] = useState(false);
-  const [showExportSummary, setShowExportSummary] = useState(false);
-  const [exportSummary, setExportSummary] = useState<{
-    days: number; totalConsumed: number; totalHydrated: number; bestStreak: number; filePath: string;
-  } | null>(null);
+  // New-badge toast (fires when a drink log unlocks one or more badges)
+  const [badgeToast, setBadgeToast] = useState<BadgeDef[] | null>(null);
+  const badgeToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (badgeToastTimer.current) clearTimeout(badgeToastTimer.current);
+  }, []);
 
   // Promo code
   const [showPromoModal, setShowPromoModal] = useState(false);
   const [promoCode, setPromoCode] = useState('');
   const [promoLoading, setPromoLoading] = useState(false);
+
+  // Save-as-Preset modal (custom, replaces Alert.prompt so we can pre-select
+  // the default name on focus and let the user overwrite with one tap).
+  const [showSavePresetModal, setShowSavePresetModal] = useState(false);
+  const [savePresetName, setSavePresetName] = useState('');
+  const [savePresetSubtitle, setSavePresetSubtitle] = useState('');
+  const savePresetPayloadRef = useRef<{ oz: number; cat: BevCategory } | null>(null);
 
   // Stores every setTimeout ID created in handleBet so they can be cancelled on unmount
   const betTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -2978,12 +3061,13 @@ export default function WaterTracker() {
 
   async function checkOnboarding() {
     try {
-      const done = await AsyncStorage.getItem("onboarding_complete");
+      const done = await pGetItem("onboarding_complete");
       setShowOnboarding(done !== "1");
-      // Returning user — onboarding already complete, so request notification
-      // permission now (we have app context, better than the cold-start moment).
+      // Returning user — onboarding already complete. Defer the OS permission
+      // dialog so it doesn't compete with the Home tree's first render
+      // (HYDRO-HERO-4: iOS watchdog killed Build 28 here under RAM pressure).
       if (done === "1") {
-        requestNotificationPermission();
+        setTimeout(() => { requestNotificationPermission(); }, 800);
       }
     } catch {
       setShowOnboarding(false);
@@ -2993,10 +3077,14 @@ export default function WaterTracker() {
   function handleOnboardingComplete(goalOz: number) {
     setGoal(goalOz);
     setShowOnboarding(false);
-    // New user — request notification permission AFTER onboarding so the user
-    // has seen what the app does before the OS dialog appears.
-    requestNotificationPermission();
-    requestHealthPermissionIfNeeded();
+    // Defer permission prompts so the Home component (~6k lines) can complete
+    // its first render before three OS dialogs (notification, Apple Health
+    // Alert, HealthKit auth sheet) cascade. HYDRO-HERO-4 captured a watchdog
+    // termination at exactly this moment in Build 28.
+    setTimeout(() => {
+      requestNotificationPermission();
+      requestHealthPermissionIfNeeded();
+    }, 800);
   }
 
   async function requestHealthPermissionIfNeeded() {
@@ -3230,12 +3318,12 @@ export default function WaterTracker() {
     try {
       const { status } = await Notifications.getPermissionsAsync();
       if (status !== "granted") return;
-      const already = await AsyncStorage.getItem(flagKey);
+      const already = await pGetItem(flagKey);
       if (already === "1") return;
     } catch { return; }
     // Write the dedup flag FIRST — outside the schedule try/catch so that
     // if schedule fails or the app crashes, we never fire this twice in one day.
-    await AsyncStorage.setItem(flagKey, "1");
+    await pSetItem(flagKey, "1");
     try {
       await Notifications.scheduleNotificationAsync({
         content: { title, body },
@@ -3273,34 +3361,53 @@ export default function WaterTracker() {
   }
 
   async function performDailyReset(showToast: boolean) {
+    // End any active Live Activity at the day boundary — tomorrow's tank is
+    // a fresh ask, opt-in again. Unconditional: iOS persists LAs across app
+    // launches, so the JS ref can be false while an orphan LA from a prior
+    // session is still on the Lock Screen. Native side no-ops if none exist.
+    endTankActivity().then(() => setTankActivityOn(false));
+
     // Snapshot yesterday before clearing
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayKey = getDateKey(yesterday);
 
     // Read current values directly from storage so we have accurate data even if state hasn't synced
-    const [rawIntake, rawHydration, rawBreakdown, rawGoal, rawHistory, rawGoalHistory] = await Promise.all([
-      AsyncStorage.getItem(yesterdayKey),
-      AsyncStorage.getItem("water_total_hydration"),
-      AsyncStorage.getItem("water_category_breakdown"),
-      AsyncStorage.getItem("water_goal"),
-      AsyncStorage.getItem("water_history"),
-      AsyncStorage.getItem("goal_history"),
+    const [rawIntake, rawHydration, rawBreakdown, rawGoal, rawHistory, rawGoalHistory, rawEntries] = await Promise.all([
+      pGetItem(yesterdayKey),
+      pGetItem("water_total_hydration"),
+      pGetItem("water_category_breakdown"),
+      pGetItem("water_goal"),
+      pGetItem("water_history"),
+      pGetItem("goal_history"),
+      pGetItem("water_log_entries"),
     ]);
 
     const prevIntake   = rawIntake    ? JSON.parse(rawIntake)    : intake;
     const prevHyd      = rawHydration ? JSON.parse(rawHydration) : totalHydration;
     const prevBreakdown= rawBreakdown ? JSON.parse(rawBreakdown) : categoryBreakdown;
     const prevGoal     = rawGoal      ? JSON.parse(rawGoal)      : goal;
-    const prevHistory: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number> }[]
+    const prevHistory: { date: string; oz: number; goal: number; breakdown?: Record<BevCategory, number>; hourBuckets?: Record<number, number> }[]
                        = rawHistory   ? JSON.parse(rawHistory)   : [];
     const prevGoalHist: Record<string, number>
                        = rawGoalHistory ? JSON.parse(rawGoalHistory) : {};
 
     const prevPct = prevGoal > 0 ? Math.min(prevHyd / prevGoal, 1) : 0;
 
+    // Build per-hour oz buckets from the just-completed day's drink log so
+    // hourlyMinimum-rule missions (Hourly Hydration chain) can evaluate at
+    // midnight rollover. The water_log_entries key gets cleared below, so
+    // this is the only chance to snapshot the timestamped data.
+    const prevEntries: { oz: number; timestamp: number }[]
+                       = rawEntries ? (() => { try { return JSON.parse(rawEntries); } catch { return []; } })() : [];
+    const hourBuckets: Record<number, number> = {};
+    for (const e of prevEntries) {
+      const h = new Date(e.timestamp).getHours();
+      hourBuckets[h] = (hourBuckets[h] ?? 0) + (e.oz ?? 0);
+    }
+
     // Save yesterday snapshot to history
-    const yesterdayEntry = { date: yesterdayKey, oz: prevIntake, goal: prevGoal, breakdown: prevBreakdown };
+    const yesterdayEntry = { date: yesterdayKey, oz: prevIntake, goal: prevGoal, breakdown: prevBreakdown, hourBuckets };
     const updatedHistory = [yesterdayEntry, ...prevHistory.filter((h) => h.date !== yesterdayKey)].slice(0, 30);
     // Build updated goal history and trim to 30 days
     const updatedGoalHistFull = { ...prevGoalHist, [yesterdayKey]: prevPct };
@@ -3319,19 +3426,24 @@ export default function WaterTracker() {
 
     // Write reset lock before touching storage — if the app is killed mid-reset, next
     // launch will detect this key in checkDateAndMaybeReset and re-run performDailyReset.
-    try { await AsyncStorage.setItem('reset_in_progress', yesterdayKey); } catch {}
+    try { await pSetItem('reset_in_progress', yesterdayKey); } catch {}
+
+    // Mirror the updated history into engine state so the next
+    // evaluateAllActive picks up yesterday's hourBuckets without waiting
+    // for the AsyncStorage read on next mount.
+    setWaterHistoryForEngine(updatedHistory);
 
     try {
       await Promise.all([
-        AsyncStorage.setItem("water_history",          JSON.stringify(updatedHistory)),
-        AsyncStorage.setItem("goal_history",           JSON.stringify(updatedGoalHist)),
-        AsyncStorage.setItem("water_total_hydration",  JSON.stringify(0)),
-        AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN)),
-        AsyncStorage.setItem("water_last_entry",       JSON.stringify(null)),
-        AsyncStorage.removeItem(`goal_celebrated_${yesterdayKey}`),
-        AsyncStorage.setItem("last_active_date",       todayKey),
-        AsyncStorage.setItem(todayKey,                 JSON.stringify(0)),
-        AsyncStorage.removeItem("water_log_entries"),
+        pSetItem("water_history",          JSON.stringify(updatedHistory)),
+        pSetItem("goal_history",           JSON.stringify(updatedGoalHist)),
+        pSetItem("water_total_hydration",  JSON.stringify(0)),
+        pSetItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN)),
+        pSetItem("water_last_entry",       JSON.stringify(null)),
+        pRemoveItem(`goal_celebrated_${yesterdayKey}`),
+        pSetItem("last_active_date",       todayKey),
+        pSetItem(todayKey,                 JSON.stringify(0)),
+        pRemoveItem("water_log_entries"),
       ]);
     } catch {
       // Keep the lock in place — next launch will retry the full reset.
@@ -3339,7 +3451,7 @@ export default function WaterTracker() {
     }
 
     // All writes succeeded — release the lock.
-    try { await AsyncStorage.removeItem('reset_in_progress'); } catch {}
+    try { await pRemoveItem('reset_in_progress'); } catch {}
 
     // Reset all state
     setHistory(updatedHistory);
@@ -3372,18 +3484,18 @@ export default function WaterTracker() {
 
     // Resume any reset that was interrupted by a force-close.
     try {
-      const lockVal = await AsyncStorage.getItem('reset_in_progress');
+      const lockVal = await pGetItem('reset_in_progress');
       if (lockVal) {
         await performDailyReset(false);
         return;
       }
     } catch {}
 
-    const saved = await AsyncStorage.getItem("last_active_date");
+    const saved = await pGetItem("last_active_date");
     if (saved && saved !== todayKey) {
       await performDailyReset(true);
     } else {
-      await AsyncStorage.setItem("last_active_date", todayKey);
+      await pSetItem("last_active_date", todayKey);
     }
   }
 
@@ -3398,14 +3510,76 @@ export default function WaterTracker() {
     }, msUntilMidnight);
   }
 
+  // Siri / App Intents queue drain. Each entry was appended by a voice
+  // intent ("Hey Siri, log 16 ounces of water in Hydro Hero") that ran in
+  // the background while the app was suspended. We pull all pending
+  // entries and replay them through the normal addWater path so sounds /
+  // badges / Apple Health sync just work. The ref pattern is the same as
+  // setWatchMessageHandler above — addWater reads live state via closure,
+  // so we need the latest version on every drain.
+  const addWaterForSiriRef = useRef<typeof addWater | null>(null);
+  useEffect(() => { addWaterForSiriRef.current = addWater; });
+
+  const processSiriQueue = useCallback(async () => {
+    try {
+      console.log("[Siri drain] called");
+      const entries = await drainSiriQueue();
+      console.log("[Siri drain] got", entries.length, "entries:", JSON.stringify(entries));
+      for (const entry of entries) {
+        const oz = entry.unit === "ml" ? entry.amount / 29.5735 : entry.amount;
+        const fn = addWaterForSiriRef.current;
+        if (!fn) {
+          console.log("[Siri drain] addWaterForSiriRef.current is null — aborting");
+          return;
+        }
+        console.log("[Siri drain] calling addWater", oz, entry.beverage);
+        const result = await fn(oz, entry.beverage).catch((e) => {
+          console.log("[Siri drain] addWater rejected:", String(e));
+          return false;
+        });
+        console.log("[Siri drain] addWater result:", result);
+        // addWater updates totalHydration but not the animated tank value
+        // (displayedHydration) — the dispenser drives that on phone logs.
+        // Siri-originated logs have no dispenser, so bump it directly.
+        // Mirrors the Watch-handler pattern at line ~2633.
+        setDisplayedHydration((prev) => prev + calcHydratedOz(oz, entry.beverage));
+        await new Promise((r) => setTimeout(r, 80));
+      }
+    } catch (e) {
+      console.log("[Siri drain] outer catch:", String(e));
+    }
+  }, []);
+
   useEffect(() => {
     scheduleMidnightTimer();
+    // Live Activity opt-in never persists across cold starts (see
+    // project-live-activity-opt-in). iOS keeps LAs alive on the Lock Screen
+    // when the app process ends; our JS state doesn't know they're there and
+    // won't update them. End any orphan on mount so the user can re-tap the
+    // toggle for a fresh session instead of seeing yesterday's fill.
+    endTankActivity().catch(() => {});
+    // Drain anything Siri queued while the app was not running.
+    processSiriQueue();
+    // Family Mode: catch up missed midnight rollovers + mission progress on
+    // every inactive profile so streaks stay honest while a parent is using
+    // their own profile and a kid's profile sits idle. Storage-only — no
+    // React state, no sounds, no watch sync.
+    evaluateInactiveProfiles(activeProfile?.id ?? null).catch(() => {});
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {
         checkDateAndMaybeReset();
+        evaluateInactiveProfiles(activeProfile?.id ?? null).catch(() => {});
         setSpinning(false);
         setJackpotSpinning(false);
         reloadSounds();
+        processSiriQueue();
+        // Live Activity 4-hour idle auto-end. If the user opted in but then
+        // put the phone down for the afternoon, kill the activity rather
+        // than leave a stale tank percentage on their Lock Screen.
+        if (tankActivityOnRef.current && lastLogTsRef.current !== null
+            && Date.now() - lastLogTsRef.current > 4 * 60 * 60 * 1000) {
+          endTankActivity().then(() => setTankActivityOn(false));
+        }
       } else if (state === "background" || state === "inactive") {
         teardownSounds();
       }
@@ -3436,7 +3610,7 @@ export default function WaterTracker() {
       const todayKey = getTodayKey();
       const celebKey = `goal_celebrated_${todayKey}`;
       setJackpotFiredToday(true);
-      (async () => { try { await AsyncStorage.setItem(celebKey, "1"); } catch {} })();
+      (async () => { try { await pSetItem(celebKey, "1"); } catch {} })();
       setShowCelebration(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3483,8 +3657,16 @@ export default function WaterTracker() {
     try {
       const Purchases = getRevenueCatPurchases();
       // logOut generates a fresh anonymous RC user ID, so any entitlement on
-      // the previous customer record stops applying to this device.
-      if (Purchases) await (Purchases as any).logOut?.();
+      // the previous customer record stops applying to this device. Skip the
+      // call when we're already anonymous — RC logs a noisy LogBox error
+      // ("LogOut was called but the current user is anonymous") that surfaces
+      // as a redbox in dev. Anonymous RC user IDs are prefixed "$RCAnonymousID:".
+      if (Purchases) {
+        const appUserId: string | undefined = await (Purchases as any).getAppUserID?.();
+        if (appUserId && !appUserId.startsWith('$RCAnonymousID:')) {
+          await (Purchases as any).logOut?.();
+        }
+      }
     } catch {}
     await checkProStatus();
   }
@@ -3516,162 +3698,6 @@ export default function WaterTracker() {
     setTimeout(openPaywall, 350);
   }
 
-  // ── CSV Export ────────────────────────────────────────────────────────────
-  async function handleExportCSV() {
-    if (!isPro) {
-      openPaywallFromSettings();
-      return;
-    }
-
-    setExportLoading(true);
-    try {
-      // Load all history data
-      const [rawHistory, rawGoalHist] = await Promise.all([
-        AsyncStorage.getItem("water_history"),
-        AsyncStorage.getItem("goal_history"),
-      ]);
-
-      const historyArr: { date: string; oz: number; goal: number; breakdown?: Record<string, number> }[] =
-        rawHistory ? JSON.parse(rawHistory) : [];
-
-      if (historyArr.length === 0) {
-        Alert.alert("No History Yet", "No history to export yet — start logging to build your history!");
-        return;
-      }
-
-      const goalHistMap: Record<string, number> = rawGoalHist ? JSON.parse(rawGoalHist) : {};
-
-      // Build streak map: for each date key, what consecutive-day streak number was it?
-      const sortedKeys = Object.keys(goalHistMap)
-        .filter((k) => goalHistMap[k] >= 1.0)
-        .sort();
-      const streakMap: Record<string, number> = {};
-      let run = 0;
-      for (let i = 0; i < sortedKeys.length; i++) {
-        if (i === 0) {
-          run = 1;
-        } else {
-          const prev = new Date(sortedKeys[i - 1].replace(/water_(\d+)_(\d+)_(\d+)/, '$1-$2-$3'));
-          const cur  = new Date(sortedKeys[i].replace(/water_(\d+)_(\d+)_(\d+)/, '$1-$2-$3'));
-          const diff = Math.round((cur.getTime() - prev.getTime()) / 86400000);
-          run = diff === 1 ? run + 1 : 1;
-        }
-        streakMap[sortedKeys[i]] = run;
-      }
-
-      // Best streak
-      const bestStreak = streakMap[sortedKeys[sortedKeys.length - 1]] ?? 0;
-
-      // CSV header
-      const COLS = [
-        "Date", "Day of Week", "Daily Goal (oz)", "True Hydration (oz)",
-        "Total Consumed (oz)", "Hydration %", "Goal Hit",
-        "Water (oz)", "Coffee (oz)", "Tea (oz)", "Soda (oz)", "Juice (oz)",
-        "Sports Drink (oz)", "Beer (oz)", "Cocktail (oz)", "Wine (oz)",
-        "Milk (oz)", "Coconut Water (oz)", "Energy Drink (oz)", "Streak Day #",
-      ];
-
-      const DOW = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      const BEV_EXPORT_KEYS: [string, string][] = [
-        ["water", "Water"], ["coffee", "Coffee"], ["tea", "Tea"],
-        ["soda", "Soda"], ["juice", "Juice"], ["sports", "Sports Drink"],
-        ["beer", "Beer"], ["cocktail", "Cocktail"], ["wine", "Wine"],
-        ["milk", "Milk"], ["coconut", "Coconut Water"], ["energy", "Energy Drink"],
-      ];
-
-      const rows: string[] = [COLS.join(",")];
-
-      let totalConsumed = 0;
-      let totalHydrated = 0;
-
-      // Take up to 30 most recent days, chronological order
-      const sorted = [...historyArr]
-        .sort((a, b) => a.date.localeCompare(b.date))
-        .slice(-30);
-
-      for (const day of sorted) {
-        const m = day.date.match(/water_(\d+)_(\d+)_(\d+)/);
-        if (!m) continue;
-        const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        const yyyy = d.getFullYear();
-        const dateStr = `${mm}/${dd}/${yyyy}`;
-        const dowStr = DOW[d.getDay()];
-        const goalOz = day.goal ?? 64;
-        const pct = goalHistMap[day.date] ?? 0;
-        const hydOz = Math.round(pct * goalOz * 10) / 10;
-        const consumedOz = day.oz ?? 0;
-        const goalHit = pct >= 1.0 ? "Yes" : "No";
-        const streakDay = streakMap[day.date] ?? 0;
-
-        totalConsumed += consumedOz;
-        totalHydrated += hydOz;
-
-        const bd = day.breakdown ?? {};
-        const bevCols = BEV_EXPORT_KEYS.map(([key]) => (bd[key] ?? 0).toFixed(1));
-
-        rows.push([
-          dateStr, dowStr,
-          goalOz.toFixed(1),
-          hydOz.toFixed(1),
-          consumedOz.toFixed(1),
-          Math.round(pct * 100).toString(),
-          goalHit,
-          ...bevCols,
-          streakDay.toString(),
-        ].join(","));
-      }
-
-      const csvContent = rows.join("\n");
-      const today = new Date();
-      const fileName = `HydroHero_Export_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}.csv`;
-      const file = new FSFile(FSPaths.document, fileName);
-      try { file.create(); } catch {}
-      file.write(csvContent);
-
-      // Close Settings modal first — iOS cannot reliably stack a transparent
-      // modal over a pageSheet modal, which causes the Export Summary to be
-      // hidden or trap touches.
-      setShowSettingsModal(false);
-      setExportSummary({
-        days: sorted.length,
-        totalConsumed: Math.round(totalConsumed),
-        totalHydrated: Math.round(totalHydrated),
-        bestStreak,
-        filePath: file.uri,
-      });
-      setShowExportSummary(true);
-    } catch (e) {
-      Sentry.captureException(e);
-      Alert.alert("Export Failed", `Something went wrong: ${(e as Error)?.message ?? String(e)}`);
-    } finally {
-      setExportLoading(false);
-    }
-  }
-
-  async function shareExportFile(filePath: string) {
-    try {
-      const canShare = await Sharing.isAvailableAsync();
-      if (!canShare) {
-        Alert.alert("Sharing Not Available", "File sharing is not supported on this device.");
-        return;
-      }
-      await Sharing.shareAsync(filePath, {
-        mimeType: "text/csv",
-        dialogTitle: "Share your Hydro Hero history",
-        UTI: "public.comma-separated-values-text",
-      });
-    } catch {
-      Alert.alert("Share Failed", "Could not open the share sheet. Please try again.");
-    } finally {
-      // Clean up temp file
-      try { new FSFile(filePath).delete(); } catch {}
-      setShowExportSummary(false);
-      setExportSummary(null);
-    }
-  }
-
   async function loadData() {
     try {
       // Check if the date changed since last launch — resets if new day
@@ -3680,7 +3706,7 @@ export default function WaterTracker() {
       const celebKey = `goal_celebrated_${todayKey}`;
 
       // Single batched read for all startup keys (Issues 7 & 8)
-      const results = await AsyncStorage.multiGet([
+      const results = await pMultiGet([
         todayKey,
         'water_goal',
         'water_history',
@@ -3707,9 +3733,12 @@ export default function WaterTracker() {
         'sound_enabled',
         'custom_quick_add_amounts',
         'haptics_enabled',
+        'preferred_unit',
+        'body_unit',
         'water_log_entries',
         'selected_sound_pack',
         'selected_beverages',
+        'show_alcoholic_drinks',
         'cloud_last_sync',
       ]);
 
@@ -3741,7 +3770,13 @@ export default function WaterTracker() {
         setDisplayedHydration(h); // sync immediately on load, no animation
       }
       if (savedGoalHistory) setGoalHistory(JSON.parse(savedGoalHistory));
-      if (savedPresets) setPresets(JSON.parse(savedPresets));
+      if (savedPresets) {
+        const loadedPresets: Preset[] = JSON.parse(savedPresets);
+        setPresets(loadedPresets);
+        syncSiriCatalog(loadedPresets);
+      } else {
+        syncSiriCatalog([]);
+      }
 
       // Lifetime achievement stats
       const savedLifeHyd    = get('lifetime_hydration_oz');
@@ -3814,6 +3849,19 @@ export default function WaterTracker() {
       const savedHaptics = get('haptics_enabled');
       if (savedHaptics !== null) setHapticsEnabled(savedHaptics !== "false");
 
+      // Preferred display unit
+      const savedUnit = get('preferred_unit');
+      if (savedUnit === 'ml' || savedUnit === 'oz') {
+        setPreferredUnit(savedUnit);
+        syncSiriUnit(savedUnit);
+      } else {
+        syncSiriUnit('oz');
+      }
+
+      // Preferred body-measurement unit (Suggest tab inputs)
+      const savedBodyUnit = get('body_unit');
+      if (savedBodyUnit === 'metric' || savedBodyUnit === 'imperial') setBodyUnit(savedBodyUnit);
+
       // Today's drink log entries
       try {
         const savedEntries = get('water_log_entries');
@@ -3838,6 +3886,14 @@ export default function WaterTracker() {
         }
       } catch {}
 
+      // Show alcoholic drinks toggle — defaults to off when unset
+      const savedAlc = get('show_alcoholic_drinks');
+      if (savedAlc !== null) setShowAlcoholicDrinks(savedAlc === "true");
+
+      // Live Activity option toggle — defaults to on (chip visible) when unset
+      const savedShowLA = get('show_live_activity_option');
+      if (savedShowLA !== null) setShowLiveActivityOption(savedShowLA !== "false");
+
       // Last cloud sync time — reserved for future settings UI
       // const savedSyncTime = get('cloud_last_sync');
 
@@ -3850,28 +3906,45 @@ export default function WaterTracker() {
     } catch {}
   }
 
+  async function savePreset(label: string, oz: number, category: BevCategory) {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const next: Preset = { id: `p_${Date.now()}`, label: trimmed.slice(0, 24), oz, category };
+    const updated = [...presets, next];
+    setPresets(updated);
+    try { await pSetItem("water_presets", JSON.stringify(updated)); } catch {}
+    syncSiriCatalog(updated);
+  }
+
   async function deletePreset(id: string) {
     const updated = presets.filter((p) => p.id !== id);
     setPresets(updated);
-    await AsyncStorage.setItem("water_presets", JSON.stringify(updated));
+    await pSetItem("water_presets", JSON.stringify(updated));
+    syncSiriCatalog(updated);
+  }
+
+  async function reorderPresets(next: Preset[]) {
+    setPresets(next);
+    try { await pSetItem("water_presets", JSON.stringify(next)); } catch {}
+    syncSiriCatalog(next);
   }
 
   async function saveIntake(newIntake: number, newBreakdown: Record<BevCategory, number>, newHydration: number) {
     const todayKey = getTodayKey();
     const currentGoal = goal;
-    await AsyncStorage.setItem(todayKey, JSON.stringify(newIntake));
-    await AsyncStorage.setItem("water_total_hydration", JSON.stringify(newHydration));
+    await pSetItem(todayKey, JSON.stringify(newIntake));
+    await pSetItem("water_total_hydration", JSON.stringify(newHydration));
     const todayEntry = { date: todayKey, oz: newIntake, goal: currentGoal, breakdown: newBreakdown };
     const updatedHistory = [
       todayEntry,
       ...history.filter((h) => h.date !== todayKey),
     ].slice(0, 30);
     setHistory(updatedHistory);
-    await AsyncStorage.setItem("water_history", JSON.stringify(updatedHistory));
+    await pSetItem("water_history", JSON.stringify(updatedHistory));
     // Update goal_history with today's hydration pct
     const newGoalHistory = { ...goalHistory, [todayKey]: Math.min(newHydration / currentGoal, 1) };
     setGoalHistory(newGoalHistory);
-    await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
+    await pSetItem("goal_history", JSON.stringify(newGoalHistory));
     // Push updated values to the home-screen widget (no-op in Expo Go / Android)
     syncWidgetData(newHydration, currentGoal);
   }
@@ -3901,19 +3974,19 @@ export default function WaterTracker() {
     setDrinkLogEntries(newEntries);
 
     const saves: Promise<void>[] = [
-      AsyncStorage.setItem("water_category_breakdown", JSON.stringify(newBreakdown)),
+      pSetItem("water_category_breakdown", JSON.stringify(newBreakdown)),
       saveIntake(newIntake, newBreakdown, newHydration),
-      AsyncStorage.setItem("water_last_entry", JSON.stringify(oz)),
-      AsyncStorage.setItem("water_last_hydrated", JSON.stringify(hydratedOz)),
-      AsyncStorage.setItem("water_last_category", JSON.stringify(category)),
-      AsyncStorage.setItem("water_log_entries", JSON.stringify(newEntries)),
+      pSetItem("water_last_entry", JSON.stringify(oz)),
+      pSetItem("water_last_hydrated", JSON.stringify(hydratedOz)),
+      pSetItem("water_last_category", JSON.stringify(category)),
+      pSetItem("water_log_entries", JSON.stringify(newEntries)),
       isJackpot
-        ? AsyncStorage.setItem("water_last_was_jackpot", "1")
-        : AsyncStorage.removeItem("water_last_was_jackpot"),
+        ? pSetItem("water_last_was_jackpot", "1")
+        : pRemoveItem("water_last_was_jackpot"),
     ];
     if (isJackpot) {
       const celebKey = `goal_celebrated_${getTodayKey()}`;
-      saves.push(AsyncStorage.setItem(celebKey, "1"));
+      saves.push(pSetItem(celebKey, "1"));
     }
     try {
       await Promise.all(saves);
@@ -3953,22 +4026,52 @@ export default function WaterTracker() {
       setLifetimeCoffeeLogs(newLifeCoffee);
       setLifetimeBeerLogs(newLifeBeer);
       const lifeSaves: Promise<void>[] = [
-        AsyncStorage.setItem("lifetime_hydration_oz",  JSON.stringify(newLifeHyd)),
-        AsyncStorage.setItem("lifetime_jackpots",      JSON.stringify(newLifeJack)),
-        AsyncStorage.setItem("lifetime_coffee_logs",   JSON.stringify(newLifeCoffee)),
-        AsyncStorage.setItem("lifetime_beer_logs",     JSON.stringify(newLifeBeer)),
+        pSetItem("lifetime_hydration_oz",  JSON.stringify(newLifeHyd)),
+        pSetItem("lifetime_jackpots",      JSON.stringify(newLifeJack)),
+        pSetItem("lifetime_coffee_logs",   JSON.stringify(newLifeCoffee)),
+        pSetItem("lifetime_beer_logs",     JSON.stringify(newLifeBeer)),
       ];
       // Record first drink time once, never overwrite
+      let firstDrinkTimeAfter = firstDrinkTime;
       if (firstDrinkTime === null) {
         const ts = new Date().toISOString();
         setFirstDrinkTime(ts);
-        lifeSaves.push(AsyncStorage.setItem("first_drink_time", ts));
+        firstDrinkTimeAfter = ts;
+        lifeSaves.push(pSetItem("first_drink_time", ts));
       }
       await Promise.all(lifeSaves);
-    } catch {}
 
-    // Fire achievement check
-    setAchievementTrigger((n) => n + 1);
+      // Detect newly-unlockable badges and surface them: tab dot + Home toast.
+      // Use locally-computed values so we don't race the state setters above.
+      try {
+        const todayKey = getTodayKey();
+        const newGoalHist = { ...goalHistory, [todayKey]: goal > 0 ? Math.min(newHydration / goal, 1) : 0 };
+        let newStreak = 0;
+        const d = new Date();
+        while ((newGoalHist[getDateKey(d)] ?? 0) >= 1.0) { newStreak++; d.setDate(d.getDate() - 1); }
+        const unlockedIds = await loadUnlockedBadgeIds();
+        const pending = detectPendingBadges({
+          streak: newStreak,
+          goalHistory: newGoalHist,
+          totalHydration: newHydration,
+          intake: newIntake,
+          goal,
+          categoryBreakdown: newBreakdown,
+          lifetimeHydrationOz: newLifeHyd,
+          lifetimeJackpots: newLifeJack,
+          lifetimeCoffeeLogs: newLifeCoffee,
+          lifetimeBeerLogs: newLifeBeer,
+          firstDrinkTime: firstDrinkTimeAfter,
+          nowHour: new Date().getHours(),
+        }, unlockedIds);
+        if (pending.length > 0) {
+          await setPendingBadgeCount(pending.length);
+          if (badgeToastTimer.current) clearTimeout(badgeToastTimer.current);
+          setBadgeToast(pending);
+          badgeToastTimer.current = setTimeout(() => setBadgeToast(null), 5000);
+        }
+      } catch {}
+    } catch {}
 
     // Fire immediate threshold notifications (once per day each)
     const todayKey2 = getTodayKey();
@@ -4008,6 +4111,17 @@ export default function WaterTracker() {
       selectedBeverages,
     }).catch(() => {});
 
+    // Live Activity sync — update the on-screen droplet, or end it if the
+    // goal just landed (the activity stops being useful once you're at 100%).
+    lastLogTsRef.current = Date.now();
+    if (tankActivityOn) {
+      if (isJackpot) {
+        endTankActivity().then(() => setTankActivityOn(false));
+      } else {
+        updateTankActivity(newHydration, goal).catch(() => {});
+      }
+    }
+
     // Do NOT call setShowCelebration here — handleBet runs the pour + shake first
     return isJackpot;
   }
@@ -4026,7 +4140,12 @@ export default function WaterTracker() {
     // The tank's fillAnim takes ~1.2s to ease the water up to the new level.
     // We pour into the tank immediately and gate further taps for that window.
     setSpinning(true);
-    if (triggersJackpot) setJackpotSpinning(true);
+    if (triggersJackpot) {
+      setJackpotSpinning(true);
+      // Splash plays on tank fill (jackpot fanfare now waits ~2.5s after the
+      // tap so the droplet + splash sounds finish before the fireworks kick
+      // in — see timed setTimeouts below).
+    }
     // CRITICAL: bump logNonce in the SAME render batch as setDisplayedHydration.
     // The vault's useEffect[logNonce] fires revealRef.play(), which captures
     // the current `onReachTank` closure (which captures `pct`). If logNonce
@@ -4034,8 +4153,9 @@ export default function WaterTracker() {
     // STALE pct — i.e. empty tank on first log, last-value on subsequent.
     setDisplayedHydration((prev) => prev + hydrated);
     setLogNonce(n => n + 1);
-    playWaterLogSound();
-    playWaterFillSound();
+    // Reveal start: the middle-area number drop. The water_log / jackpot
+    // splash sounds fire later — after the tank fills and the spray lands.
+    playRevealSound();
     // fireSpray now triggers from the vault's onTankFill so it fires when the
     // handoff droplet actually lands, not immediately on tap.
     // Always scroll the tank into view on tap — the user may have scrolled
@@ -4045,11 +4165,16 @@ export default function WaterTracker() {
     const bt = betTimersRef.current;
 
     if (triggersJackpot) {
-      playJackpotSound();
-
-      // Celebratory shake + confetti when the fill completes.
+      // Sequencing (relative to tap):
+      //   t≈0     reveal sound, scroll
+      //   t≈1.2s  tank fill → droplet + splash sounds play
+      //   t=2500  jackpot sound + shake + confetti shown (splash now done)
+      //   t=3800  confetti hidden, GOAL message + celebration card shown,
+      //           streak milestone card released (jackpot sound may keep
+      //           playing under the cards — that's intentional fanfare).
       bt.push(setTimeout(() => {
         haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+        playJackpotSound();
         screenShakeAnim.setValue(0);
         Animated.sequence([
           Animated.timing(screenShakeAnim, { toValue: -6, duration: 40, useNativeDriver: true }),
@@ -4059,16 +4184,15 @@ export default function WaterTracker() {
           Animated.timing(screenShakeAnim, { toValue: 0,  duration: 40, useNativeDriver: true }),
         ]).start();
         setReelConfettiVisible(true);
-      }, 1100));
-
-      bt.push(setTimeout(() => setReelConfettiVisible(false), 2400));
+      }, 2500));
 
       bt.push(setTimeout(() => {
+        setReelConfettiVisible(false);
         setSpinning(false);
         setJackpotSpinning(false);
         setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → GOAL! 🏆`);
         setShowCelebration(true);
-      }, 1500));
+      }, 3800));
     } else {
       bt.push(setTimeout(() => {
         setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → ${hydrated} oz hydration`);
@@ -4099,7 +4223,7 @@ export default function WaterTracker() {
             haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning));
             const undoneHydratedOz = lastEntryHydratedOz ?? 0;
             const undoneCategory = lastEntryCategory;
-            const wasJackpot = (await AsyncStorage.getItem("water_last_was_jackpot")) === "1";
+            const wasJackpot = (await pGetItem("water_last_was_jackpot")) === "1";
             const newIntake = Math.max(0, intake - lastEntry);
             const newHydration = Math.max(0, Math.round((totalHydration - undoneHydratedOz) * 10) / 10);
             setIntake(newIntake);
@@ -4113,10 +4237,15 @@ export default function WaterTracker() {
             }
             setLastEntry(null);
             setLastEntryHydratedOz(null);
+            // Also clear the LAST DRINK reveal panel inside the tank and the
+            // hydration reveal banner below Quick Add — without these, both
+            // surfaces keep showing the just-undone drink.
+            setLastReelOz(0);
+            setResultMessage(null);
             // Remove last drink log entry
             const newEntries = drinkLogEntries.slice(0, -1);
             setDrinkLogEntries(newEntries);
-            await AsyncStorage.setItem("water_log_entries", JSON.stringify(newEntries));
+            await pSetItem("water_log_entries", JSON.stringify(newEntries));
             // Attempt to delete the matching Health sample (silent failure is fine)
             if (lastHealthSampleTime) {
               deleteWaterSample(lastHealthSampleTime).catch(() => {});
@@ -4138,21 +4267,21 @@ export default function WaterTracker() {
 
             const todayKey = getTodayKey();
             const baseRemovals = [
-              AsyncStorage.setItem("water_category_breakdown", JSON.stringify(newBreakdown)),
+              pSetItem("water_category_breakdown", JSON.stringify(newBreakdown)),
               saveIntake(newIntake, newBreakdown, newHydration),
-              AsyncStorage.removeItem("water_last_entry"),
-              AsyncStorage.removeItem("water_last_hydrated"),
-              AsyncStorage.removeItem("water_last_category"),
+              pRemoveItem("water_last_entry"),
+              pRemoveItem("water_last_hydrated"),
+              pRemoveItem("water_last_category"),
               AsyncStorage.removeItem("water_last_health_sample"),
-              AsyncStorage.removeItem("water_last_was_jackpot"),
-              AsyncStorage.setItem("lifetime_hydration_oz", JSON.stringify(newLifeHyd)),
-              AsyncStorage.setItem("lifetime_coffee_logs", JSON.stringify(newLifeCoffee)),
-              AsyncStorage.setItem("lifetime_beer_logs", JSON.stringify(newLifeBeer)),
+              pRemoveItem("water_last_was_jackpot"),
+              pSetItem("lifetime_hydration_oz", JSON.stringify(newLifeHyd)),
+              pSetItem("lifetime_coffee_logs", JSON.stringify(newLifeCoffee)),
+              pSetItem("lifetime_beer_logs", JSON.stringify(newLifeBeer)),
             ];
             if (wasJackpot) {
               baseRemovals.push(
-                AsyncStorage.removeItem(`goal_celebrated_${todayKey}`),
-                AsyncStorage.setItem("lifetime_jackpots", JSON.stringify(newLifeJack)),
+                pRemoveItem(`goal_celebrated_${todayKey}`),
+                pSetItem("lifetime_jackpots", JSON.stringify(newLifeJack)),
               );
             }
             // Clear stale streak-milestone "shown" flags for milestones above the new streak,
@@ -4161,12 +4290,10 @@ export default function WaterTracker() {
             let newStreak = 0;
             { const d = new Date(); while ((newGoalHist[getDateKey(d)] ?? 0) >= 1.0) { newStreak++; d.setDate(d.getDate() - 1); } }
             for (const m of [3, 7, 14, 30]) {
-              if (newStreak < m) baseRemovals.push(AsyncStorage.removeItem(`streak_milestone_${m}_shown`));
+              if (newStreak < m) baseRemovals.push(pRemoveItem(`streak_milestone_${m}_shown`));
             }
 
             await Promise.all(baseRemovals);
-            // Tell Achievements to drop any badge whose check() no longer holds.
-            setAchievementRevalidate((n) => n + 1);
           },
         },
       ],
@@ -4176,10 +4303,12 @@ export default function WaterTracker() {
   function handleCustomAdd() {
     const raw = parseFloat(customAmount);
     if (!isNaN(raw) && raw > 0) {
+      playButtonTapSound();
       const oz = customUnit === "ml" ? Math.round((raw / 29.5735) * 10) / 10 : raw;
       setShowCustomModal(false);
       setCustomAmount("");
       setCustomUnit("oz");
+      setPendingQty(1);
       setPendingBetOz(oz);
     } else {
       Alert.alert("Please enter a valid amount");
@@ -4207,23 +4336,25 @@ export default function WaterTracker() {
   }
 
   async function handleSetGoal() {
-    const g = parseFloat(newGoal);
-    if (!isNaN(g) && g > 0) {
-      haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
-      setGoal(g);
-      await AsyncStorage.setItem("water_goal", JSON.stringify(g));
-      closeGoalModal();
-      sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: g, pct: g > 0 ? totalHydration / g : 0, streak: 0, selectedBeverages }).catch(() => {});
-      rescheduleAfterGoalChange(g);
-    } else {
+    const raw = parseFloat(newGoal);
+    if (isNaN(raw) || raw <= 0) {
       Alert.alert("Invalid Goal", "Please enter a valid number.");
+      return;
     }
+    // Storage is always oz; convert ml input back if the user is in ml mode.
+    const g = preferredUnit === 'ml' ? Math.round((raw / 29.5735) * 10) / 10 : raw;
+    haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+    setGoal(g);
+    await pSetItem("water_goal", JSON.stringify(g));
+    closeGoalModal();
+    sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: g, pct: g > 0 ? totalHydration / g : 0, streak: 0, selectedBeverages }).catch(() => {});
+    rescheduleAfterGoalChange(g);
   }
 
   async function handleSetGallonGoal(oz: number) {
     haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
     setGoal(oz);
-    await AsyncStorage.setItem("water_goal", JSON.stringify(oz));
+    await pSetItem("water_goal", JSON.stringify(oz));
     closeGoalModal();
     sendHydrationUpdate({ hydrationOz: totalHydration, goalOz: oz, pct: oz > 0 ? totalHydration / oz : 0, streak: 0, selectedBeverages }).catch(() => {});
     rescheduleAfterGoalChange(oz);
@@ -4231,53 +4362,91 @@ export default function WaterTracker() {
 
   function calcSuggestedOz(): number | null {
     let weightLbs: number;
-    if (weightMode === "type") {
-      const w = parseFloat(typeWeight);
-      if (isNaN(w) || w < 80 || w > 400) return null;
-      weightLbs = w;
+    if (bodyUnit === "metric") {
+      if (weightMode === "type") {
+        const kg = parseFloat(typeWeightKg);
+        if (isNaN(kg) || kg < 36 || kg > 181) return null;
+        weightLbs = kg * 2.20462;
+      } else {
+        weightLbs = suggWeightLbs;
+      }
     } else {
-      weightLbs = suggWeightLbs;
+      if (weightMode === "type") {
+        const w = parseFloat(typeWeight);
+        if (isNaN(w) || w < 80 || w > 400) return null;
+        weightLbs = w;
+      } else {
+        weightLbs = suggWeightLbs;
+      }
     }
-    let feet: number;
-    let inches: number;
-    if (heightMode === "type") {
-      const f = parseFloat(typeFeet);
-      const i = parseFloat(typeInches);
-      if (isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11) return null;
-      feet = f;
-      inches = i;
+    let totalInches: number;
+    if (bodyUnit === "metric") {
+      if (heightMode === "type") {
+        const cm = parseFloat(typeHeightCm);
+        if (isNaN(cm) || cm < 120 || cm > 220) return null;
+        totalInches = cm / 2.54;
+      } else {
+        totalInches = suggFeet * 12 + suggInches;
+      }
     } else {
-      feet = suggFeet;
-      inches = suggInches;
+      if (heightMode === "type") {
+        const f = parseFloat(typeFeet);
+        const i = parseFloat(typeInches);
+        if (isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11) return null;
+        totalInches = f * 12 + i;
+      } else {
+        totalInches = suggFeet * 12 + suggInches;
+      }
     }
     const factor =
       suggActivity === "sedentary" ? 0.5 :
       suggActivity === "moderate" ? 0.6 : 0.7;
     let oz = weightLbs * factor;
-    const totalInches = feet * 12 + inches;
     if (totalInches > 60) oz += Math.floor((totalInches - 60) / 6) * 12;
     return Math.min(Math.round(oz), 128);
   }
 
   function switchWeightMode(mode: "scroll" | "type") {
     if (mode === "type" && weightMode === "scroll") {
-      setTypeWeight(String(suggWeightLbs));
+      if (bodyUnit === "metric") {
+        setTypeWeightKg(String(Math.round(suggWeightLbs / 2.20462)));
+      } else {
+        setTypeWeight(String(suggWeightLbs));
+      }
     } else if (mode === "scroll" && weightMode === "type") {
-      const w = parseFloat(typeWeight);
-      if (!isNaN(w) && w >= 80 && w <= 400) setSuggWeightLbs(Math.round(w));
+      if (bodyUnit === "metric") {
+        const kg = parseFloat(typeWeightKg);
+        if (!isNaN(kg) && kg >= 36 && kg <= 181) setSuggWeightLbs(Math.round(kg * 2.20462));
+      } else {
+        const w = parseFloat(typeWeight);
+        if (!isNaN(w) && w >= 80 && w <= 400) setSuggWeightLbs(Math.round(w));
+      }
     }
     setWeightMode(mode);
   }
 
   function switchHeightMode(mode: "scroll" | "type") {
     if (mode === "type" && heightMode === "scroll") {
-      setTypeFeet(String(suggFeet));
-      setTypeInches(String(suggInches));
+      if (bodyUnit === "metric") {
+        setTypeHeightCm(String(Math.round(suggFeet * 30.48 + suggInches * 2.54)));
+      } else {
+        setTypeFeet(String(suggFeet));
+        setTypeInches(String(suggInches));
+      }
     } else if (mode === "scroll" && heightMode === "type") {
-      const f = parseFloat(typeFeet);
-      const i = parseFloat(typeInches);
-      if (!isNaN(f) && f >= 4 && f <= 7) setSuggFeet(Math.round(f));
-      if (!isNaN(i) && i >= 0 && i <= 11) setSuggInches(Math.round(i));
+      if (bodyUnit === "metric") {
+        const cm = parseFloat(typeHeightCm);
+        if (!isNaN(cm) && cm >= 120 && cm <= 220) {
+          const totalIn = cm / 2.54;
+          setSuggFeet(Math.floor(totalIn / 12));
+          setSuggInches(Math.round(totalIn % 12));
+        }
+      } else {
+        const f = parseFloat(typeFeet);
+        const i = parseFloat(typeInches);
+        if (!isNaN(f) && f >= 4 && f <= 7) setSuggFeet(Math.round(f));
+        if (!isNaN(i) && i >= 0 && i <= 11) setSuggInches(Math.round(i));
+      }
     }
     setHeightMode(mode);
   }
@@ -4286,7 +4455,7 @@ export default function WaterTracker() {
     const oz = calcSuggestedOz();
     if (oz === null) return;
     setGoal(oz);
-    await AsyncStorage.setItem("water_goal", JSON.stringify(oz));
+    await pSetItem("water_goal", JSON.stringify(oz));
     closeGoalModal();
     rescheduleAfterGoalChange(oz);
   }
@@ -4304,6 +4473,8 @@ export default function WaterTracker() {
     setTypeWeight("");
     setTypeFeet("");
     setTypeInches("");
+    setTypeWeightKg("");
+    setTypeHeightCm("");
   }
 
   async function resetToday() {
@@ -4331,23 +4502,20 @@ export default function WaterTracker() {
             // so the user can hit jackpot again the same day after resetting.
             setLastReelOz(0);
             setJackpotFiredToday(false);
-            await AsyncStorage.setItem(getTodayKey(), JSON.stringify(0));
-            await AsyncStorage.setItem("water_total_hydration", JSON.stringify(0));
-            await AsyncStorage.setItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
-            await AsyncStorage.removeItem("water_last_entry");
-            await AsyncStorage.removeItem("water_last_hydrated");
-            await AsyncStorage.removeItem("water_last_category");
-            await AsyncStorage.removeItem("water_log_entries");
-            await AsyncStorage.removeItem("first_drink_time");
+            setResultMessage(null);
+            await pSetItem(getTodayKey(), JSON.stringify(0));
+            await pSetItem("water_total_hydration", JSON.stringify(0));
+            await pSetItem("water_category_breakdown", JSON.stringify(EMPTY_BREAKDOWN));
+            await pRemoveItem("water_last_entry");
+            await pRemoveItem("water_last_hydrated");
+            await pRemoveItem("water_last_category");
+            await pRemoveItem("water_log_entries");
+            await pRemoveItem("first_drink_time");
             const todayKey = getTodayKey();
             const newGoalHistory = { ...goalHistory };
             delete newGoalHistory[todayKey];
             setGoalHistory(newGoalHistory);
-            await AsyncStorage.setItem("goal_history", JSON.stringify(newGoalHistory));
-            // Drop any badge whose check() no longer passes (e.g. Rainbow
-            // Drinker, Early Bird, Night Owl, today's goal hit, Perfect Week).
-            // Lifetime badges (Beer Baron, etc.) are unaffected.
-            setAchievementRevalidate((n) => n + 1);
+            await pSetItem("goal_history", JSON.stringify(newGoalHistory));
           },
         },
       ],
@@ -4358,8 +4526,9 @@ export default function WaterTracker() {
   const stage = getStage(Math.min(hydrationPct, 1));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const suggestedOz = useMemo(() => calcSuggestedOz(), [
-    weightMode, typeWeight, suggWeightLbs,
-    heightMode, typeFeet, typeInches, suggFeet, suggInches, suggActivity,
+    bodyUnit,
+    weightMode, typeWeight, typeWeightKg, suggWeightLbs,
+    heightMode, typeFeet, typeInches, typeHeightCm, suggFeet, suggInches, suggActivity,
   ]);
   const streak = useMemo(() => {
     let s = 0;
@@ -4382,11 +4551,17 @@ export default function WaterTracker() {
         14: ["Two Week Streak! 👑", "14 days straight — unstoppable!"],
         30: ["30 Day Streak! 🌊",  "A whole month of hitting your goal — you're a Hydro Hero legend!"],
       };
+      // Delay streak fanfare so it lands alongside the Goal Reached card
+      // (after the tank fill + droplet/splash + jackpot shake+confetti
+      // sequence). Stays in sync with the handleBet setTimeout chain above.
+      const STREAK_DELAY_MS = 3800;
       if (STREAK_NOTIFS[streak]) {
-        playStreakSound();
-        haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
-        const [title, body] = STREAK_NOTIFS[streak];
-        fireImmediateNotifOnce(`notif_streak_${streak}_${getTodayKey()}`, title, body, notifStreakEnabled);
+        setTimeout(() => {
+          playStreakSound();
+          haptic(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success));
+          const [title, body] = STREAK_NOTIFS[streak];
+          fireImmediateNotifOnce(`notif_streak_${streak}_${getTodayKey()}`, title, body, notifStreakEnabled);
+        }, STREAK_DELAY_MS);
       }
       // Show confetti milestone card for 3, 7, 14, 30 — only once per milestone
       const CONFETTI_MILESTONES = [3, 7, 14, 30];
@@ -4394,10 +4569,10 @@ export default function WaterTracker() {
         const milestoneKey = `streak_milestone_${streak}_shown`;
         (async () => {
           try {
-            const shown = await AsyncStorage.getItem(milestoneKey);
+            const shown = await pGetItem(milestoneKey);
             if (!shown) {
-              await AsyncStorage.setItem(milestoneKey, "1");
-              setStreakMilestone(streak);
+              await pSetItem(milestoneKey, "1");
+              setTimeout(() => setStreakMilestone(streak), STREAK_DELAY_MS);
             }
           } catch {}
         })();
@@ -4419,6 +4594,44 @@ export default function WaterTracker() {
     <View style={{ flex: 1, backgroundColor: "#0a0520" }}>
       <StatusBar barStyle="light-content" backgroundColor="#0a0520" />
       <StarParticles />
+      {/* Family Mode avatar pill — top-right of Home, above the marquee.
+          Sits inside the safe-area top inset; pointer-events isolated to the
+          pill so it doesn't block taps on the marquee underneath. */}
+      <View
+        pointerEvents="box-none"
+        style={{ position: "absolute", top: 56, right: 16, zIndex: 40 }}
+      >
+        <AvatarPill />
+      </View>
+      {badgeToast && (
+        <TouchableOpacity
+          style={{
+            position: "absolute", bottom: tabBarHeight + 12, left: 16, right: 16, zIndex: 50,
+            backgroundColor: "rgba(255,215,0,0.96)", borderRadius: 14,
+            paddingVertical: 12, paddingHorizontal: 14,
+            flexDirection: "row", alignItems: "center", gap: 12,
+            shadowColor: "#000", shadowOpacity: 0.4, shadowOffset: { width: 0, height: -4 }, shadowRadius: 10,
+          }}
+          activeOpacity={0.9}
+          onPress={() => {
+            setBadgeToast(null);
+            if (badgeToastTimer.current) clearTimeout(badgeToastTimer.current);
+            router.navigate("/(tabs)/badges");
+          }}
+        >
+          <Text style={{ fontSize: 28 }}>{badgeToast[0]?.emoji ?? "🏆"}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: "#0a0520", fontSize: 13, fontWeight: "900", letterSpacing: 0.4 }}>
+              {badgeToast.length === 1
+                ? `NEW BADGE: ${badgeToast[0].name.toUpperCase()}`
+                : `${badgeToast.length} NEW BADGES UNLOCKED!`}
+            </Text>
+            <Text style={{ color: "rgba(10,5,32,0.7)", fontSize: 12, marginTop: 2 }}>
+              Tap to view in Badges →
+            </Text>
+          </View>
+        </TouchableOpacity>
+      )}
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
       <Animated.ScrollView
         ref={mainScrollRef}
@@ -4428,7 +4641,7 @@ export default function WaterTracker() {
       >
 
         {/* Marquee Header */}
-        <MarqueeHeader goal={goal} hydration={totalHydration} />
+        <MarqueeHeader goal={goal} hydration={totalHydration} preferredUnit={preferredUnit} />
 
         {/* Art Deco Vault — unified tank + dispenser */}
         <View onLayout={(e) => setReelFrameY(e.nativeEvent.layout.y)}>
@@ -4440,43 +4653,155 @@ export default function WaterTracker() {
             lastReelOz={lastReelOz}
             logNonce={logNonce}
             onSpoutRef={(x, y) => setSpoutOrigin({ x, y })}
-            onTankFill={fireSpray}
+            onTankFill={() => {
+              fireSpray();
+              if (skipNextSplashRef.current) {
+                skipNextSplashRef.current = false;
+              } else {
+                playWaterLogSound();
+              }
+            }}
             onLaunchDroplet={launchDroplet}
+            preferredUnit={preferredUnit}
           />
         </View>
 
+        {/* Mission entry surfaces — Hero CTA/badge, streak card, mission cards,
+            DEV inspector — all live on the Missions tab now (formerly Trophies).
+            Home stays focused on logging drinks. The HeroSetupModal auto-trigger
+            for first-launch onboarding is still wired below; users can also reach
+            it from the Missions tab. */}
+
+        {/* Presets Row — placed above the beverage picker so one-tap repeats stay visible without scrolling */}
+        {presets.length > 0 && (
+          <PresetsRow
+            presets={presets}
+            onSelect={(p) => {
+              haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
+              setSelectedCategory(p.category);
+              setPendingQty(1);
+              setPendingBetOz(p.oz);
+            }}
+            onDelete={deletePreset}
+            onReorder={reorderPresets}
+            isPro={isPro}
+          />
+        )}
+
         {/* Beverage Selector */}
-        <BeverageSelector
-          selected={selectedCategory}
-          onSelect={setSelectedCategory}
-          onCustom={() => setShowCustomModal(true)}
-          visibleBevs={selectedBeverages}
-          onEditBevs={() => {
-            if (!isPro) { openPaywall(); return; }
-            setShowChooseBevs(true);
-          }}
-        />
+        <View onLayout={(e) => setBevSelectorFrameY(e.nativeEvent.layout.y)}>
+          <BeverageSelector
+            selected={selectedCategory}
+            onSelect={(cat) => {
+              setSelectedCategory(cat);
+              // Leave enough headroom that the tank's LAST DRINK gold header
+              // band peeks at the top of the viewport — scrolling flush with
+              // the safe-area top hid SELECT A BEVERAGE behind the status bar
+              // and felt jarring.
+              if (bevSelectorFrameY > 0) {
+                mainScrollRef.current?.scrollTo({ y: Math.max(0, bevSelectorFrameY - 180), animated: true });
+              }
+            }}
+            visibleBevs={(isPro
+              ? selectedBeverages
+              // Free: honor the user's reordered defaults but filter out any
+              // non-default beverages (covers a lapsed Pro whose stored list
+              // still has extras).
+              : selectedBeverages.filter((k) => DEFAULT_VISIBLE_BEVS.includes(k))
+            ).filter((k) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(k))}
+            onEditBevs={() => setShowChooseBevs(true)}
+          />
+        </View>
 
         {/* Quick Bet Buttons */}
-        <View style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}>
+        <View
+          style={{ flexDirection: "row", alignItems: "center", marginHorizontal: 12, marginTop: 10, marginBottom: 2 }}
+        >
           <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "700", letterSpacing: 0.8, flex: 1 }}>QUICK ADD</Text>
-          <TouchableOpacity
-            onPress={() => { playButtonTapSound(); setShowCustomModal(true); }}
-            activeOpacity={0.7}
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center", marginRight: 8 }}
-            accessibilityLabel="Enter custom amount"
-          >
-            <Text style={{ fontSize: 22, lineHeight: 24, color: GOLD, fontWeight: "700" }}>＋</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => { if (!isPro) { openPaywall(); return; } setShowQuickAddModal(true); }}
-            activeOpacity={0.7}
-            style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,215,0,0.18)", borderWidth: 1, borderColor: "rgba(255,215,0,0.45)", alignItems: "center", justifyContent: "center" }}
-          >
-            <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
-          </TouchableOpacity>
+          {/* Pencil is Pro-only — free users get the bigger "Customize Your
+              Quick Add" upsell card below, which is the better tease. */}
+          {isPro && (
+            <TouchableOpacity
+              onPress={() => setShowQuickAddModal(true)}
+              activeOpacity={0.7}
+              style={{
+                width: 44, height: 44, borderRadius: 22,
+                backgroundColor: "rgba(255,215,0,0.18)",
+                borderWidth: 1,
+                borderColor: "rgba(255,215,0,0.45)",
+                alignItems: "center", justifyContent: "center",
+              }}
+              accessibilityLabel="Edit quick-add amounts"
+            >
+              <Text style={{ fontSize: 17, lineHeight: 22 }}>✏️</Text>
+            </TouchableOpacity>
+          )}
         </View>
-        <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} />
+        <QuickBets onBet={(oz) => { haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)); setPendingQty(1); setPendingBetOz(oz); }} spinning={spinning || jackpotSpinning} amounts={quickAddAmounts} preferredUnit={preferredUnit} />
+
+        {/* Custom Amount entry — replaces the old "+" header button and the
+            "⭐ Custom" beverage tile so there's one unambiguous entry point. */}
+        <TouchableOpacity
+          style={{
+            marginHorizontal: 12,
+            marginTop: 10,
+            paddingVertical: 13,
+            paddingHorizontal: 16,
+            borderRadius: 12,
+            borderWidth: 1.5,
+            borderColor: "rgba(255,215,0,0.45)",
+            backgroundColor: "rgba(255,215,0,0.06)",
+            alignItems: "center",
+            flexDirection: "row",
+            justifyContent: "center",
+            gap: 8,
+          }}
+          activeOpacity={0.75}
+          onPress={() => { playButtonTapSound(); openCustomModal(); }}
+        >
+          <Text style={{ fontSize: 18, color: GOLD }}>＋</Text>
+          <Text style={{ color: GOLD, fontSize: 15, fontWeight: "700", letterSpacing: 0.5 }}>Other Amount</Text>
+        </TouchableOpacity>
+
+        {/* Pro upsell — Quick Add customization (free users only) */}
+        {!isPro && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => openPaywall()}
+            style={{
+              marginHorizontal: 12,
+              marginTop: 8,
+              borderRadius: 14,
+              borderWidth: 1.5,
+              borderColor: "rgba(255,215,0,0.5)",
+              borderStyle: "dashed",
+              backgroundColor: "rgba(255,215,0,0.06)",
+              padding: 14,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <Text style={{ fontSize: 26 }}>⭐</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: GOLD, fontSize: 14, fontWeight: "800", letterSpacing: 0.3 }}>
+                Customize Your Quick Add
+              </Text>
+              <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 2, lineHeight: 16 }}>
+                Pick the amounts you actually drink — set 6 of your own.
+              </Text>
+            </View>
+            <View style={{
+              backgroundColor: GOLD, borderRadius: 6,
+              paddingHorizontal: 8, paddingVertical: 3,
+            }}>
+              <Text style={{ color: "#0a0520", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 }}>PRO</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Result Box */}
+        <ResultBox message={resultMessage} />
 
         {/* Undo Last Entry — prominent full-width button below quick add */}
         <TouchableOpacity
@@ -4490,15 +4815,58 @@ export default function WaterTracker() {
         >
           <Text style={[undoStyles.btnText, lastEntry === null && undoStyles.btnTextDisabled]}>
             {lastEntry !== null && lastEntryCategory
-              ? `↩ Undo last: +${formatOz(lastEntry)} oz ${CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? ""}`
+              ? `↩ Undo last: +${preferredUnit === 'ml' ? `${ozToMl(lastEntry)} ml` : `${formatOz(lastEntry)} oz`} ${CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? ""}`
               : lastEntry !== null
-              ? `↩ Undo last: +${formatOz(lastEntry)} oz`
+              ? `↩ Undo last: +${preferredUnit === 'ml' ? `${ozToMl(lastEntry)} ml` : `${formatOz(lastEntry)} oz`}`
               : "↩ No entry to undo"}
           </Text>
         </TouchableOpacity>
 
-        {/* Result Box */}
-        <ResultBox message={resultMessage} />
+        {/* Live Activity opt-in chip — user explicitly turns the Lock-Screen
+            droplet on for today. Auto-ends at goal hit, midnight, or 4h of
+            no logging (see addWater + performDailyReset + AppState listener).
+            Hidden when the Settings master toggle is off or the device can't
+            host Live Activities (Expo Go, Android, iOS < 16.2). */}
+        {showLiveActivityOption && liveActivityAvailable() && (
+          <TouchableOpacity
+            style={{
+              marginHorizontal: 12,
+              marginTop: 10,
+              paddingVertical: 11,
+              paddingHorizontal: 16,
+              borderRadius: 10,
+              borderWidth: 1.5,
+              borderColor: tankActivityOn ? GOLD : "rgba(255,215,0,0.45)",
+              backgroundColor: tankActivityOn ? "rgba(255,215,0,0.18)" : "rgba(255,215,0,0.06)",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+            activeOpacity={0.75}
+            onPress={async () => {
+              if (tankActivityOn) {
+                await endTankActivity();
+                setTankActivityOn(false);
+                return;
+              }
+              const id = await startTankActivity(totalHydration, goal);
+              if (id) {
+                setTankActivityOn(true);
+              } else {
+                Alert.alert(
+                  "Live Activities are off",
+                  "Turn on Live Activities for Hydro Hero in Settings → Hydro Hero → Live Activities, then tap again.",
+                );
+              }
+            }}
+          >
+            <Text style={{ fontSize: 14 }}>📍</Text>
+            <Text style={{ color: GOLD, fontSize: 13, fontWeight: "700", letterSpacing: 0.3 }}>
+              {tankActivityOn ? "Showing on Lock Screen · tap to hide" : "Show today on Lock Screen"}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {/* Stats Bar */}
         <StatsBar
@@ -4508,10 +4876,11 @@ export default function WaterTracker() {
           streak={streak}
           healthActive={healthPermissionGranted && healthSyncEnabled}
           onHealthPress={() => setShowHealthModal(true)}
+          preferredUnit={preferredUnit}
         />
 
         {/* Drink Log */}
-        <DrinkLog breakdown={categoryBreakdown} intake={intake} entries={drinkLogEntries} />
+        <DrinkLog breakdown={categoryBreakdown} intake={intake} entries={drinkLogEntries} preferredUnit={preferredUnit} />
 
         {/* Weather Banner */}
         {weatherBannerOz !== null && !weatherBannerDismissed && (
@@ -4522,51 +4891,13 @@ export default function WaterTracker() {
             onApply={() => {
               const newG = goal + weatherBannerOz!;
               setGoal(newG);
-              AsyncStorage.setItem("water_goal", JSON.stringify(newG));
+              pSetItem("water_goal", JSON.stringify(newG));
               setWeatherBannerDismissed(true);
             }}
             onDismiss={() => setWeatherBannerDismissed(true)}
           />
         )}
 
-        {/* Goal History Calendar */}
-        <GoalHistory goalHistory={goalHistory} history={history} />
-
-        {/* Achievements */}
-        <Achievements
-          trigger={achievementTrigger}
-          revalidateTrigger={achievementRevalidate}
-          streak={streak}
-          goalHistory={goalHistory}
-          totalHydration={totalHydration}
-          intake={intake}
-          goal={goal}
-          categoryBreakdown={categoryBreakdown}
-          lifetimeHydrationOz={lifetimeHydrationOz}
-          lifetimeJackpots={lifetimeJackpots}
-          lifetimeCoffeeLogs={lifetimeCoffeeLogs}
-          lifetimeBeerLogs={lifetimeBeerLogs}
-          firstDrinkTime={firstDrinkTime}
-          onBadgeUnlocked={() => { playBadgeUnlockSound(); }}
-        />
-
-        {/* Weekly Summary */}
-        <WeeklySummaryCard history={history} goalHistory={goalHistory} />
-
-        {/* Beverage Trends */}
-        <BevTrendsChart history={history} />
-
-        {/* Presets Row */}
-        {presets.length > 0 && (
-          <PresetsRow
-            presets={presets}
-            onSelect={(p) => addWater(p.oz, p.category)}
-            onDelete={deletePreset}
-          />
-        )}
-
-        {/* Trophy Case */}
-        <TrophyCase goalHistory={goalHistory} />
 
         {/* Action Buttons */}
         <View style={[styles.actionRow, { marginBottom: 8 }]}>
@@ -4576,21 +4907,9 @@ export default function WaterTracker() {
           <TouchableOpacity style={casinoActionBtn} onPress={resetToday}>
             <Text style={casinoActionBtnText}>🔄 Reset</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[casinoActionBtn, lastEntry === null && { opacity: 0.4 }]}
-            onPress={undoLastEntry}
-            disabled={lastEntry === null}
-          >
-            <Text style={casinoActionBtnText}>↩ Undo</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={[styles.actionRow, { marginBottom: 16 }]}>
-          <TouchableOpacity style={casinoActionBtn} onPress={() => setShowSettingsModal(true)}>
-            <Text style={casinoActionBtnText}>⚙️ Settings</Text>
-          </TouchableOpacity>
         </View>
         <TouchableOpacity
-          style={{ alignSelf: 'center', padding: 16, marginBottom: 32 }}
+          style={{ alignSelf: 'center', padding: 16, marginTop: 8, marginBottom: 32 }}
           activeOpacity={0.7}
           onPress={() => setShowPromoModal(true)}
         >
@@ -4605,7 +4924,7 @@ export default function WaterTracker() {
         <InputAccessoryView nativeID={CUSTOM_ACCESSORY_ID}>
           <View style={styles.iosKbBar}>
             <TouchableOpacity onPress={Keyboard.dismiss}>
-              <Text style={[styles.iosKbDone, { color: stage.color }]}>Done</Text>
+              <Text style={[styles.iosKbDone, { color: GOLD_DIM }]}>Done</Text>
             </TouchableOpacity>
           </View>
         </InputAccessoryView>
@@ -4615,7 +4934,7 @@ export default function WaterTracker() {
       {Platform.OS === "android" && kbHeight > 0 && (
         <View style={[styles.androidKbBar, { bottom: kbHeight }]}>
           <TouchableOpacity onPress={Keyboard.dismiss}>
-            <Text style={[styles.androidKbDone, { color: stage.color }]}>Done</Text>
+            <Text style={[styles.androidKbDone, { color: GOLD_DIM }]}>Done</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -4626,91 +4945,77 @@ export default function WaterTracker() {
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={styles.modalBox}>
-                  {/* Close button */}
-                  <View style={styles.kbToolbar}>
-                    <TouchableOpacity onPress={closeCustomModal}>
-                      <Text style={[styles.kbDoneBtn, { color: stage.color }]}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  <Text style={styles.modalTitle}>💧 Add Custom Amount</Text>
-                  <View style={styles.modalDivider} />
-
-                  {/* Drink selector */}
-                  <Text style={styles.modalFieldLabel}>Select Drink</Text>
-                  <ScrollView
-                    style={{ maxHeight: 200 }}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator
-                  >
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginBottom: 4 }}>
-                      {CATEGORIES.map((cat) => {
-                        const isSel = cat.key === selectedCategory;
-                        return (
-                          <TouchableOpacity
-                            key={cat.key}
-                            style={{
-                              width: "22%",
-                              borderWidth: 2,
-                              borderRadius: 12,
-                              paddingVertical: 8,
-                              alignItems: "center",
-                              backgroundColor: isSel ? cat.color + "22" : "#ffffff",
-                              borderColor: isSel ? cat.color : "#E0E0E0",
-                            }}
-                            onPress={() => setSelectedCategory(cat.key)}
-                          >
-                            <Text style={{ fontSize: 20 }}>{cat.emoji}</Text>
-                            <Text style={{ fontSize: 10, fontWeight: "700", color: isSel ? cat.color : "#666", marginTop: 2, textAlign: "center" }}>{cat.label}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </ScrollView>
-
-                  {/* Unit toggle */}
-                  <View style={[styles.modalTabs, { marginTop: 16 }]}>
-                    {(["oz", "ml"] as const).map((u) => (
-                      <TouchableOpacity
-                        key={u}
-                        style={[styles.modalTab, customUnit === u ? { backgroundColor: stage.color } : styles.modalTabInactive]}
-                        onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
-                      >
-                        <Text style={[styles.modalTabText, customUnit === u && styles.modalTabTextActive]}>{u}</Text>
+                <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
+                      <TouchableOpacity onPress={closeCustomModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
                       </TouchableOpacity>
-                    ))}
+                    </View>
+                    <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>Type a custom amount to log</Text>
                   </View>
 
-                  {/* Input */}
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
-                    placeholderTextColor="#AAAAAA"
-                    keyboardType="decimal-pad"
-                    inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
-                    value={customAmount}
-                    onChangeText={setCustomAmount}
-                  />
+                  <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
+                    {/* Unit toggle — navy fill when active */}
+                    <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 12, marginBottom: 18, padding: 4 }}>
+                      {(["oz", "ml"] as const).map((u) => (
+                        <TouchableOpacity
+                          key={u}
+                          style={{
+                            flex: 1,
+                            paddingVertical: 11,
+                            alignItems: "center",
+                            borderRadius: 9,
+                            backgroundColor: customUnit === u ? LIGHT_NAVY : "transparent",
+                          }}
+                          onPress={() => { setCustomUnit(u); setCustomAmount(""); }}
+                        >
+                          <Text style={{
+                            color: customUnit === u ? "#ffffff" : "#666666",
+                            fontSize: 15,
+                            fontWeight: "700",
+                          }}>{u}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
 
-                  {/* Live conversion */}
-                  {(() => {
-                    const n = parseFloat(customAmount);
-                    if (isNaN(n) || n <= 0) return null;
-                    const label = customUnit === "oz"
-                      ? `= ${ozToMl(n)} ml`
-                      : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
-                    return <Text style={styles.modalMl}>{label}</Text>;
-                  })()}
+                    <TextInput
+                      style={{
+                        backgroundColor: "#ffffff",
+                        color: LIGHT_NAVY_DEEP,
+                        borderRadius: 12,
+                        paddingHorizontal: 16,
+                        paddingVertical: 16,
+                        fontSize: 18,
+                        borderWidth: 1,
+                        borderColor: "rgba(0,0,0,0.12)",
+                      }}
+                      placeholder={customUnit === "oz" ? "Enter amount in oz..." : "Enter amount in ml..."}
+                      placeholderTextColor="#a8a8a8"
+                      keyboardType="decimal-pad"
+                      inputAccessoryViewID={CUSTOM_ACCESSORY_ID}
+                      value={customAmount}
+                      onChangeText={setCustomAmount}
+                    />
 
-                  {/* Buttons */}
-                  <View style={styles.modalBtnRow}>
-                    <TouchableOpacity style={styles.modalCancel} onPress={closeCustomModal}>
-                      <Text style={styles.modalCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: stage.color }]} onPress={handleCustomAdd}>
-                      <Text style={styles.modalConfirmText}>Add</Text>
-                    </TouchableOpacity>
+                    {(() => {
+                      const n = parseFloat(customAmount);
+                      if (isNaN(n) || n <= 0) return null;
+                      const label = customUnit === "oz"
+                        ? `= ${ozToMl(n)} ml`
+                        : `= ${(Math.round((n / 29.5735) * 10) / 10).toFixed(1)} oz`;
+                      return <Text style={{ color: "#666666", fontSize: 14, marginTop: 8, marginLeft: 4 }}>{label}</Text>;
+                    })()}
+
+                    <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+                      <TouchableOpacity style={lightCancelBtn} onPress={closeCustomModal}>
+                        <Text style={lightCancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={lightPrimaryBtn} onPress={handleCustomAdd}>
+                        <Text style={lightPrimaryText}>Add</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
               </TouchableWithoutFeedback>
@@ -4721,15 +5026,93 @@ export default function WaterTracker() {
           <InputAccessoryView nativeID={CUSTOM_ACCESSORY_ID}>
             <View style={styles.iosKbBar}>
               <TouchableOpacity onPress={Keyboard.dismiss}>
-                <Text style={[styles.iosKbDone, { color: stage.color }]}>Done</Text>
+                <Text style={[styles.iosKbDone, { color: GOLD_DIM }]}>Done</Text>
               </TouchableOpacity>
             </View>
           </InputAccessoryView>
         )}
       </Modal>
 
+      {/* Save as Preset Modal — custom (not Alert.prompt) so we can
+          pre-select the default name via TextInput selectTextOnFocus. */}
+      <Modal
+        visible={showSavePresetModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSavePresetModal(false)}
+      >
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💾 Save as Preset</Text>
+                    <TouchableOpacity onPress={() => setShowSavePresetModal(false)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                      <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>{savePresetSubtitle}</Text>
+                </View>
+                <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
+                  <TextInput
+                    value={savePresetName}
+                    onChangeText={setSavePresetName}
+                    autoFocus
+                    selectTextOnFocus
+                    returnKeyType="done"
+                    onSubmitEditing={() => {
+                      const payload = savePresetPayloadRef.current;
+                      if (payload) {
+                        const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
+                        savePreset(name, payload.oz, payload.cat);
+                      }
+                      setShowSavePresetModal(false);
+                    }}
+                    placeholder="Preset name"
+                    placeholderTextColor="#a8a8a8"
+                    style={{
+                      backgroundColor: "#ffffff",
+                      color: LIGHT_NAVY_DEEP,
+                      borderRadius: 12,
+                      paddingHorizontal: 14,
+                      paddingVertical: 14,
+                      fontSize: 16,
+                      borderWidth: 1,
+                      borderColor: "rgba(0,0,0,0.12)",
+                      marginBottom: 18,
+                    }}
+                  />
+                  <View style={{ flexDirection: "row", gap: 10 }}>
+                    <TouchableOpacity
+                      style={lightCancelBtn}
+                      onPress={() => setShowSavePresetModal(false)}
+                    >
+                      <Text style={lightCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={lightPrimaryBtn}
+                      onPress={() => {
+                        const payload = savePresetPayloadRef.current;
+                        if (payload) {
+                          const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
+                          savePreset(name, payload.oz, payload.cat);
+                        }
+                        setShowSavePresetModal(false);
+                      }}
+                    >
+                      <Text style={lightPrimaryText}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Confirm Drink Modal */}
-      <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => setPendingBetOz(null)}>
+      <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => { setPendingBetOz(null); setPendingQty(1); }}>
         <View style={{ flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.75)" }}>
           <View style={{
             backgroundColor: "#0d0030",
@@ -4749,6 +5132,10 @@ export default function WaterTracker() {
             {/* Chosen drink */}
             {(() => {
               const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
+              const baseOz = pendingBetOz ?? 0;
+              const totalOz = baseOz * pendingQty;
+              const baseDisplay = preferredUnit === 'ml' ? `${ozToMl(baseOz)} ml` : `${baseOz} oz`;
+              const totalDisplay = preferredUnit === 'ml' ? `${ozToMl(totalOz)} ml` : `${totalOz} oz`;
               return (
                 <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,215,0,0.08)", borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)" }}>
                   <Text style={{ fontSize: 40, marginRight: 14 }}>{cat.emoji}</Text>
@@ -4759,14 +5146,75 @@ export default function WaterTracker() {
                     </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
-                    <Text style={{ color: GOLD, fontSize: 26, fontWeight: "900" }}>{pendingBetOz} oz</Text>
+                    <Text style={{ color: GOLD, fontSize: 26, fontWeight: "900" }}>{totalDisplay}</Text>
                     <Text style={{ color: "rgba(255,215,0,0.6)", fontSize: 11, marginTop: 2 }}>
-                      → {pendingBetOz !== null ? calcHydratedOz(pendingBetOz, selectedCategory) : 0} oz hydrated
+                      {pendingQty > 1
+                        ? `${pendingQty} × ${baseDisplay}`
+                        : `→ ${calcHydratedOz(totalOz, selectedCategory)} oz hydrated`}
                     </Text>
                   </View>
                 </View>
               );
             })()}
+
+            {/* Quantity selector */}
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 16 }}>
+              {[1, 2, 3, 4, 5].map((n) => {
+                const active = pendingQty === n;
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    style={{
+                      flex: 1,
+                      backgroundColor: active ? GOLD : "rgba(255,255,255,0.06)",
+                      borderWidth: 1,
+                      borderColor: active ? GOLD : "rgba(255,215,0,0.25)",
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      alignItems: "center",
+                    }}
+                    activeOpacity={0.8}
+                    onPress={() => setPendingQty(n)}
+                  >
+                    <Text style={{
+                      color: active ? "#0a0520" : "rgba(255,255,255,0.7)",
+                      fontSize: 15,
+                      fontWeight: "800",
+                    }}>× {n}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Save as Preset (Pro) */}
+            <TouchableOpacity
+              style={{
+                borderRadius: 12,
+                paddingVertical: 11,
+                alignItems: "center",
+                marginBottom: 10,
+                borderWidth: 1,
+                borderColor: "rgba(255,215,0,0.35)",
+                backgroundColor: "rgba(255,215,0,0.06)",
+              }}
+              activeOpacity={0.8}
+              onPress={() => {
+                // Tiered: free tier gets 1 preset slot; Pro gets unlimited.
+                if (!isPro && presets.length >= 1) { setPendingBetOz(null); setPendingQty(1); openPaywall(); return; }
+                const baseOz = pendingBetOz ?? 0;
+                const totalOz = baseOz * pendingQty;
+                const catLabel = CATEGORIES.find((c) => c.key === selectedCategory)?.label ?? "Drink";
+                const suggested = pendingQty > 1 ? `${pendingQty} × ${catLabel}` : `My ${catLabel}`;
+                savePresetPayloadRef.current = { oz: totalOz, cat: selectedCategory };
+                setSavePresetName(suggested);
+                setSavePresetSubtitle(`One-tap log for ${totalOz} oz ${catLabel}.`);
+                setShowSavePresetModal(true);
+              }}
+            >
+              <Text style={{ color: GOLD, fontSize: 14, fontWeight: "700", letterSpacing: 0.4 }}>
+                💾 Save as Preset{!isPro && presets.length >= 1 ? " 🔒" : ""}
+              </Text>
+            </TouchableOpacity>
 
             {/* FILL */}
             <TouchableOpacity
@@ -4779,8 +5227,9 @@ export default function WaterTracker() {
               }}
               onPress={() => {
                 playButtonTapSound();
-                const oz = pendingBetOz!;
+                const oz = (pendingBetOz ?? 0) * pendingQty;
                 setPendingBetOz(null);
+                setPendingQty(1);
                 handleBet(oz);
               }}
             >
@@ -4790,7 +5239,7 @@ export default function WaterTracker() {
             {/* Cancel */}
             <TouchableOpacity
               style={{ alignItems: "center", paddingVertical: 16 }}
-              onPress={() => setPendingBetOz(null)}
+              onPress={() => { setPendingBetOz(null); setPendingQty(1); }}
               hitSlop={{ top: 8, bottom: 8, left: 24, right: 24 }}
             >
               <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 14 }}>Cancel</Text>
@@ -4817,7 +5266,9 @@ export default function WaterTracker() {
               <Text style={styles.modalTitle}>What did you drink?</Text>
               <View style={styles.modalDivider} />
               <View style={styles.categoryGrid}>
-                {(catPickerShowAll ? CATEGORIES : selectedBeverages.map(getBev)).map((cat) => (
+                {(catPickerShowAll ? CATEGORIES : selectedBeverages.map(getBev))
+                  .filter((cat) => showAlcoholicDrinks || !ALCOHOLIC_BEVS.has(cat.key))
+                  .map((cat) => (
                   <TouchableOpacity
                     key={cat.key}
                     style={[styles.categoryBtn, { borderColor: cat.color }]}
@@ -4847,53 +5298,74 @@ export default function WaterTracker() {
         visible={showChooseBevs}
         current={selectedBeverages}
         usage={categoryBreakdown}
+        showAlcoholic={showAlcoholicDrinks}
+        isPro={isPro}
+        onPaywallTrigger={() => {
+          // iOS Modal-over-Modal: close the customize sheet first, wait past
+          // its slide-out, then open the paywall so it actually renders.
+          setShowChooseBevs(false);
+          setTimeout(() => openPaywall(), 350);
+        }}
         onSave={async (bevs) => {
           setSelectedBeverages(bevs);
           setShowChooseBevs(false);
           try {
-            await AsyncStorage.setItem("selected_beverages", JSON.stringify(bevs));
+            await pSetItem("selected_beverages", JSON.stringify(bevs));
           } catch {}
         }}
         onCancel={() => setShowChooseBevs(false)}
       />
 
-      {/* Set Goal Modal */}
+      {/* Set Goal Modal — LIGHT+NAVY PIVOT PROTOTYPE. Light grey body, navy CTAs,
+          bright-yellow accent on selected chips + recommended-intake card. No
+          muted gold. If Chanda picks this direction we roll it across the
+          other modals; otherwise the dark siblings are the reference. */}
       <Modal visible={showGoalModal} transparent animationType="fade" onRequestClose={closeGoalModal}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
         >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={styles.modalBox}>
-                  {/* Close button */}
-                  <View style={styles.kbToolbar}>
-                    <TouchableOpacity onPress={closeGoalModal}>
-                      <Text style={[styles.kbDoneBtn, { color: stage.color }]}>✕</Text>
-                    </TouchableOpacity>
+          {/* No backdrop tap-to-dismiss wrapper here: TouchableWithoutFeedback
+              claims the iOS gesture responder and silently blocks the Suggest
+              tab's ScrollPickers. iOS users dismiss the keyboard via the
+              InputAccessoryView Done button below. */}
+          <View style={styles.modalOverlay}>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(0,0,0,0.08)", padding: 0, overflow: "hidden" }]}>
+                  {/* Header */}
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Set Daily Goal</Text>
+                      <TouchableOpacity onPress={closeGoalModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ color: "#666666", fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+                      Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
+                    </Text>
                   </View>
-            {/* Title */}
-            <Text style={styles.modalTitle}>💧 Set Daily Goal</Text>
-            <View style={styles.modalDivider} />
-            <Text style={styles.goalSafetyNote}>
-              Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
-            </Text>
 
-            {/* Tabs */}
-            <View style={styles.modalTabs}>
+                  {/* Body */}
+                  <View style={{ paddingHorizontal: 22, paddingTop: 18, paddingBottom: 22 }}>
+
+            {/* Tabs — segmented control, navy fill on active */}
+            <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 12, marginBottom: 20, padding: 4 }}>
               {(["custom", "gallon", "suggested"] as const).map((tab) => (
                 <TouchableOpacity
                   key={tab}
-                  style={[
-                    styles.modalTab,
-                    goalTab === tab
-                      ? { backgroundColor: stage.color }
-                      : styles.modalTabInactive,
-                  ]}
+                  style={{
+                    flex: 1,
+                    paddingVertical: 11,
+                    alignItems: "center",
+                    borderRadius: 9,
+                    backgroundColor: goalTab === tab ? LIGHT_NAVY : "transparent",
+                  }}
                   onPress={() => setGoalTab(tab)}
                 >
-                  <Text style={[styles.modalTabText, goalTab === tab && styles.modalTabTextActive]}>
+                  <Text style={{
+                    color: goalTab === tab ? "#ffffff" : "#666666",
+                    fontSize: 15,
+                    fontWeight: "700",
+                  }}>
                     {tab === "custom" ? "Custom" : tab === "gallon" ? "Gallon" : "Suggested"}
                   </Text>
                 </TouchableOpacity>
@@ -4904,23 +5376,36 @@ export default function WaterTracker() {
             {goalTab === "custom" && (
               <View>
                 <TextInput
-                  style={styles.modalInput}
-                  placeholder="Enter goal in oz..."
-                  placeholderTextColor="#AAAAAA"
+                  style={{
+                    backgroundColor: "#ffffff",
+                    color: LIGHT_NAVY_DEEP,
+                    borderRadius: 12,
+                    paddingHorizontal: 16,
+                    paddingVertical: 16,
+                    fontSize: 18,
+                    borderWidth: 1,
+                    borderColor: "rgba(0,0,0,0.12)",
+                  }}
+                  placeholder={preferredUnit === 'ml' ? "Enter goal in ml..." : "Enter goal in oz..."}
+                  placeholderTextColor="#a8a8a8"
                   keyboardType="decimal-pad"
                   inputAccessoryViewID={KB_ACCESSORY_ID}
                   value={newGoal}
                   onChangeText={setNewGoal}
                 />
-                <Text style={styles.modalMl}>
-                  {newGoal ? `= ${ozToMl(parseFloat(newGoal) || 0)} ml` : ""}
+                <Text style={{ color: "#666666", fontSize: 14, marginTop: 8, marginLeft: 4 }}>
+                  {newGoal
+                    ? preferredUnit === 'ml'
+                      ? `= ${((parseFloat(newGoal) || 0) / 29.5735).toFixed(1)} oz`
+                      : `= ${ozToMl(parseFloat(newGoal) || 0)} ml`
+                    : ""}
                 </Text>
-                <View style={styles.modalBtnRow}>
-                  <TouchableOpacity style={styles.modalCancel} onPress={closeGoalModal}>
-                    <Text style={styles.modalCancelText}>Cancel</Text>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+                  <TouchableOpacity style={lightCancelBtn} onPress={closeGoalModal}>
+                    <Text style={lightCancelText}>Cancel</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: stage.color }]} onPress={handleSetGoal}>
-                    <Text style={styles.modalConfirmText}>Save</Text>
+                  <TouchableOpacity style={lightPrimaryBtn} onPress={handleSetGoal}>
+                    <Text style={lightPrimaryText}>Save</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -4933,24 +5418,36 @@ export default function WaterTracker() {
                   {[
                     { label: "Half Gallon", oz: 64 },
                     { label: "1 Gallon", oz: 128 },
-                  ].map(({ label, oz }) => (
-                    <TouchableOpacity
-                      key={oz}
-                      style={[
-                        styles.gallonPreset,
-                        { flex: 1 },
-                        goal === oz && { borderColor: stage.color, backgroundColor: stage.color + "18" },
-                      ]}
-                      onPress={() => handleSetGallonGoal(oz)}
-                    >
-                      <Text style={styles.gallonPresetLabel}>{label}</Text>
-                      <Text style={[styles.gallonPresetOz, goal === oz && { color: stage.color }]}>{oz} oz</Text>
-                      <Text style={styles.gallonPresetMl}>{ozToMl(oz)} ml</Text>
-                    </TouchableOpacity>
-                  ))}
+                  ].map(({ label, oz }) => {
+                    const selected = goal === oz;
+                    return (
+                      <TouchableOpacity
+                        key={oz}
+                        style={{
+                          flex: 1,
+                          backgroundColor: selected ? ACCENT_YELLOW : "#ffffff",
+                          borderRadius: 14,
+                          paddingVertical: 16,
+                          paddingHorizontal: 16,
+                          alignItems: "center",
+                          borderWidth: 1,
+                          borderColor: selected ? ACCENT_YELLOW : "rgba(0,0,0,0.10)",
+                        }}
+                        onPress={() => handleSetGallonGoal(oz)}
+                      >
+                        <Text style={{ color: selected ? "rgba(26,26,46,0.7)" : "#666666", fontSize: 13, marginBottom: 4 }}>{label}</Text>
+                        <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 22, fontWeight: "bold" }}>
+                          {preferredUnit === 'ml' ? `${ozToMl(oz)} ml` : `${oz} oz`}
+                        </Text>
+                        <Text style={{ color: selected ? "rgba(26,26,46,0.7)" : "#888888", fontSize: 12, marginTop: 2 }}>
+                          {preferredUnit === 'ml' ? `${oz} oz` : `${ozToMl(oz)} ml`}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-                <TouchableOpacity style={[styles.modalCancel, { marginTop: 12 }]} onPress={closeGoalModal}>
-                  <Text style={styles.modalCancelText}>Cancel</Text>
+                <TouchableOpacity style={[lightCancelBtn, { marginTop: 12 }]} onPress={closeGoalModal}>
+                  <Text style={lightCancelText}>Cancel</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -4959,16 +5456,16 @@ export default function WaterTracker() {
             {goalTab === "suggested" && (
               <View>
                 {/* Weight */}
-                <View style={styles.inputModeHeader}>
-                  <Text style={styles.modalFieldLabel}>Weight</Text>
-                  <View style={styles.modeToggle}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 6, marginBottom: 4 }}>
+                  <Text style={lightFieldLabel}>Weight</Text>
+                  <View style={lightModeToggle}>
                     {(["scroll", "type"] as const).map((m) => (
                       <TouchableOpacity
                         key={m}
-                        style={[styles.modeBtn, weightMode === m && { backgroundColor: stage.color }]}
+                        style={[lightModeBtn, weightMode === m && lightModeBtnActive]}
                         onPress={() => switchWeightMode(m)}
                       >
-                        <Text style={[styles.modeBtnText, weightMode === m && styles.modeBtnTextActive]}>
+                        <Text style={[lightModeBtnText, weightMode === m && lightModeBtnTextActive]}>
                           {m === "scroll" ? "Scroll" : "Type"}
                         </Text>
                       </TouchableOpacity>
@@ -4977,41 +5474,67 @@ export default function WaterTracker() {
                 </View>
                 {weightMode === "scroll" ? (
                   <View style={styles.pickerRow}>
-                    <ScrollPicker
-                      items={Array.from({ length: 321 }, (_, i) => i + 80)}
-                      selectedIndex={suggWeightLbs - 80}
-                      onIndexChange={(i) => setSuggWeightLbs(i + 80)}
-                      label="lbs"
+                    {bodyUnit === "metric" ? (
+                      <ScrollPicker
+                        variant="lightNavy"
+                        items={Array.from({ length: 146 }, (_, i) => i + 36)}
+                        selectedIndex={Math.max(0, Math.min(145, Math.round(suggWeightLbs / 2.20462) - 36))}
+                        onIndexChange={(i) => setSuggWeightLbs(Math.round((i + 36) * 2.20462))}
+                        label="kg"
+                      />
+                    ) : (
+                      <ScrollPicker
+                        variant="lightNavy"
+                        items={Array.from({ length: 321 }, (_, i) => i + 80)}
+                        selectedIndex={suggWeightLbs - 80}
+                        onIndexChange={(i) => setSuggWeightLbs(i + 80)}
+                        label="lbs"
+                      />
+                    )}
+                  </View>
+                ) : bodyUnit === "metric" ? (
+                  <View>
+                    <TextInput
+                      style={lightTypeInput}
+                      placeholder="Weight in kg"
+                      placeholderTextColor="#a8a8a8"
+                      keyboardType="numeric"
+                      inputAccessoryViewID={KB_ACCESSORY_ID}
+                      value={typeWeightKg}
+                      onChangeText={setTypeWeightKg}
                     />
+                    {typeWeightKg.length > 0 && (() => { const w = parseFloat(typeWeightKg); return isNaN(w) || w < 36 || w > 181; })() && (
+                      <Text style={lightValidationError}>Please enter a valid weight (36–181 kg)</Text>
+                    )}
                   </View>
                 ) : (
                   <View>
                     <TextInput
-                      style={styles.typeInput}
+                      style={lightTypeInput}
                       placeholder="Weight in lbs"
-                      placeholderTextColor="#AAAAAA"
+                      placeholderTextColor="#a8a8a8"
                       keyboardType="numeric"
                       inputAccessoryViewID={KB_ACCESSORY_ID}
                       value={typeWeight}
                       onChangeText={setTypeWeight}
                     />
                     {typeWeight.length > 0 && (() => { const w = parseFloat(typeWeight); return isNaN(w) || w < 80 || w > 400; })() && (
-                      <Text style={styles.validationError}>Please enter a valid weight (80–400 lbs)</Text>
+                      <Text style={lightValidationError}>Please enter a valid weight (80–400 lbs)</Text>
                     )}
                   </View>
                 )}
 
                 {/* Height */}
-                <View style={styles.inputModeHeader}>
-                  <Text style={styles.modalFieldLabel}>Height</Text>
-                  <View style={styles.modeToggle}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 12, marginBottom: 4 }}>
+                  <Text style={lightFieldLabel}>Height</Text>
+                  <View style={lightModeToggle}>
                     {(["scroll", "type"] as const).map((m) => (
                       <TouchableOpacity
                         key={m}
-                        style={[styles.modeBtn, heightMode === m && { backgroundColor: stage.color }]}
+                        style={[lightModeBtn, heightMode === m && lightModeBtnActive]}
                         onPress={() => switchHeightMode(m)}
                       >
-                        <Text style={[styles.modeBtnText, heightMode === m && styles.modeBtnTextActive]}>
+                        <Text style={[lightModeBtnText, heightMode === m && lightModeBtnTextActive]}>
                           {m === "scroll" ? "Scroll" : "Type"}
                         </Text>
                       </TouchableOpacity>
@@ -5020,35 +5543,69 @@ export default function WaterTracker() {
                 </View>
                 {heightMode === "scroll" ? (
                   <View style={styles.pickerRow}>
-                    <ScrollPicker
-                      items={[4, 5, 6, 7]}
-                      selectedIndex={suggFeet - 4}
-                      onIndexChange={(i) => setSuggFeet(i + 4)}
-                      label="ft"
+                    {bodyUnit === "metric" ? (
+                      <ScrollPicker
+                        variant="lightNavy"
+                        items={Array.from({ length: 101 }, (_, i) => i + 120)}
+                        selectedIndex={Math.max(0, Math.min(100, Math.round(suggFeet * 30.48 + suggInches * 2.54) - 120))}
+                        onIndexChange={(i) => {
+                          const cm = i + 120;
+                          const totalIn = cm / 2.54;
+                          setSuggFeet(Math.floor(totalIn / 12));
+                          setSuggInches(Math.round(totalIn % 12));
+                        }}
+                        label="cm"
+                      />
+                    ) : (
+                      <>
+                        <ScrollPicker
+                          variant="lightNavy"
+                          items={[4, 5, 6, 7]}
+                          selectedIndex={suggFeet - 4}
+                          onIndexChange={(i) => setSuggFeet(i + 4)}
+                          label="ft"
+                        />
+                        <ScrollPicker
+                          variant="lightNavy"
+                          items={Array.from({ length: 12 }, (_, i) => i)}
+                          selectedIndex={suggInches}
+                          onIndexChange={(i) => setSuggInches(i)}
+                          label="in"
+                        />
+                      </>
+                    )}
+                  </View>
+                ) : bodyUnit === "metric" ? (
+                  <View>
+                    <TextInput
+                      style={lightTypeInput}
+                      placeholder="Height in cm"
+                      placeholderTextColor="#a8a8a8"
+                      keyboardType="numeric"
+                      inputAccessoryViewID={KB_ACCESSORY_ID}
+                      value={typeHeightCm}
+                      onChangeText={setTypeHeightCm}
                     />
-                    <ScrollPicker
-                      items={Array.from({ length: 12 }, (_, i) => i)}
-                      selectedIndex={suggInches}
-                      onIndexChange={(i) => setSuggInches(i)}
-                      label="in"
-                    />
+                    {typeHeightCm.length > 0 && (() => { const c = parseFloat(typeHeightCm); return isNaN(c) || c < 120 || c > 220; })() && (
+                      <Text style={lightValidationError}>Please enter a valid height (120–220 cm)</Text>
+                    )}
                   </View>
                 ) : (
                   <View>
-                    <View style={styles.typeHeightRow}>
+                    <View style={{ flexDirection: "row", gap: 10 }}>
                       <TextInput
-                        style={[styles.typeInput, { flex: 1 }]}
+                        style={[lightTypeInput, { flex: 1 }]}
                         placeholder="ft"
-                        placeholderTextColor="#AAAAAA"
+                        placeholderTextColor="#a8a8a8"
                         keyboardType="numeric"
                         inputAccessoryViewID={KB_ACCESSORY_ID}
                         value={typeFeet}
                         onChangeText={setTypeFeet}
                       />
                       <TextInput
-                        style={[styles.typeInput, { flex: 1 }]}
+                        style={[lightTypeInput, { flex: 1 }]}
                         placeholder="in"
-                        placeholderTextColor="#AAAAAA"
+                        placeholderTextColor="#a8a8a8"
                         keyboardType="numeric"
                         inputAccessoryViewID={KB_ACCESSORY_ID}
                         value={typeInches}
@@ -5060,62 +5617,87 @@ export default function WaterTracker() {
                       const i = parseFloat(typeInches);
                       return isNaN(f) || f < 4 || f > 7 || isNaN(i) || i < 0 || i > 11;
                     })() && (
-                      <Text style={styles.validationError}>Please enter a valid height (ft: 4–7, in: 0–11)</Text>
+                      <Text style={lightValidationError}>Please enter a valid height (ft: 4–7, in: 0–11)</Text>
                     )}
                   </View>
                 )}
 
                 {/* Activity Level */}
-                <Text style={styles.modalFieldLabel}>Activity Level</Text>
-                <View style={styles.activityRow}>
-                  {(["sedentary", "moderate", "active"] as const).map((level) => (
-                    <TouchableOpacity
-                      key={level}
-                      style={[
-                        styles.activityBtn,
-                        suggActivity === level && { backgroundColor: stage.color, borderColor: stage.color },
-                      ]}
-                      onPress={() => setSuggActivity(level)}
-                    >
-                      <Text style={[styles.activityBtnText, suggActivity === level && styles.activityBtnTextActive]}>
-                        {level === "sedentary" ? "Sedentary" : level === "moderate" ? "Moderate" : "Very Active"}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                <Text style={[lightFieldLabel, { marginTop: 14 }]}>Activity Level</Text>
+                <View style={{ flexDirection: "row", gap: 6, marginTop: 4 }}>
+                  {(["sedentary", "moderate", "active"] as const).map((level) => {
+                    const selected = suggActivity === level;
+                    return (
+                      <TouchableOpacity
+                        key={level}
+                        style={{
+                          flex: 1,
+                          backgroundColor: selected ? ACCENT_YELLOW : "#ffffff",
+                          borderRadius: 10,
+                          paddingVertical: 11,
+                          alignItems: "center",
+                          borderWidth: 1,
+                          borderColor: selected ? ACCENT_YELLOW : "rgba(0,0,0,0.10)",
+                        }}
+                        onPress={() => setSuggActivity(level)}
+                      >
+                        <Text style={{
+                          color: LIGHT_NAVY_DEEP,
+                          fontSize: 11,
+                          fontWeight: "700",
+                          textAlign: "center",
+                        }}>
+                          {level === "sedentary" ? "Sedentary" : level === "moderate" ? "Moderate" : "Very Active"}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
 
-                {/* Recommended Result */}
-                <View style={styles.suggestedResult}>
-                  <Text style={styles.suggestedResultLabel}>Recommended daily intake</Text>
+                {/* Recommended Result — water-tinted highlight card */}
+                <View style={{
+                  alignItems: "center",
+                  paddingVertical: 16,
+                  marginTop: 16,
+                  backgroundColor: ACCENT_WATER_TINT,
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: ACCENT_WATER_BORDER,
+                }}>
+                  <Text style={{ color: "#666666", fontSize: 13, marginBottom: 4 }}>Recommended daily intake</Text>
                   {suggestedOz !== null ? (
                     <>
-                      <Text style={[styles.suggestedOz, { color: stage.color }]}>{suggestedOz} oz</Text>
-                      <Text style={styles.suggestedMl}>{ozToMl(suggestedOz)} ml</Text>
+                      <Text style={{ fontSize: 28, fontWeight: "bold", color: LIGHT_NAVY_DEEP }}>
+                        {preferredUnit === 'ml' ? `${ozToMl(suggestedOz)} ml` : `${suggestedOz} oz`}
+                      </Text>
+                      <Text style={{ color: "#666666", fontSize: 14, marginTop: 2 }}>
+                        {preferredUnit === 'ml' ? `${suggestedOz} oz` : `${ozToMl(suggestedOz)} ml`}
+                      </Text>
                       {suggestedOz === 128 && (
-                        <Text style={styles.suggestedCap}>Max recommendation is 1 gallon (128oz)</Text>
+                        <Text style={{ color: "#888888", fontSize: 11, marginTop: 4 }}>Max recommendation is 1 gallon (128oz)</Text>
                       )}
                     </>
                   ) : (
-                    <Text style={styles.suggestedPlaceholder}>Enter your details above</Text>
+                    <Text style={{ color: "#888888", fontSize: 13, textAlign: "center", paddingHorizontal: 16 }}>Enter your details above</Text>
                   )}
                 </View>
 
-                <View style={styles.modalBtnRow}>
-                  <TouchableOpacity style={styles.modalCancel} onPress={closeGoalModal}>
-                    <Text style={styles.modalCancelText}>Cancel</Text>
+                <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+                  <TouchableOpacity style={lightCancelBtn} onPress={closeGoalModal}>
+                    <Text style={lightCancelText}>Cancel</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.modalConfirm, { backgroundColor: suggestedOz !== null ? stage.color : "#CCCCCC" }]}
+                    style={[lightPrimaryBtn, suggestedOz === null && { backgroundColor: "rgba(0,0,0,0.15)" }]}
                     onPress={handleUseSuggestedGoal}
                     disabled={suggestedOz === null}
                   >
-                    <Text style={styles.modalConfirmText}>Use This Goal</Text>
+                    <Text style={[lightPrimaryText, suggestedOz === null && { color: "rgba(255,255,255,0.55)" }]}>Use This Goal</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
+                  </View>
                 </View>
-              </TouchableWithoutFeedback>
               {/* Android: floating Done toolbar above keyboard */}
               {Platform.OS === "android" && kbHeight > 0 && (
                 <View style={[styles.androidKbBar, { bottom: kbHeight }]}>
@@ -5125,7 +5707,6 @@ export default function WaterTracker() {
                 </View>
               )}
             </View>
-          </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
         {/* iOS: InputAccessoryView docked above keyboard */}
         {Platform.OS === "ios" && (
@@ -5150,6 +5731,10 @@ export default function WaterTracker() {
       />
       <FactJokeCard visible={showFactCard} onDismiss={() => setShowFactCard(false)} />
       <StreakMilestoneCard milestone={streakMilestone} onDismiss={() => setStreakMilestone(null)} />
+      <MissionCompleteCard
+        completion={missionCompletionQueue[0] ?? null}
+        onDismiss={() => setMissionCompletionQueue((q) => q.slice(1))}
+      />
       <ParticleOverlay particles={sprayParticles} visible={sprayVisible} />
       <HandoffDroplet ref={dropletRef} />
 
@@ -5189,23 +5774,18 @@ export default function WaterTracker() {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowSettingsModal(false)}
       >
-        <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
-          <View style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: 16,
-            borderBottomWidth: 1,
-            borderBottomColor: 'rgba(200,160,0,0.3)',
-          }}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#1a1a2e' }}>⚙️ Settings</Text>
-            <TouchableOpacity
-              onPress={() => setShowSettingsModal(false)}
-              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-              activeOpacity={0.7}
-            >
-              <Text style={{ fontSize: 20, color: '#c8a000' }}>✕</Text>
-            </TouchableOpacity>
+        <View style={{ flex: 1, backgroundColor: LIGHT_BODY }}>
+          <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.06)" }}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
+              <TouchableOpacity
+                onPress={() => setShowSettingsModal(false)}
+                activeOpacity={0.7}
+                style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <ScrollView
             style={{ flex: 1 }}
@@ -5219,11 +5799,11 @@ export default function WaterTracker() {
                 {/* Apple Health toggle — only shown on iOS */}
                 {Platform.OS === "ios" && (
                   <View style={{ marginTop: 20 }}>
-                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>APPLE HEALTH</Text>
+                    <Text style={settingsSection}>APPLE HEALTH</Text>
                     <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                       <View style={{ flex: 1, marginRight: 16 }}>
-                        <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>Sync to Apple Health</Text>
-                        <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                        <Text style={settingsRowTitle}>Sync to Apple Health</Text>
+                        <Text style={settingsRowSub}>
                           {healthPermissionGranted
                             ? "Save each drink to Apple Health as a Water sample"
                             : "Permission not granted — tap Allow in the system dialog to enable"}
@@ -5232,12 +5812,12 @@ export default function WaterTracker() {
                       <Switch
                         value={healthSyncEnabled && healthPermissionGranted}
                         onValueChange={handleHealthToggle}
-                        trackColor={{ false: "#cccccc", true: "#34C759" }}
+                        trackColor={{ false: "rgba(255,255,255,0.15)", true: "#34C759" }}
                         thumbColor="#ffffff"
-                        ios_backgroundColor="#e0e0e0"
+                        ios_backgroundColor="rgba(0,0,0,0.10)"
                       />
                     </View>
-                    <View style={{ marginTop: 10, height: 1, backgroundColor: "rgba(200,160,0,0.3)" }} />
+                    <View style={settingsDivider} />
                     <Text style={{ color: "#888888", fontSize: 11, marginTop: 10, textAlign: "center" }}>
                       Existing Health data is never deleted when sync is turned off
                     </Text>
@@ -5245,18 +5825,18 @@ export default function WaterTracker() {
                 )}
 
                 {Platform.OS !== "ios" && (
-                  <Text style={{ color: "#555555", fontSize: 13, textAlign: "center", marginTop: 20, lineHeight: 20 }}>
+                  <Text style={{ color: "#666666", fontSize: 13, textAlign: "center", marginTop: 20, lineHeight: 20 }}>
                     Apple Health is only available on iPhone.
                   </Text>
                 )}
 
                 {/* Notifications section */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>NOTIFICATIONS</Text>
+                  <Text style={settingsSection}>NOTIFICATIONS</Text>
                   {notifPermissionStatus === "denied" && (
                     <TouchableOpacity
                       onPress={() => Linking.openURL("app-settings:").catch(() => {})}
-                      style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(255,59,48,0.08)", borderWidth: 1, borderColor: "rgba(255,59,48,0.3)", borderRadius: 10, padding: 12, marginBottom: 14 }}
+                      style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "rgba(192,21,42,0.08)", borderWidth: 1, borderColor: "rgba(192,21,42,0.30)", borderRadius: 10, padding: 12, marginBottom: 14 }}
                     >
                       <Text style={{ fontSize: 16 }}>🔕</Text>
                       <Text style={{ flex: 1, color: "#C0152A", fontSize: 12, lineHeight: 18 }}>
@@ -5274,21 +5854,21 @@ export default function WaterTracker() {
                     ] as { label: string; sub: string; key: string; val: boolean; set: (v: boolean) => void }[]
                   ).map((row, i) => (
                     <View key={row.key}>
-                      {i > 0 && <View style={{ height: 1, backgroundColor: "rgba(200,160,0,0.3)", marginVertical: 12 }} />}
+                      {i > 0 && <View style={{ height: 1, backgroundColor: "rgba(255,255,255,0.08)", marginVertical: 12 }} />}
                       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                         <View style={{ flex: 1, marginRight: 16 }}>
                           <Text style={{
                             color: i === 0 ? "#1a1a2e" : (notifMasterEnabled ? "#1a1a2e" : "rgba(26,26,46,0.35)"),
                             fontSize: i === 0 ? 15 : 14, fontWeight: i === 0 ? "600" : "500", marginBottom: 2,
                           }}>{row.label}</Text>
-                          <Text style={{ color: "#555555", fontSize: 11, lineHeight: 16 }}>{row.sub}</Text>
+                          <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 11, lineHeight: 16 }}>{row.sub}</Text>
                         </View>
                         <Switch
                           value={row.val && (i === 0 || notifMasterEnabled)}
                           disabled={i > 0 && !notifMasterEnabled}
                           onValueChange={async (v) => {
                             row.set(v);
-                            try { await AsyncStorage.setItem(row.key, String(v)); } catch {}
+                            try { await pSetItem(row.key, String(v)); } catch {}
                             // Use refs (not closed-over state) so we always read the
                             // latest hydration values. Pass the new toggle value as an
                             // explicit override so the reschedule sees it immediately —
@@ -5309,24 +5889,77 @@ export default function WaterTracker() {
                             else if (row.key === 'notif_streak_enabled')   prefOverride.streak   = v;
                             rescheduleSmartNotifications(curPct, curStreak, Math.max(0, g - h), prefOverride);
                           }}
-                          trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                          trackColor={settingsSwitchTrack}
                           thumbColor="#ffffff"
-                          ios_backgroundColor="#e0e0e0"
+                          ios_backgroundColor="rgba(0,0,0,0.10)"
                         />
                       </View>
                     </View>
                   ))}
                 </View>
 
-                {/* Sound Effects toggle */}
+                {/* Drinks section — alcoholic-drinks toggle */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>SOUND</Text>
+                  <Text style={settingsSection}>DRINKS</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View style={{ flex: 1, marginRight: 16 }}>
-                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.4)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
+                      <Text style={settingsRowTitle}>Show Alcoholic Drinks</Text>
+                      <Text style={settingsRowSub}>
+                        Adds Beer, Wine, Cocktail and Spirits to the drink picker. Existing logs are unaffected.
+                      </Text>
+                    </View>
+                    <Switch
+                      value={showAlcoholicDrinks}
+                      onValueChange={async (val) => {
+                        setShowAlcoholicDrinks(val);
+                        try { await pSetItem("show_alcoholic_drinks", String(val)); } catch {}
+                      }}
+                      trackColor={settingsSwitchTrack}
+                      thumbColor="#ffffff"
+                      ios_backgroundColor="rgba(0,0,0,0.10)"
+                    />
+                  </View>
+                </View>
+
+                {/* Live Activity master toggle — hides the opt-in chip on Home
+                    for users who don't want the option at all. iOS 16.2+ only. */}
+                {liveActivityAvailable() && (
+                  <View style={{ marginTop: 24 }}>
+                    <Text style={settingsSection}>LIVE ACTIVITY</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                      <View style={{ flex: 1, marginRight: 16 }}>
+                        <Text style={settingsRowTitle}>Show option on Home</Text>
+                        <Text style={settingsRowSub}>
+                          Adds a "Show today on Lock Screen" button under Quick Add. Tapping it puts a live tank on your Lock Screen and Dynamic Island. It clears when you hit your goal, and reopening the app clears it automatically after midnight or 4 hours without logging.
+                        </Text>
+                      </View>
+                      <Switch
+                        value={showLiveActivityOption}
+                        onValueChange={async (val) => {
+                          setShowLiveActivityOption(val);
+                          try { await AsyncStorage.setItem("show_live_activity_option", String(val)); } catch {}
+                          if (!val && tankActivityOn) {
+                            await endTankActivity();
+                            setTankActivityOn(false);
+                          }
+                        }}
+                        trackColor={settingsSwitchTrack}
+                        thumbColor="#ffffff"
+                        ios_backgroundColor="rgba(0,0,0,0.10)"
+                      />
+                    </View>
+                  </View>
+                )}
+
+                {/* Sound Effects toggle */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={settingsSection}>SOUND</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <View style={{ flex: 1, marginRight: 16 }}>
+                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.35)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
                         Sound Effects{!isPro ? " 🔒" : ""}
                       </Text>
-                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                      <Text style={settingsRowSub}>
                         Water pours, log chimes, badge unlocks and more
                       </Text>
                     </View>
@@ -5338,16 +5971,16 @@ export default function WaterTracker() {
                         setSoundEnabled(val);
                         try { await AsyncStorage.setItem("sound_enabled", String(val)); } catch {}
                       }}
-                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      trackColor={settingsSwitchTrack}
                       thumbColor="#ffffff"
-                      ios_backgroundColor="#e0e0e0"
+                      ios_backgroundColor="rgba(0,0,0,0.10)"
                     />
                   </View>
                 </View>
 
                 {/* Sound Pack selector */}
                 <View style={{ marginTop: 20 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 12 }}>SOUND PACK</Text>
+                  <Text style={[settingsSection, { marginBottom: 12 }]}>SOUND PACK</Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
                     {ALL_SOUND_PACKS.map((pack) => {
                       const isSelected = selectedSoundPack === pack.id;
@@ -5359,11 +5992,11 @@ export default function WaterTracker() {
                           style={{
                             width: "47%",
                             borderRadius: 12,
-                            borderWidth: isSelected ? 2 : 1,
-                            borderColor: isSelected ? "#c8a000" : "rgba(200,160,0,0.25)",
-                            backgroundColor: isSelected ? "rgba(200,160,0,0.08)" : "rgba(0,0,0,0.03)",
+                            borderWidth: isSelected ? 1.5 : 1,
+                            borderColor: isSelected ? ACCENT_WATER_BORDER : "rgba(0,0,0,0.10)",
+                            backgroundColor: isSelected ? ACCENT_WATER_TINT : "#ffffff",
                             padding: 12,
-                            opacity: locked ? 0.65 : 1,
+                            opacity: locked ? 0.55 : 1,
                           }}
                           onPress={async () => {
                             if (locked) { openPaywallFromSettings(); return; }
@@ -5378,14 +6011,14 @@ export default function WaterTracker() {
                           {pack.isPro && (
                             <View style={{
                               position: "absolute", top: 6, right: 6,
-                              backgroundColor: "#c8a000", borderRadius: 4,
+                              backgroundColor: LIGHT_NAVY, borderRadius: 4,
                               paddingHorizontal: 5, paddingVertical: 2,
                             }}>
                               <Text style={{ color: "#ffffff", fontSize: 8, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
                             </View>
                           )}
                           <Text style={{ fontSize: 26, marginBottom: 4 }}>{pack.emoji}</Text>
-                          <Text style={{ color: isSelected ? "#c8a000" : "#1a1a2e", fontSize: 13, fontWeight: "700", marginBottom: 2 }}>
+                          <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "700", marginBottom: 2 }}>
                             {pack.name}
                           </Text>
                           <Text style={{ color: "#666666", fontSize: 10, lineHeight: 14 }} numberOfLines={2}>
@@ -5396,7 +6029,7 @@ export default function WaterTracker() {
                             style={{
                               position: "absolute", bottom: 8, right: 8,
                               width: 26, height: 26, borderRadius: 13,
-                              backgroundColor: previewingPack === pack.id ? "#c8a000" : "rgba(200,160,0,0.15)",
+                              backgroundColor: previewingPack === pack.id ? LIGHT_NAVY : "rgba(0,136,255,0.15)",
                               alignItems: "center", justifyContent: "center",
                             }}
                             onPress={async () => {
@@ -5417,17 +6050,58 @@ export default function WaterTracker() {
                       );
                     })}
                   </View>
+
+                  {/* Record Your Own Sounds (Pro) */}
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    style={{
+                      marginTop: 12,
+                      borderRadius: 12,
+                      borderWidth: 1,
+                      borderColor: ACCENT_WATER_BORDER,
+                      borderStyle: "dashed",
+                      backgroundColor: ACCENT_WATER_TINT,
+                      padding: 14,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 12,
+                    }}
+                    onPress={() => {
+                      if (!isPro) { openPaywallFromSettings(); return; }
+                      // Same iOS modal-stacking trap as openPaywallFromSettings —
+                      // wait for Settings to fully dismiss before presenting the
+                      // Custom Sounds modal, or iOS absorbs the new presentation.
+                      setShowSettingsModal(false);
+                      setTimeout(() => setShowCustomSounds(true), 350);
+                    }}
+                  >
+                    <Text style={{ fontSize: 22 }}>🎙</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 14, fontWeight: "800", letterSpacing: 0.3 }}>
+                        Record Your Own Sounds
+                      </Text>
+                      <Text style={{ color: "#666666", fontSize: 11, marginTop: 2, lineHeight: 15 }}>
+                        Up to 5 clips each for the drink splash and goal celebration.
+                      </Text>
+                    </View>
+                    <View style={{
+                      backgroundColor: LIGHT_NAVY, borderRadius: 6,
+                      paddingHorizontal: 8, paddingVertical: 3,
+                    }}>
+                      <Text style={{ color: "#ffffff", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 }}>PRO</Text>
+                    </View>
+                  </TouchableOpacity>
                 </View>
 
                 {/* Haptic Feedback toggle */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>HAPTICS</Text>
+                  <Text style={settingsSection}>HAPTICS</Text>
                   <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                     <View style={{ flex: 1, marginRight: 16 }}>
-                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.4)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
+                      <Text style={{ color: isPro ? "#1a1a2e" : "rgba(26,26,46,0.35)", fontSize: 15, fontWeight: "600", marginBottom: 3 }}>
                         Haptic Feedback{!isPro ? " 🔒" : ""}
                       </Text>
-                      <Text style={{ color: "#555555", fontSize: 12, lineHeight: 18 }}>
+                      <Text style={settingsRowSub}>
                         Vibration on taps, drink logs, goals and milestones
                       </Text>
                     </View>
@@ -5438,57 +6112,102 @@ export default function WaterTracker() {
                         setHapticsEnabled(val);
                         try { await AsyncStorage.setItem("haptics_enabled", String(val)); } catch {}
                       }}
-                      trackColor={{ false: "#cccccc", true: "#c8a000" }}
+                      trackColor={settingsSwitchTrack}
                       thumbColor="#ffffff"
-                      ios_backgroundColor="#e0e0e0"
+                      ios_backgroundColor="rgba(0,0,0,0.10)"
                     />
                   </View>
                 </View>
-                {/* DATA section — CSV export */}
-                <View style={{ marginTop: 24, marginBottom: 8 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>DATA</Text>
-                  <TouchableOpacity
-                    style={{
-                      flexDirection: "row", alignItems: "center", justifyContent: "center",
-                      borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 12,
-                      paddingVertical: 14, paddingHorizontal: 16, gap: 8,
-                      opacity: exportLoading ? 0.6 : 1,
-                    }}
-                    onPress={handleExportCSV}
-                    disabled={exportLoading}
-                    activeOpacity={0.8}
-                  >
-                    {exportLoading
-                      ? <ActivityIndicator size="small" color="#c8a000" />
-                      : <Text style={{ fontSize: 18 }}>⬇️</Text>
-                    }
-                    <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>
-                      {isPro ? "Export Hydration History" : "Export Hydration History 🔒"}
-                    </Text>
-                  </TouchableOpacity>
-                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 6, textAlign: "center" }}>
-                    Exports up to 30 days as a CSV file
+
+                {/* Preferred unit (oz / ml) */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={[settingsSection, { marginBottom: 6 }]}>UNITS</Text>
+                  <Text style={[settingsRowSub, { marginBottom: 10 }]}>
+                    Choose which appears larger. Both stay visible everywhere.
                   </Text>
-                  <Text style={{ color: "#888888", fontSize: 11, marginTop: 14, textAlign: "center", lineHeight: 16 }}>
-                    Your hydration data lives on this device. Your iPhone backup keeps it safe across new devices.
+                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 10, padding: 3 }}>
+                    {(["oz", "ml"] as const).map((u) => {
+                      const active = preferredUnit === u;
+                      return (
+                        <TouchableOpacity
+                          key={u}
+                          activeOpacity={0.8}
+                          style={{
+                            flex: 1,
+                            backgroundColor: active ? LIGHT_NAVY : "transparent",
+                            borderRadius: 8,
+                            paddingVertical: 10,
+                            alignItems: "center",
+                          }}
+                          onPress={async () => {
+                            setPreferredUnit(u);
+                            try { await pSetItem("preferred_unit", u); } catch {}
+                            syncSiriUnit(u);
+                          }}
+                        >
+                          <Text style={{
+                            color: active ? "#ffffff" : "#666666",
+                            fontSize: 14, fontWeight: "800", letterSpacing: 0.5,
+                          }}>{u.toUpperCase()}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+
+                {/* Body measurements (lbs+ft/in vs kg+cm) — drives the Suggest goal tab */}
+                <View style={{ marginTop: 24 }}>
+                  <Text style={[settingsSection, { marginBottom: 6 }]}>BODY MEASUREMENTS</Text>
+                  <Text style={[settingsRowSub, { marginBottom: 10 }]}>
+                    For the Suggested goal calculator. Pick your preferred system.
                   </Text>
+                  <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 10, padding: 3 }}>
+                    {([
+                      { key: "imperial" as const, label: "LBS / FT" },
+                      { key: "metric" as const, label: "KG / CM" },
+                    ]).map(({ key, label }) => {
+                      const active = bodyUnit === key;
+                      return (
+                        <TouchableOpacity
+                          key={key}
+                          activeOpacity={0.8}
+                          style={{
+                            flex: 1,
+                            backgroundColor: active ? LIGHT_NAVY : "transparent",
+                            borderRadius: 8,
+                            paddingVertical: 10,
+                            alignItems: "center",
+                          }}
+                          onPress={async () => {
+                            setBodyUnit(key);
+                            try { await pSetItem("body_unit", key); } catch {}
+                          }}
+                        >
+                          <Text style={{
+                            color: active ? "#ffffff" : "#666666",
+                            fontSize: 14, fontWeight: "800", letterSpacing: 0.5,
+                          }}>{label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
 
                 {/* Dev-only: demo data for App Store screenshots (never ships — gated by __DEV__) */}
                 {__DEV__ && (
                   <View style={{ marginTop: 24 }}>
-                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>SCREENSHOTS (DEV)</Text>
+                    <Text style={settingsSection}>SCREENSHOTS (DEV)</Text>
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        backgroundColor: "#c8a000", borderRadius: 12,
+                        backgroundColor: LIGHT_NAVY, borderRadius: 12,
                         paddingVertical: 14, paddingHorizontal: 16, gap: 8,
                       }}
                       onPress={() => seedDemoData("primed").catch(() => {})}
                       activeOpacity={0.85}
                     >
                       <Text style={{ fontSize: 18 }}>🎯</Text>
-                      <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>
+                      <Text style={{ color: "#ffffff", fontSize: 15, fontWeight: "800" }}>
                         Seed — Primed Goal
                       </Text>
                     </TouchableOpacity>
@@ -5498,14 +6217,14 @@ export default function WaterTracker() {
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        backgroundColor: "#c8a000", borderRadius: 12,
+                        backgroundColor: LIGHT_NAVY, borderRadius: 12,
                         paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 16,
                       }}
                       onPress={() => seedDemoData("full").catch(() => {})}
                       activeOpacity={0.85}
                     >
                       <Text style={{ fontSize: 18 }}>🏆</Text>
-                      <Text style={{ color: "#0a0520", fontSize: 15, fontWeight: "800" }}>
+                      <Text style={{ color: "#ffffff", fontSize: 15, fontWeight: "800" }}>
                         Seed — Full (Goal Hit)
                       </Text>
                     </TouchableOpacity>
@@ -5515,14 +6234,14 @@ export default function WaterTracker() {
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        borderWidth: 1.5, borderColor: "#c8a000", borderRadius: 12,
+                        borderWidth: 1, borderColor: "rgba(26,10,58,0.35)", borderRadius: 12,
                         paddingVertical: 14, paddingHorizontal: 16, gap: 8, marginTop: 12,
                       }}
                       onPress={() => seedDemoData("mid").catch(() => {})}
                       activeOpacity={0.85}
                     >
                       <Text style={{ fontSize: 18 }}>🌓</Text>
-                      <Text style={{ color: "#c8a000", fontSize: 15, fontWeight: "700" }}>
+                      <Text style={{ color: LIGHT_NAVY, fontSize: 15, fontWeight: "700" }}>
                         Seed — In Progress (~50%)
                       </Text>
                     </TouchableOpacity>
@@ -5532,7 +6251,7 @@ export default function WaterTracker() {
                     <TouchableOpacity
                       style={{
                         flexDirection: "row", alignItems: "center", justifyContent: "center",
-                        borderWidth: 1.5, borderColor: "rgba(192,21,42,0.5)", borderRadius: 12,
+                        borderWidth: 1, borderColor: "rgba(192,21,42,0.4)", borderRadius: 12,
                         paddingVertical: 12, paddingHorizontal: 16, gap: 8, marginTop: 16,
                       }}
                       onPress={() => clearDemoData().catch(() => {})}
@@ -5548,9 +6267,9 @@ export default function WaterTracker() {
 
                 {/* Feedback */}
                 <View style={{ marginTop: 24 }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>FEEDBACK</Text>
+                  <Text style={settingsSection}>FEEDBACK</Text>
                   <TouchableOpacity
-                    style={{ borderWidth: 1.5, borderColor: "rgba(200,160,0,0.4)", borderRadius: 12, paddingVertical: 13, alignItems: "center" }}
+                    style={{ borderWidth: 1, borderColor: "rgba(26,10,58,0.30)", backgroundColor: "#ffffff", borderRadius: 12, paddingVertical: 13, alignItems: "center" }}
                     onPress={() => {
                       setShowSettingsModal(false);
                       setTimeout(() => {
@@ -5559,7 +6278,7 @@ export default function WaterTracker() {
                     }}
                     activeOpacity={0.85}
                   >
-                    <Text style={{ color: "#1a1a2e", fontSize: 15, fontWeight: "700" }}>💬 Send Feedback</Text>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 15, fontWeight: "700" }}>💬 Send Feedback</Text>
                   </TouchableOpacity>
                   <Text style={{ color: "#888888", fontSize: 12, marginTop: 8, textAlign: "center" }}>
                     Found a bug or have an idea? Let us know.
@@ -5568,9 +6287,9 @@ export default function WaterTracker() {
 
                 {/* About */}
                 <View style={{ marginTop: 32, marginBottom: 8, alignItems: "center" }}>
-                  <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 14 }}>ABOUT</Text>
+                  <Text style={settingsSection}>ABOUT</Text>
 
-                  <Text style={{ color: "#1a1a2e", fontSize: 14, fontWeight: "700" }}>Hydro Hero</Text>
+                  <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 14, fontWeight: "700" }}>Hydro Hero</Text>
                   <TouchableOpacity onLongPress={confirmResetProForTesting} delayLongPress={1200} activeOpacity={1}>
                     <Text style={{ color: "#888888", fontSize: 11, marginTop: 2 }}>
                       Version {Constants.expoConfig?.version ?? "1.0.0"} (Build {Constants.expoConfig?.ios?.buildNumber ?? ""})
@@ -5578,18 +6297,18 @@ export default function WaterTracker() {
                   </TouchableOpacity>
 
                   <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/privacy-policy.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 14 }}>
-                    <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
+                    <Text style={{ color: "#666666", fontSize: 12, textDecorationLine: "underline" }}>Privacy Policy</Text>
                   </TouchableOpacity>
                   <TouchableOpacity onPress={() => Linking.openURL("https://wimsby.github.io/Hydro-Hero/support.html").catch(() => {})} activeOpacity={0.7} style={{ marginTop: 6 }}>
-                    <Text style={{ color: "#888888", fontSize: 12, textDecorationLine: "underline" }}>Support</Text>
+                    <Text style={{ color: "#666666", fontSize: 12, textDecorationLine: "underline" }}>Support</Text>
                   </TouchableOpacity>
 
                   <View style={{ marginTop: 18, alignItems: "center" }}>
-                    <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 8 }}>CREDITS</Text>
+                    <Text style={[settingsSection, { marginBottom: 8 }]}>CREDITS</Text>
                     <Text style={{ color: "#888888", fontSize: 11, textAlign: "center", lineHeight: 16 }}>
                       Beverage icons by{" "}
                       <Text
-                        style={{ color: "#888888", textDecorationLine: "underline" }}
+                        style={{ color: "#666666", textDecorationLine: "underline" }}
                         onPress={() => Linking.openURL("https://tabler.io/icons").catch(() => {})}
                       >
                         Tabler Icons
@@ -5658,49 +6377,6 @@ export default function WaterTracker() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* Export Summary Modal */}
-      <Modal visible={showExportSummary} transparent animationType="fade" onRequestClose={() => setShowExportSummary(false)}>
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.75)", justifyContent: "center", alignItems: "center", padding: 24 }}>
-          <View style={{ backgroundColor: "#0d0030", borderRadius: 20, borderWidth: 2, borderColor: "rgba(255,215,0,0.5)", padding: 28, width: "100%", alignItems: "center" }}>
-            <Text style={{ fontSize: 36, marginBottom: 8 }}>✅</Text>
-            <Text style={{ color: "#FFD700", fontSize: 22, fontWeight: "900", marginBottom: 4 }}>Ready to Export!</Text>
-            <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 13, marginBottom: 20, textAlign: "center" }}>
-              Your hydration history is packaged and ready to share
-            </Text>
-            <View style={{ width: "100%", gap: 10, marginBottom: 24 }}>
-              {[
-                ["📅", "Days included", `${exportSummary?.days ?? 0} days`],
-                ["💧", "Total consumed", `${exportSummary?.totalConsumed ?? 0} oz`],
-                ["✨", "True hydration", `${exportSummary?.totalHydrated ?? 0} oz`],
-                ["🔥", "Best streak", `${exportSummary?.bestStreak ?? 0} days`],
-              ].map(([emoji, label, value]) => (
-                <View key={label} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14 }}>
-                  <Text style={{ color: "rgba(255,255,255,0.65)", fontSize: 13 }}>{emoji} {label}</Text>
-                  <Text style={{ color: "#FFD700", fontSize: 14, fontWeight: "700" }}>{value}</Text>
-                </View>
-              ))}
-            </View>
-            <TouchableOpacity
-              style={{ width: "100%", backgroundColor: "#FFD700", borderRadius: 14, paddingVertical: 16, alignItems: "center", marginBottom: 10 }}
-              onPress={() => exportSummary && shareExportFile(exportSummary.filePath)}
-              activeOpacity={0.85}
-            >
-              <Text style={{ color: "#0a0520", fontSize: 16, fontWeight: "900" }}>📤 Share File</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ paddingVertical: 12 }}
-              onPress={() => {
-                if (exportSummary) { try { new FSFile(exportSummary.filePath).delete(); } catch {} }
-                setShowExportSummary(false);
-                setExportSummary(null);
-              }}
-            >
-              <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 14 }}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {/* Quick Add Customization Modal */}
       <QuickAddCustomModal
         visible={showQuickAddModal}
@@ -5708,9 +6384,57 @@ export default function WaterTracker() {
         onSave={async (amounts) => {
           setQuickAddAmounts(amounts);
           setShowQuickAddModal(false);
-          try { await AsyncStorage.setItem("custom_quick_add_amounts", JSON.stringify(amounts)); } catch {}
+          try { await pSetItem("custom_quick_add_amounts", JSON.stringify(amounts)); } catch {}
         }}
         onCancel={() => setShowQuickAddModal(false)}
+      />
+
+      {/* Custom Sounds Modal */}
+      <CustomSoundsModal
+        visible={showCustomSounds}
+        onClose={() => setShowCustomSounds(false)}
+        onBackToSettings={() => {
+          setShowCustomSounds(false);
+          // Same Modal-stacking trap — wait for this Modal to dismiss before
+          // re-presenting Settings.
+          setTimeout(() => setShowSettingsModal(true), 350);
+        }}
+        activePackName={ALL_SOUND_PACKS.find((p) => p.id === selectedSoundPack)?.name ?? "your pack"}
+      />
+
+      {/* Hero setup / edit — Day 3 of Missions. Auto-opens on first launch when
+          no hero is saved; reopens from the Home Hero badge in edit mode. */}
+      <HeroSetupModal
+        visible={showHeroSetup}
+        initialHero={heroSetupEditing ? hero : null}
+        onClose={() => {
+          setShowHeroSetup(false);
+          markSetupSeen().catch(() => {});
+        }}
+        onConfirm={async (nextHero, startedFromSetup) => {
+          setHero(nextHero);
+          setShowHeroSetup(false);
+          await saveHero(nextHero);
+          // Family Mode: Hero name is the single source of truth for identity,
+          // so mirror it onto the active profile so the avatar pill + switcher
+          // sheet reflect the user's chosen name immediately.
+          syncActiveProfileName(nextHero.name).catch(() => {});
+          markSetupSeen().catch(() => {});
+          // First-time setup auto-starts Origin Story. Skip if there's already
+          // an active Origin Story so we don't reset progress.
+          if (startedFromSetup) {
+            const existing = missionProgresses["heros-journey-bronze"];
+            const isLive = existing && existing.status === "active";
+            if (!isLive) {
+              const next: ProgressMap = {
+                ...missionProgresses,
+                "heros-journey-bronze": startMissionWithPowers("heros-journey-bronze", missionProgresses),
+              };
+              setMissionProgresses(next);
+              await saveProgresses(next);
+            }
+          }
+        }}
       />
 
       {/* Morning toast notification */}
@@ -5735,6 +6459,61 @@ export default function WaterTracker() {
     </View>
   );
 }
+
+// ─── Light+navy modal palette (form tokens) ──────────────────────────────────
+// Shared button/input/segment tokens used across every modal. Base colors
+// (LIGHT_BODY / LIGHT_NAVY / LIGHT_NAVY_DEEP / ACCENT_WATER_*) are declared
+// near the top of the file so they're in scope for early StyleSheet.create
+// blocks; the form tokens below only need to be in scope for JSX.
+// Pale water-blue accent for selected chip fills. Kept the ACCENT_YELLOW
+// identifier from an earlier experiment to minimize churn across modals.
+const ACCENT_YELLOW = "#B3DDFA";
+const lightCancelBtn = {
+  flex: 1 as const,
+  backgroundColor: "transparent",
+  borderRadius: 14,
+  height: 52,
+  justifyContent: "center" as const,
+  alignItems: "center" as const,
+  borderWidth: 1,
+  borderColor: "rgba(0,0,0,0.12)",
+};
+const lightCancelText = { color: LIGHT_NAVY_DEEP, fontSize: 16, fontWeight: "600" as const };
+const lightPrimaryBtn = {
+  flex: 1 as const,
+  backgroundColor: LIGHT_NAVY,
+  borderRadius: 14,
+  height: 52,
+  justifyContent: "center" as const,
+  alignItems: "center" as const,
+};
+const lightPrimaryText = { color: "#ffffff", fontWeight: "800" as const, fontSize: 16 };
+const lightFieldLabel = { color: LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "600" as const };
+const lightModeToggle = { flexDirection: "row" as const, backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 8, padding: 2 };
+const lightModeBtn = { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6 };
+const lightModeBtnActive = { backgroundColor: LIGHT_NAVY };
+const lightModeBtnText = { fontSize: 12, fontWeight: "600" as const, color: "#666666" };
+const lightModeBtnTextActive = { color: "#ffffff" };
+const lightTypeInput = {
+  backgroundColor: "#ffffff",
+  color: LIGHT_NAVY_DEEP,
+  borderRadius: 10,
+  paddingHorizontal: 14,
+  paddingVertical: 11,
+  fontSize: 16,
+  borderWidth: 1,
+  borderColor: "rgba(0,0,0,0.12)",
+  marginBottom: 2,
+};
+const lightValidationError = { color: "#c0152a", fontSize: 11, marginTop: 3, marginBottom: 2 };
+
+// Settings-modal shared tokens (light+navy theme).
+const settingsSection = { color: "#1a0a3a", fontSize: 11, fontWeight: "800" as const, letterSpacing: 1, marginBottom: 14 };
+const settingsRowTitle = { color: "#1a1a2e", fontSize: 15, fontWeight: "600" as const, marginBottom: 3 };
+const settingsRowSub = { color: "#666666", fontSize: 12, lineHeight: 18 };
+const settingsDivider = { marginTop: 10, height: 1, backgroundColor: "rgba(0,0,0,0.08)" };
+// Navy "on" — Chanda's call: toggles navy, tinted highlights stay blue.
+const settingsSwitchTrack = { false: "rgba(0,0,0,0.15)", true: "#1a0a3a" };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#e8a5a5" },

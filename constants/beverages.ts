@@ -15,8 +15,8 @@ import {
 
 export type BevCategory =
   | 'water' | 'coffee' | 'tea' | 'icedtea' | 'soda' | 'flavored' | 'coconut'
-  | 'juice' | 'lemonade' | 'fruit' | 'sports' | 'milk' | 'protein'
-  | 'beer' | 'wine' | 'cocktail' | 'energy' | 'energyshot' | 'hotchoc' | 'spirits';
+  | 'juice' | 'lemonade' | 'preworkout' | 'sports' | 'milk' | 'protein'
+  | 'beer' | 'wine' | 'cocktail' | 'energy' | 'kombucha' | 'hotchoc' | 'spirits';
 
 export interface BevDef {
   key: BevCategory;
@@ -50,7 +50,7 @@ const RAW: RawBev[] = [
   { key: 'coconut',    label: 'Coconut Water',  emoji: '🥥', color: '#8B6914', eff: 0.94, Icon: IconBowl },
   { key: 'juice',      label: 'Juice',          emoji: '🍊', color: '#E8920A', eff: 0.85, Icon: IconBottle },
   { key: 'lemonade',   label: 'Lemonade',       emoji: '🍋', color: '#FFD700', eff: 0.85, Icon: IconLemon },
-  { key: 'fruit',      label: 'Fruit Drinks',   emoji: '🍹', color: '#CC4488', eff: 0.85, Icon: IconGlassCocktail },
+  { key: 'preworkout', label: 'Preworkout',     emoji: '💥', color: '#DC2626', eff: 0.80, Icon: IconFlask },
   { key: 'sports',     label: 'Sports Drink',   emoji: '🏃', color: '#2E8B4A', eff: 0.88, Icon: IconRun },
   { key: 'milk',       label: 'Milk',           emoji: '🥛', color: '#AAAAAA', eff: 0.87, Icon: IconMilk },
   { key: 'protein',    label: 'Protein Shake',  emoji: '💪', color: '#8844AA', eff: 0.75, Icon: IconBarbell },
@@ -58,7 +58,7 @@ const RAW: RawBev[] = [
   { key: 'wine',       label: 'Wine',           emoji: '🍷', color: '#8B1A3A', eff: 0.85, Icon: IconGlassChampagne },
   { key: 'cocktail',   label: 'Cocktail',       emoji: '🍸', color: '#7B1A8B', eff: 0.70, Icon: IconGlassCocktail },
   { key: 'energy',     label: 'Energy Drink',   emoji: '⚡', color: '#AACC00', eff: 0.80, Icon: IconBolt },
-  { key: 'energyshot', label: 'Energy Shot',    emoji: '🔋', color: '#CC8800', eff: 0.50, Icon: IconFlask },
+  { key: 'kombucha',   label: 'Kombucha',       emoji: '🫙', color: '#C9851F', eff: 0.88, Icon: IconBottle },
   { key: 'hotchoc',    label: 'Hot Chocolate',  emoji: '🍫', color: '#5C3317', eff: 0.85, Icon: IconChocolate },
   { key: 'spirits',    label: 'Spirits',        emoji: '🥃', color: '#AA6622', eff: 0.40, Icon: IconGlassGin },
 ];
@@ -74,3 +74,9 @@ export const BEV_LABELS: Record<string, string> = Object.fromEntries(
 );
 
 export const BEV_KEYS: string[] = BEVERAGES.map(b => b.key);
+
+export const ALCOHOLIC_BEVS: ReadonlySet<BevCategory> = new Set<BevCategory>([
+  'beer', 'wine', 'cocktail', 'spirits',
+]);
+
+export const isAlcoholic = (key: BevCategory): boolean => ALCOHOLIC_BEVS.has(key);

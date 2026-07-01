@@ -14,18 +14,33 @@
  */
 
 import { Audio } from "expo-av";
-import { ALL_SOUND_PACKS, DEFAULT_PACK_ID, NoteSpec, SoundPack, getPackById } from "./SoundPacks";
+import { ALL_SOUND_PACKS, DEFAULT_PACK_ID, NoteSpec, RoleSound, SoundPack, getPackById } from "./SoundPacks";
+import { CustomizableRole, CustomSoundClip, CustomSoundsState, loadCustomSounds } from "./CustomSounds";
+
+function isNoteSpecArray(s: RoleSound): s is NoteSpec[] {
+  return Array.isArray(s);
+}
+
+function toSource(sound: RoleSound): { uri: string } | number {
+  return isNoteSpecArray(sound) ? { uri: generateWav(sound) } : sound.asset;
+}
 
 // ─── Module state ──────────────────────────────────────────────────────────────
 
 let _enabled = true;
 let _initialized = false;
+let _initPromise: Promise<void> | null = null;
 let _activePack: SoundPack = getPackById(DEFAULT_PACK_ID);
 let _previewSound: Audio.Sound | null = null;
 
 // Pool keyed by role name — rebuilt on pack change
 const _pool: Partial<Record<string, Audio.Sound>> = {};
-let _spinSound: Audio.Sound | null = null;
+
+// Custom user recordings, keyed by role then clip id. Pre-loaded so playback
+// is instant. Shuffle queues hold the random play order; reshuffled on
+// exhaustion or whenever the clip list changes.
+const _customPool: Partial<Record<CustomizableRole, Record<string, Audio.Sound>>> = {};
+const _shuffleQueues: Partial<Record<CustomizableRole, { order: string[]; cursor: number }>> = {};
 
 // ─── WAV synthesis ─────────────────────────────────────────────────────────────
 
@@ -86,28 +101,23 @@ function generateWav(notes: NoteSpec[]): string {
 
 // Volume map per role (0.0–1.0)
 const VOLUMES: Record<string, number> = {
-  buttonTap:   0.20,
-  waterLog:    0.60,
-  spin:        0.50,
-  reelStop:    0.70,
-  reelStop1:   0.70,
-  reelStop2:   0.70,
-  reelStop3:   0.70,
-  jackpot:     0.80,
-  badgeUnlock: 0.75,
-  morning:     0.50,
+  buttonTap:    0.20,
+  droplet:      0.45,
+  waterLog:     0.60,
+  jackpot:      0.80,
+  badgeUnlock:  0.75,
+  reveal:       0.50,
+  morningReset: 0.55,
   // legacy keys kept for backward compat
-  streak:      0.65,
-  waterFill:   0.40,
+  streak:       0.65,
 };
 
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
-async function loadRole(role: string, notes: NoteSpec[], volume: number): Promise<void> {
+async function loadRole(role: string, roleSound: RoleSound, volume: number): Promise<void> {
   try {
-    const uri = generateWav(notes);
     const { sound } = await Audio.Sound.createAsync(
-      { uri },
+      toSource(roleSound),
       { volume, shouldPlay: false, isLooping: false }
     );
     _pool[role] = sound;
@@ -122,16 +132,43 @@ async function unloadAll(): Promise<void> {
       if (snd) await snd.unloadAsync().catch(() => {});
     }
     Object.keys(_pool).forEach((k) => { delete _pool[k]; });
-    if (_spinSound) {
-      await _spinSound.unloadAsync().catch(() => {});
-      _spinSound = null;
-    }
   } catch {}
+}
+
+function pickNextCustomClipId(role: CustomizableRole): string | null {
+  const pool = _customPool[role];
+  if (!pool) return null;
+  const ids = Object.keys(pool);
+  if (ids.length === 0) return null;
+  let q = _shuffleQueues[role];
+  if (!q || q.cursor >= q.order.length) {
+    // Fisher–Yates shuffle, then reset cursor
+    const order = [...ids];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    q = { order, cursor: 0 };
+    _shuffleQueues[role] = q;
+  }
+  return q.order[q.cursor++];
 }
 
 async function playKey(role: string): Promise<void> {
   if (!_enabled) return;
   try {
+    // Custom user recordings override the active pack for their role.
+    if (role === 'waterLog' || role === 'jackpot') {
+      const customId = pickNextCustomClipId(role);
+      if (customId) {
+        const customSnd = _customPool[role]?.[customId];
+        if (customSnd) {
+          await customSnd.setPositionAsync(0);
+          await customSnd.playAsync();
+          return;
+        }
+      }
+    }
     const snd = _pool[role];
     if (!snd) return;
     await snd.setPositionAsync(0);
@@ -146,16 +183,51 @@ async function buildPool(pack: SoundPack): Promise<void> {
   await Promise.all(roles.map((role) =>
     loadRole(role, pack.tones[role], VOLUMES[role] ?? 0.6)
   ));
-  // Pre-generate three pitched variants for reelStop
-  const baseStop = pack.tones.reelStop;
-  await Promise.all([0, 1, 2].map((idx) => {
-    const pitched = baseStop.map((n) => ({
-      ...n,
-      freq:    n.freq    + (2 - idx) * 50,
-      freqEnd: n.freqEnd ? n.freqEnd + (2 - idx) * 40 : undefined,
+}
+
+async function unloadCustomRole(role: CustomizableRole): Promise<void> {
+  const pool = _customPool[role];
+  if (!pool) return;
+  for (const snd of Object.values(pool)) {
+    try { await snd.unloadAsync(); } catch {}
+  }
+  delete _customPool[role];
+  delete _shuffleQueues[role];
+}
+
+async function unloadAllCustom(): Promise<void> {
+  await Promise.all(
+    (Object.keys(_customPool) as CustomizableRole[]).map(unloadCustomRole)
+  );
+}
+
+/**
+ * Load every clip in `state` into the custom pool, replacing whatever was
+ * loaded before. Call this from the UI after add/delete/rename or on init.
+ */
+export async function refreshCustomSounds(state?: CustomSoundsState): Promise<void> {
+  const cs = state ?? (await loadCustomSounds());
+  await unloadAllCustom();
+  for (const role of ['waterLog', 'jackpot'] as CustomizableRole[]) {
+    const clips: CustomSoundClip[] = cs[role] ?? [];
+    if (clips.length === 0) continue;
+    const volume = VOLUMES[role] ?? 0.6;
+    const entries: [string, Audio.Sound][] = [];
+    await Promise.all(clips.map(async (clip) => {
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          { uri: clip.uri },
+          { volume, shouldPlay: false, isLooping: false },
+        );
+        entries.push([clip.id, sound]);
+      } catch {
+        // Skip clips that fail to load — file may be corrupt or removed.
+      }
     }));
-    return loadRole(`reelStop${idx + 1}`, pitched, VOLUMES.reelStop);
-  }));
+    if (entries.length > 0) {
+      _customPool[role] = Object.fromEntries(entries);
+    }
+  }
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -163,14 +235,25 @@ async function buildPool(pack: SoundPack): Promise<void> {
 /** Load all sounds for the default (or previously set) pack. */
 export async function initSounds(): Promise<void> {
   if (_initialized) return;
+  // Reuse any in-flight init so concurrent callers (mount effect + loadData)
+  // can't race buildPool and end up double-loading Audio.Sound natives.
+  if (_initPromise) return _initPromise;
+  _initPromise = (async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: false,
+        staysActiveInBackground: false,
+      });
+      await buildPool(_activePack);
+      await refreshCustomSounds().catch(() => {});
+      _initialized = true;
+    } catch {}
+  })();
   try {
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS: false,
-      staysActiveInBackground: false,
-    });
-    await buildPool(_activePack);
-    _initialized = true;
-  } catch {}
+    await _initPromise;
+  } finally {
+    _initPromise = null;
+  }
 }
 
 /** Unload all sounds and release native resources. */
@@ -178,6 +261,7 @@ export async function teardownSounds(): Promise<void> {
   _initialized = false;
   try {
     await unloadAll();
+    await unloadAllCustom();
     if (_previewSound) {
       await _previewSound.unloadAsync().catch(() => {});
       _previewSound = null;
@@ -185,18 +269,37 @@ export async function teardownSounds(): Promise<void> {
   } catch {}
 }
 
-/** Reload sounds (call after returning from background). */
+/**
+ * Force-rebuild the audio pool. Call after the iOS audio session has been
+ * perturbed (e.g. AudioRecorder switched it to playAndRecord and back) —
+ * pre-loaded Audio.Sound instances go silent after a mode change but the
+ * `_initialized` guard would skip a normal initSounds() retry.
+ */
 export async function reloadSounds(): Promise<void> {
-  await initSounds();
+  try {
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: false,
+      staysActiveInBackground: false,
+    });
+    await buildPool(_activePack);
+    await refreshCustomSounds().catch(() => {});
+    _initialized = true;
+  } catch {}
 }
 
 /** Toggle sound effects on/off immediately. */
 export function setSoundEnabled(enabled: boolean): void {
   _enabled = enabled;
   if (!enabled) {
-    stopSpinSound();
     for (const snd of Object.values(_pool)) {
       snd?.stopAsync().catch(() => {});
+    }
+    for (const role of Object.keys(_customPool) as CustomizableRole[]) {
+      const pool = _customPool[role];
+      if (!pool) continue;
+      for (const snd of Object.values(pool)) {
+        snd?.stopAsync().catch(() => {});
+      }
     }
   }
 }
@@ -206,6 +309,10 @@ export function setSoundEnabled(enabled: boolean): void {
  * Rebuilds the sound pool immediately — safe to call any time.
  */
 export async function setActivePack(packId: string): Promise<void> {
+  // Wait for any in-flight initSounds() so we don't double-build the pool.
+  if (_initPromise) {
+    try { await _initPromise; } catch {}
+  }
   const pack = getPackById(packId);
   _activePack = pack;
   _initialized = false;
@@ -231,9 +338,8 @@ export async function previewPack(packId: string): Promise<void> {
       _previewSound = null;
     }
     const pack = getPackById(packId);
-    const uri = generateWav(pack.preview);
     const { sound } = await Audio.Sound.createAsync(
-      { uri },
+      toSource(pack.preview),
       { volume: 0.7, shouldPlay: true, isLooping: false }
     );
     _previewSound = sound;
@@ -267,40 +373,11 @@ export function playButtonTapSound(): void {
   playKey("buttonTap").catch(() => {});
 }
 
-export async function playSpinSound(): Promise<void> {
-  if (!_enabled) return;
-  try {
-    const snd = _pool["spin"];
-    if (!snd) return;
-    _spinSound = snd;
-    await snd.setIsLoopingAsync(true);
-    await snd.setPositionAsync(0);
-    await snd.setVolumeAsync(VOLUMES.spin);
-    await snd.playAsync();
-  } catch {}
-}
-
-export async function stopSpinSound(): Promise<void> {
-  try {
-    if (_spinSound) {
-      await _spinSound.setIsLoopingAsync(false);
-      await _spinSound.stopAsync();
-      _spinSound = null;
-    }
-  } catch {}
-}
-
-export function playReelStopSound(reelIndex: 0 | 1 | 2 = 2): void {
-  playKey(`reelStop${reelIndex + 1}`).catch(() => {});
+export function playDropletSound(): void {
+  playKey("droplet").catch(() => {});
 }
 
 export function playWaterLogSound(): void {
-  playKey("waterLog").catch(() => {});
-}
-
-export function playWaterFillSound(): void {
-  // waterFill maps to the pack's waterLog sound at lower volume
-  // (Classic pack had a separate waterFill; others reuse waterLog)
   playKey("waterLog").catch(() => {});
 }
 
@@ -317,8 +394,12 @@ export function playStreakSound(): void {
   playKey("badgeUnlock").catch(() => {});
 }
 
+export function playRevealSound(): void {
+  playKey("reveal").catch(() => {});
+}
+
 export function playMorningResetSound(): void {
-  playKey("morning").catch(() => {});
+  playKey("morningReset").catch(() => {});
 }
 
 // ── Expose pack list for UI ───────────────────────────────────────────────────

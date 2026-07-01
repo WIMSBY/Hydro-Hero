@@ -1,4 +1,4 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { pGetItem, pSetItem } from "../utils/profileStorage";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -255,6 +255,8 @@ const dotS = StyleSheet.create({
   inactive: { backgroundColor: "rgba(255,255,255,0.25)" },
 });
 
+function ozToMl(oz: number) { return Math.round(oz * 29.5735); }
+
 // ─── Goal option button ───────────────────────────────────────────────────────
 interface GoalOptionProps {
   label: string;
@@ -373,15 +375,15 @@ export default function Onboarding({ onComplete }: OnboardingProps) {
   async function finish() {
     const goal = selectedGoal ?? 64;
     try {
-      await AsyncStorage.setItem("water_goal", JSON.stringify(goal));
-      await AsyncStorage.setItem("onboarding_complete", "1");
+      await pSetItem("water_goal", JSON.stringify(goal));
+      await pSetItem("onboarding_complete", "1");
     } catch {}
     onComplete(goal);
   }
 
   async function skip() {
     try {
-      await AsyncStorage.setItem("onboarding_complete", "1");
+      await pSetItem("onboarding_complete", "1");
     } catch {}
     onComplete(selectedGoal ?? 64);
   }
@@ -463,12 +465,23 @@ function computeGoalOz(weightLbs: number, activity: ActivityLevel, sex: SexInput
 }
 
 function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
+  // Canonical weight is lbs (computeGoalOz takes lbs). bodyUnit only flips
+  // the stepper UI between lb (±5) and kg (±2); we keep weightKg in sync so
+  // the display number doesn't drift through repeated round-trips.
+  const [bodyUnit, setBodyUnit] = useState<'imperial' | 'metric'>('imperial');
   const [weightLbs, setWeightLbs] = useState(160);
+  const [weightKg, setWeightKg] = useState(73);
   const [activity, setActivity] = useState<ActivityLevel>("moderate");
   const [sex, setSex] = useState<SexInput>(null);
 
   const [showCustomGoal, setShowCustomGoal] = useState(false);
   const [customGoalDraft, setCustomGoalDraft] = useState("");
+
+  useEffect(() => {
+    pGetItem('body_unit').then((val) => {
+      if (val === 'metric' || val === 'imperial') setBodyUnit(val);
+    }).catch(() => {});
+  }, []);
 
   const recommended = computeGoalOz(weightLbs, activity, sex);
 
@@ -482,8 +495,21 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
     prevRecommendedRef.current = recommended;
   }, [recommended, selectedGoal, onSelect]);
 
-  function bumpWeight(delta: number) {
-    setWeightLbs((w) => Math.min(Math.max(w + delta, 60), 400));
+  async function changeBodyUnit(u: 'imperial' | 'metric') {
+    setBodyUnit(u);
+    try { await pSetItem('body_unit', u); } catch {}
+  }
+
+  function bumpWeight(direction: 1 | -1) {
+    if (bodyUnit === 'metric') {
+      const newKg = Math.min(Math.max(weightKg + direction * 2, 27), 181);
+      setWeightKg(newKg);
+      setWeightLbs(Math.round(newKg * 2.20462));
+    } else {
+      const newLbs = Math.min(Math.max(weightLbs + direction * 5, 60), 400);
+      setWeightLbs(newLbs);
+      setWeightKg(Math.round(newLbs / 2.20462));
+    }
   }
 
   const isPresetSelected = (oz: number) => selectedGoal === oz;
@@ -508,9 +534,10 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={[screenS.container, { paddingBottom: 40 }]}
+      contentContainerStyle={[screenS.container, { paddingBottom: 12 }]}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="handled"
     >
@@ -520,19 +547,19 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
       <View style={s.goalList}>
         <GoalOption
           label="Half Gallon"
-          sublabel="64 oz · Minimum recommended"
+          sublabel={`64 oz · ${ozToMl(64)} ml · Minimum recommended`}
           selected={isPresetSelected(64)}
           onPress={() => onSelect(64)}
         />
         <GoalOption
           label="One Gallon"
-          sublabel="128 oz · High performance"
+          sublabel={`128 oz · ${ozToMl(128)} ml · High performance`}
           selected={isPresetSelected(128)}
           onPress={() => onSelect(128)}
         />
         <GoalOption
           label="Custom"
-          sublabel={isCustomSelected ? `${selectedGoal} oz` : "Set your own number"}
+          sublabel={isCustomSelected && selectedGoal !== null ? `${selectedGoal} oz · ${ozToMl(selectedGoal)} ml` : "Set your own number"}
           selected={isCustomSelected}
           onPress={openCustomGoal}
         />
@@ -544,13 +571,35 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
       <View style={s.personalizeBox}>
         {/* Weight stepper */}
         <View style={s.personRow}>
-          <Text style={s.personLabel}>Weight</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={s.personLabel}>Weight</Text>
+            <View style={s.unitToggleWrap}>
+              {([
+                { key: "imperial" as const, label: "lb" },
+                { key: "metric" as const, label: "kg" },
+              ]).map(({ key, label }) => {
+                const active = bodyUnit === key;
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    onPress={() => changeBodyUnit(key)}
+                    activeOpacity={0.75}
+                    style={[s.unitToggleBtn, active && s.unitToggleBtnSel]}
+                  >
+                    <Text style={[s.unitToggleText, active && s.unitToggleTextSel]}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
           <View style={s.stepperWrap}>
-            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(-5)} activeOpacity={0.7}>
+            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(-1)} activeOpacity={0.7}>
               <Text style={s.stepperBtnText}>−</Text>
             </TouchableOpacity>
-            <Text style={s.stepperValue}>{weightLbs} lb</Text>
-            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(5)} activeOpacity={0.7}>
+            <Text style={s.stepperValue}>
+              {bodyUnit === "metric" ? `${weightKg} kg` : `${weightLbs} lb`}
+            </Text>
+            <TouchableOpacity style={s.stepperBtn} onPress={() => bumpWeight(1)} activeOpacity={0.7}>
               <Text style={s.stepperBtnText}>+</Text>
             </TouchableOpacity>
           </View>
@@ -604,7 +653,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
         activeOpacity={0.85}
       >
         <Text style={s.recommendTag}>✨ RECOMMENDED FOR YOU</Text>
-        <Text style={s.recommendValue}>{recommended} oz</Text>
+        <Text style={s.recommendValue}>{recommended} oz · {ozToMl(recommended)} ml</Text>
         <Text style={s.recommendSub}>
           {weightLbs} lb · {activity === "low" ? "Low" : activity === "moderate" ? "Moderate" : "High"} activity
           {sex ? ` · ${sex === "male" ? "Male" : "Female"}` : ""}
@@ -615,12 +664,15 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
       <Text style={s.goalSafetyNote}>
         Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
       </Text>
+    </ScrollView>
 
-      <TouchableOpacity style={screenS.primaryBtn} onPress={onNext} activeOpacity={0.8}>
-        <Text style={screenS.primaryBtnText}>SET MY GOAL</Text>
-      </TouchableOpacity>
+    {/* Pinned outside the ScrollView so it's always visible above the progress
+        dots — avoids the bottom of the form scrolling the CTA off-screen. */}
+    <TouchableOpacity style={[screenS.primaryBtn, { marginHorizontal: 28, marginTop: 8 }]} onPress={onNext} activeOpacity={0.8}>
+      <Text style={screenS.primaryBtnText}>SET MY GOAL</Text>
+    </TouchableOpacity>
 
-      <Modal
+    <Modal
         visible={showCustomGoal}
         transparent
         animationType="fade"
@@ -641,6 +693,11 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
               placeholder={String(recommended)}
               placeholderTextColor="rgba(255,255,255,0.25)"
             />
+            {customGoalDraft && (
+              <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13, textAlign: 'center', marginTop: -6, marginBottom: 12 }}>
+                = {ozToMl(Number(customGoalDraft) || 0)} ml
+              </Text>
+            )}
             <View style={s.customGoalActions}>
               <TouchableOpacity style={s.customGoalCancel} onPress={() => setShowCustomGoal(false)} activeOpacity={0.8}>
                 <Text style={s.customGoalCancelText}>Cancel</Text>
@@ -652,7 +709,7 @@ function Screen2({ selectedGoal, onSelect, onNext }: Screen2Props) {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
@@ -739,6 +796,31 @@ const s = StyleSheet.create({
     color: "rgba(255,255,255,0.4)",
     fontSize: 11,
     fontWeight: "500",
+  },
+  unitToggleWrap: {
+    flexDirection: "row",
+    marginTop: 4,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 8,
+    padding: 2,
+    alignSelf: "flex-start",
+  },
+  unitToggleBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  unitToggleBtnSel: {
+    backgroundColor: "rgba(255,215,0,0.85)",
+  },
+  unitToggleText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  unitToggleTextSel: {
+    color: "#1a1a2e",
   },
   stepperWrap: {
     flexDirection: "row",

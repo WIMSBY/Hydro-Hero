@@ -3,7 +3,7 @@
     "name": "Hydro Hero",
     "slug": "hydration-station",
     "description": "Track your daily water intake with Hydro Hero",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -16,12 +16,13 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.wimsby.hydrationstation",
       "appleTeamId": "2GPWB6H7M2",
-      "buildNumber": "24",
+      "buildNumber": "35",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Hydro Hero reads health data to provide personalized hydration insights",
         "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
         "NSLocationWhenInUseUsageDescription": "Hydro Hero uses your approximate location to check the local temperature and suggest extra hydration on hot days. Your location is never stored or shared.",
         "NSCameraUsageDescription": "Hydro Hero uses the camera to scan a squad member's QR code so you can add them to your squad.",
+        "NSMicrophoneUsageDescription": "Hydro Hero records short custom sound effects that play when you log a drink or hit your daily goal. Recordings stay on your device.",
         "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
@@ -80,6 +81,8 @@
       ],
       "@bacons/apple-targets",
       "./plugins/withWidgetData",
+      "./plugins/withLiveActivity",
+      "./plugins/withSiriIntent",
       "expo-updates",
       "expo-secure-store",
       [
@@ -94,7 +97,10 @@
     "updates": {
       "url": "https://u.expo.dev/0e008050-c62f-466f-bfd8-9310a7504fc8",
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 0
+      "fallbackToCacheTimeout": 0,
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
     },
     "experiments": {
       "typedRoutes": true,

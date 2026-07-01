@@ -1,39 +1,28 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Text, View } from 'react-native';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { useProContext } from '../../contexts/ProContext';
-
-/** Small gold "PRO" badge overlaid on a tab icon for locked tabs */
-function ProBadge() {
-  return (
-    <View style={{
-      position: 'absolute', top: -4, right: -10,
-      backgroundColor: '#FFD700', borderRadius: 5,
-      paddingHorizontal: 4, paddingVertical: 1,
-    }}>
-      <Text style={{ color: '#0a0520', fontSize: 8, fontWeight: '900', letterSpacing: 0.5 }}>PRO</Text>
-    </View>
-  );
-}
-
-function LockedTabIcon({ children, isPro }: { children: React.ReactNode; isPro: boolean }) {
-  return (
-    <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
-      {children}
-      {!isPro && <ProBadge />}
-    </View>
-  );
-}
+import { getPendingBadgeCount } from '../../utils/badgeDetection';
+import { requestOpenSettings } from '../../utils/settingsModal';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
-  const { isPro, openPaywall } = useProContext();
+  const [pendingBadges, setPendingBadges] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+    const tick = async () => {
+      const n = await getPendingBadgeCount();
+      if (mounted) setPendingBadges((prev) => (prev !== n ? n : prev));
+    };
+    tick();
+    const id = setInterval(tick, 2000);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
 
   return (
     <Tabs
@@ -43,7 +32,7 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
         tabBarLabelStyle: { fontSize: 10, marginTop: -2 },
         tabBarIconStyle: { marginTop: 2 },
-        tabBarStyle: { height: 65, paddingTop: 4 },
+        tabBarStyle: { height: 65, paddingTop: 4, paddingHorizontal: 12 },
       }}>
       <Tabs.Screen
         name="index"
@@ -56,23 +45,16 @@ export default function TabLayout() {
         name="stats"
         options={{
           title: 'Stats',
-          tabBarIcon: ({ color }) => (
-            <LockedTabIcon isPro={isPro}>
-              <MaterialIcons name="bar-chart" size={22} color={isPro ? color : 'rgba(150,150,150,0.7)'} />
-            </LockedTabIcon>
-          ),
+          tabBarIcon: ({ color }) => <MaterialIcons name="bar-chart" size={22} color={color} />,
         }}
-        listeners={{
-          tabPress: (e) => {
-            if (!isPro) {
-              e.preventDefault();
-              // No triggerId → bypass ProContext's per-session dedup. A tab
-              // press is an explicit user action and should always re-surface
-              // the paywall; dedup is only desired for passive triggers like
-              // settings-toggle auto-prompts.
-              openPaywall();
-            }
-          },
+      />
+      <Tabs.Screen
+        name="badges"
+        options={{
+          title: 'Missions',
+          tabBarIcon: ({ color }) => <MaterialIcons name="emoji-events" size={22} color={color} />,
+          tabBarBadge: pendingBadges > 0 ? pendingBadges : undefined,
+          tabBarBadgeStyle: { backgroundColor: '#FFD700', color: '#0a0520', fontSize: 11, fontWeight: '800' },
         }}
       />
       <Tabs.Screen
@@ -80,6 +62,21 @@ export default function TabLayout() {
         options={{
           title: 'Squad',
           tabBarIcon: ({ color }) => <MaterialIcons name="group" size={22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Settings',
+          tabBarIcon: ({ color }) => <MaterialIcons name="settings" size={22} color={color} />,
+        }}
+        listeners={{
+          tabPress: (e) => {
+            // Shortcut tab: don't navigate to the placeholder screen. Instead,
+            // jump to Home and signal it to open the Settings modal.
+            e.preventDefault();
+            requestOpenSettings();
+          },
         }}
       />
     </Tabs>

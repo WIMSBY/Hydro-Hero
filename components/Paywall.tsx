@@ -49,8 +49,10 @@ const REEL_FEATURES = [
   '20 Drink Categories',
   'Full Analytics',
   'Unlimited Squad Members',
-  'Sound Effects',
+  'Record Your Own Sounds',
   'Custom Quick Add',
+  'Custom Quick Presets',
+  'Family of 5 Profiles',
 ];
 
 // Each bullet must reflect an actually PRO-gated feature. The audit on
@@ -60,9 +62,11 @@ const REEL_FEATURES = [
 // shared data with no PRO check). Don't re-add without a real gate.
 const PRO_BENEFITS = [
   'All 20 beverage categories',
-  'Full Stats & monthly calendar',
+  'Full Stats',
   'Unlimited Squad members',
-  'Sound effects & haptic feedback',
+  'Sound effects, haptics & record your own',
+  'Customize Quick Add & save unlimited presets',
+  'Family Mode — up to 5 profiles',
 ];
 
 interface PaywallProps {

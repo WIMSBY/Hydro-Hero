@@ -12,8 +12,10 @@ import "react-native-reanimated";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { ProProvider } from "../contexts/ProContext";
+import { ProfileProvider, useProfile } from "../contexts/ProfileContext";
 import { LLThemeProvider } from "../contexts/ThemeContext";
 import { configureRevenueCat } from "../utils/revenueCat";
+import { ensureBootstrap } from "../utils/ProfileStore";
 import * as Sentry from '@sentry/react-native';
 
 function handleDeepLink(url: string) {
@@ -49,6 +51,11 @@ export const unstable_settings = {
 
 configureRevenueCat();
 
+// Kick off Family Mode bootstrap as early as possible so the active profile
+// ID is resolved before screen-level useEffects start reading from storage.
+// profileStorage.pGetItem awaits this same promise as a safety net.
+ensureBootstrap();
+
 export default Sentry.wrap(function RootLayout() {
   const colorScheme = useColorScheme();
 
@@ -61,21 +68,35 @@ export default Sentry.wrap(function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <ProProvider>
-        <LLThemeProvider>
-          <ThemeProvider
-            value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
-          >
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen
-                name="modal"
-                options={{ presentation: "modal", title: "Modal" }}
-              />
-            </Stack>
-            <StatusBar style="auto" />
-          </ThemeProvider>
-        </LLThemeProvider>
+        <ProfileProvider>
+          <LLThemeProvider>
+            <ThemeProvider
+              value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
+            >
+              <ProfileScopedStack />
+              <StatusBar style="auto" />
+            </ThemeProvider>
+          </LLThemeProvider>
+        </ProfileProvider>
       </ProProvider>
     </GestureHandlerRootView>
   );
 });
+
+// Family Mode: bumping profileVersion forces a remount of every screen so
+// they re-read namespaced storage against the new active profile. Cheaper
+// than wiring a refresh subscription into every component that talks to
+// AsyncStorage. Routing state resets to the initial tab (Home), which is
+// the expected post-switch landing spot anyway.
+function ProfileScopedStack() {
+  const { profileVersion } = useProfile();
+  return (
+    <Stack key={profileVersion}>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="modal"
+        options={{ presentation: "modal", title: "Modal" }}
+      />
+    </Stack>
+  );
+}

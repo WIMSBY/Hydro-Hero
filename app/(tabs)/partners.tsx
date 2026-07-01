@@ -26,12 +26,16 @@ import {
   View,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { pGetItem, pSetItem } from '../../utils/profileStorage';
+import type { Profile } from '../../utils/ProfileStore';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from '@react-navigation/native';
 import QRCode from 'react-native-qrcode-svg';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useProContext } from '../../contexts/ProContext';
+import { useProfile } from '../../contexts/ProfileContext';
+import { resolveAvatar } from '../../components/family/avatars';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const BG        = '#0a0520';
@@ -49,8 +53,8 @@ const BEV_COLORS: Record<string, string> = {
 };
 const BEV_KEYS = [
   'water','coffee','tea','icedtea','soda','flavored','coconut',
-  'juice','lemonade','fruit','sports','milk','protein',
-  'beer','wine','cocktail','energy','energyshot','hotchoc','spirits',
+  'juice','lemonade','preworkout','sports','milk','protein',
+  'beer','wine','cocktail','energy','kombucha','hotchoc','spirits',
 ];
 
 const CHEERS = [
@@ -59,11 +63,6 @@ const CHEERS = [
   "Your streak is on fire — don't break it now! 🔥",
   "Just a few more oz to your goal — you've got this!",
   "Hydration hero! You're an inspiration! 💧",
-];
-
-const AVATAR_EMOJIS = [
-  '💧','🌊','🏆','🥤','⭐','🔥','💪','🦁','🐯','🐻',
-  '🦊','🐺','🦅','🌟','✨','🎯','🏅','🍶','🧋','🎪',
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -91,6 +90,8 @@ interface CodePayload extends SquadMember {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const MAX_PASTE_CHARS = 6000;
+
+function ozToMl(oz: number) { return Math.round(oz * 29.5735); }
 
 function dateKey(d: Date) {
   return `water_${d.getFullYear()}_${d.getMonth() + 1}_${d.getDate()}`;
@@ -201,14 +202,14 @@ function getLast7Days(goalHist: Record<string, number>): WeekDay[] {
 
 async function fireJackpotNotif(username: string) {
   const flag = `squad_jackpot_notif_${username}_${dateKey(new Date())}`;
-  const already = await AsyncStorage.getItem(flag);
+  const already = await pGetItem(flag);
   if (already) return;
   try {
     const { status } = await Notifications.getPermissionsAsync();
     if (status !== 'granted') return;
     // Write dedup flag BEFORE scheduling so a crash between write and schedule
     // never causes a second attempt to fire the same notification.
-    await AsyncStorage.setItem(flag, '1');
+    await pSetItem(flag, '1');
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `${username} hit their goal! 🎯`,
@@ -283,13 +284,15 @@ function SimpleQRGrid({ code }: { code: string }) {
 function ShareCodeModal({
   visible, code, onClose,
 }: { visible: boolean; code: string; onClose: () => void }) {
-  const url = `${DEEP_LINK_PREFIX}${code}`;
+  const APP_STORE_URL = 'https://apps.apple.com/app/id6764692053';
+  const buildBody = (intro: string) =>
+    `${intro}\n\nTap to add me:\n${DEEP_LINK_PREFIX}${code}\n\nDon't have the app?\n${APP_STORE_URL}\n(After installing, come back and tap the first link.)`;
   const share = async (intro: string) => {
-    try { await Share.share({ message: `${intro}\n\n${url}` }); } catch {}
+    try { await Share.share({ message: buildBody(intro) }); } catch {}
   };
   const emailShare = () => {
-    const subj = encodeURIComponent('My Hydro Hero Progress');
-    const body = encodeURIComponent(`Tap the link to add me to your Hydro Hero squad:\n\n${url}`);
+    const subj = encodeURIComponent('Add me to your Hydro Hero squad');
+    const body = encodeURIComponent(buildBody('Hey! Add me to your Hydro Hero squad 💧'));
     Linking.openURL(`mailto:?subject=${subj}&body=${body}`).catch(() => {});
   };
 
@@ -302,8 +305,8 @@ function ShareCodeModal({
               <TouchableOpacity style={s.closeBtn} onPress={onClose}>
                 <Text style={s.closeTxt}>✕</Text>
               </TouchableOpacity>
-              <Text style={s.modalTitle}>📤 My Progress Code</Text>
-              <Text style={s.modalSub}>Share this with squad members so they can see your stats.{'\n'}Code expires in 24 hours.</Text>
+              <Text style={s.modalTitle}>💧 Invite to Squad</Text>
+              <Text style={s.modalSub}>Send this to anyone you want on your squad — tap to add works whether or not they have the app yet.{'\n'}Code expires in 24 hours.</Text>
 
               <SimpleQRGrid code={code} />
 
@@ -313,39 +316,12 @@ function ShareCodeModal({
                 </ScrollView>
               </View>
 
-              <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share('Hey! Here\'s my Hydro Hero progress code 💧')}>
-                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>💬 Share via Messages</Text>
+              <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD }]} onPress={() => share('Hey! Join my Hydro Hero squad 💧')}>
+                <Text style={[s.actionBtnTxt, { color: '#0a0520' }]}>💬 Send via Messages</Text>
               </TouchableOpacity>
               <TouchableOpacity style={s.actionBtn} onPress={emailShare}>
-                <Text style={s.actionBtnTxt}>✉️ Share via Email</Text>
+                <Text style={s.actionBtnTxt}>✉️ Send via Email</Text>
               </TouchableOpacity>
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      </TouchableWithoutFeedback>
-    </Modal>
-  );
-}
-
-// ─── Emoji Picker Modal ───────────────────────────────────────────────────────
-function EmojiPickerModal({
-  visible, current, onPick, onClose,
-}: { visible: boolean; current: string; onPick: (e: string) => void; onClose: () => void }) {
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <TouchableWithoutFeedback onPress={onClose}>
-        <View style={s.overlay}>
-          <TouchableWithoutFeedback onPress={() => {}}>
-            <View style={[s.modalBox, { paddingVertical: 20 }]}>
-              <Text style={s.modalTitle}>Choose Your Avatar</Text>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center', marginTop: 8 }}>
-                {AVATAR_EMOJIS.map(e => (
-                  <TouchableOpacity key={e} onPress={() => onPick(e)}
-                    style={[s.emojiBtn, current === e && s.emojiBtnActive]}>
-                    <Text style={{ fontSize: 26 }}>{e}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
             </View>
           </TouchableWithoutFeedback>
         </View>
@@ -624,7 +600,7 @@ function PreviewModal({
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: GOLD, fontSize: 16, fontWeight: '800' }}>{preview.username}</Text>
                         <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>
-                          Streak: {preview.streak} 🔥  ·  Goal: {preview.goalOz} oz
+                          Streak: {preview.streak} 🔥  ·  Goal: {preview.goalOz} oz · {ozToMl(preview.goalOz)} ml
                         </Text>
                       </View>
                       <View style={{ alignItems: 'center' }}>
@@ -652,6 +628,56 @@ function PreviewModal({
         </View>
       </TouchableWithoutFeedback>
     </Modal>
+  );
+}
+
+// ─── Family at a Glance row (read-only summary of other on-device profiles) ──
+function FamilyGlanceRow({ profile, refreshKey }: { profile: Profile; refreshKey: number }) {
+  const [pct, setPct] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [hyd, setHyd] = useState(0);
+  const [goal, setGoal] = useState(64);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const get = (k: string) => AsyncStorage.getItem(`${profile.id}:${k}`);
+        const [rawHyd, rawGoal, rawGoalHist] = await Promise.all([
+          get('water_total_hydration'),
+          get('water_goal'),
+          get('goal_history'),
+        ]);
+        if (cancelled) return;
+        const h = rawHyd ? JSON.parse(rawHyd) : 0;
+        const g = rawGoal ? JSON.parse(rawGoal) : 64;
+        const gh = rawGoalHist ? JSON.parse(rawGoalHist) : {};
+        setHyd(h);
+        setGoal(g);
+        setPct(g > 0 ? h / g : 0);
+        setStreak(computeStreak(gh));
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [profile.id, refreshKey]);
+
+  const hitGoal = pct >= 1;
+  return (
+    <View style={s.familyGlanceRow}>
+      <AvatarCircle value={resolveAvatar(profile.avatarKey)} size={36} />
+      <View style={{ flex: 1 }}>
+        <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700' }} numberOfLines={1}>
+          {profile.name}
+        </Text>
+        <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, marginTop: 1 }}>
+          {streak > 0 ? `🔥 ${streak} day streak` : `${Math.round(hyd)} / ${goal} oz today`}
+        </Text>
+      </View>
+      <MiniDropFill pct={pct} />
+      <Text style={{ color: hitGoal ? GOLD : 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '800', minWidth: 38, textAlign: 'right' }}>
+        {hitGoal ? '🎯' : `${Math.round(pct * 100)}%`}
+      </Text>
+    </View>
   );
 }
 
@@ -790,10 +816,15 @@ function SquadStats({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function PartnersScreen() {
   const { isPro, openPaywall } = useProContext();
+  const { activeProfile, openEditor, profiles } = useProfile();
+
+  // Squad identity is sourced entirely from the active profile in Family
+  // Mode — one place to edit (the avatar pill on Home), one place that
+  // shows everywhere. The legacy partner_avatar storage is ignored.
+  const avatar = resolveAvatar(activeProfile?.avatarKey);
+  const username = (activeProfile?.name ?? '').trim();
 
   // My profile state
-  const [username, setUsername]       = useState('');
-  const [avatar, setAvatar]           = useState('💧');
   const [myHydration, setMyHydration] = useState(0);
   const [myGoal, setMyGoal]           = useState(64);
   const [myPct, setMyPct]             = useState(0);
@@ -804,10 +835,12 @@ export default function PartnersScreen() {
 
   // Squad state
   const [members, setMembers]         = useState<SquadMember[]>([]);
+  // Bumps each time the tab regains focus so FamilyGlanceRow children
+  // re-read the other profiles' namespaced storage.
+  const [familyRefresh, setFamilyRefresh] = useState(0);
 
   // Modal visibility
   const [showShare, setShowShare]     = useState(false);
-  const [showEmoji, setShowEmoji]     = useState(false);
   const [showAdd, setShowAdd]         = useState(false);
   const [showScan, setShowScan]       = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -821,7 +854,10 @@ export default function PartnersScreen() {
   const processedAddCode = useRef<string | null>(null);
   const processedShowShare = useRef<string | null>(null);
 
-  useFocusEffect(useCallback(() => { loadAll(); }, []));
+  useFocusEffect(useCallback(() => {
+    loadAll();
+    setFamilyRefresh((n) => n + 1);
+  }, []));
 
   useEffect(() => {
     if (addCode && addCode !== processedAddCode.current) {
@@ -843,22 +879,31 @@ export default function PartnersScreen() {
   async function loadAll() {
     try {
       const [
-        rawUsername, rawAvatar, rawMembers,
+        rawMembers,
         rawHyd, rawGoal, rawGoalHist, rawBreakdown, rawJackpots,
       ] = await Promise.all([
-        AsyncStorage.getItem('partner_username'),
-        AsyncStorage.getItem('partner_avatar'),
-        AsyncStorage.getItem('squad_members'),
-        AsyncStorage.getItem('water_total_hydration'),
-        AsyncStorage.getItem('water_goal'),
-        AsyncStorage.getItem('goal_history'),
-        AsyncStorage.getItem('water_category_breakdown'),
-        AsyncStorage.getItem('lifetime_jackpots'),
+        pGetItem('squad_members'),
+        pGetItem('water_total_hydration'),
+        pGetItem('water_goal'),
+        pGetItem('goal_history'),
+        pGetItem('water_category_breakdown'),
+        pGetItem('lifetime_jackpots'),
       ]);
 
-      if (rawUsername) setUsername(rawUsername);
-      if (rawAvatar)   setAvatar(rawAvatar);
-      if (rawMembers)  setMembers(JSON.parse(rawMembers));
+      if (rawMembers) {
+        // One-shot cleanup: today's Add-From-Family feature was reverted in
+        // favor of read-only "Family at a Glance". Squad members written by
+        // that feature carry a stale selfProfileId field; drop them so
+        // those profiles only render in the glance section, not as Squad.
+        const parsed = JSON.parse(rawMembers);
+        const cleaned = Array.isArray(parsed)
+          ? parsed.filter((m: any) => !m || typeof m !== 'object' || !('selfProfileId' in m))
+          : [];
+        setMembers(cleaned);
+        if (cleaned.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
+          pSetItem('squad_members', JSON.stringify(cleaned)).catch(() => {});
+        }
+      }
 
       const hyd       = rawHyd ? JSON.parse(rawHyd) : 0;
       const goal      = rawGoal ? JSON.parse(rawGoal) : 64;
@@ -877,11 +922,11 @@ export default function PartnersScreen() {
   }
 
   // ── Generate my progress code ────────────────────────────────────────────────
-  function generateCode() {
+  function buildAndShowCode() {
     const now = Date.now();
     const payload = {
       v: 2,
-      u: username || 'Anonymous',
+      u: username.trim() || 'Anonymous',
       a: avatar,
       h: Math.round(myHydration * 10) / 10,
       p: Math.round(myPct * 1000) / 1000,
@@ -897,15 +942,19 @@ export default function PartnersScreen() {
     setShowShare(true);
   }
 
-  // ── Save username / avatar ───────────────────────────────────────────────────
-  async function saveUsername(val: string) {
-    setUsername(val);
-    try { await AsyncStorage.setItem('partner_username', val); } catch {}
-  }
-  async function pickAvatar(e: string) {
-    setAvatar(e);
-    setShowEmoji(false);
-    try { await AsyncStorage.setItem('partner_avatar', e); } catch {}
+  function generateCode() {
+    if (!username) {
+      Alert.alert(
+        'Set your Hero name first',
+        'Your Squad code uses your Hero name. Set one on the Home tab, then come back here to share.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Go to Home', onPress: () => router.push('/(tabs)') },
+        ],
+      );
+      return;
+    }
+    buildAndShowCode();
   }
 
   // ── Decode an incoming code ──────────────────────────────────────────────────
@@ -959,7 +1008,7 @@ export default function PartnersScreen() {
     }
 
     setMembers(updated);
-    try { await AsyncStorage.setItem('squad_members', JSON.stringify(updated)); } catch {}
+    try { await pSetItem('squad_members', JSON.stringify(updated)); } catch {}
 
     // Fire jackpot notification if partner hit goal today
     if (previewPayload.hydrationPct >= 1.0) {
@@ -975,7 +1024,7 @@ export default function PartnersScreen() {
   async function removeMember(uname: string) {
     const updated = members.filter(m => m.username !== uname);
     setMembers(updated);
-    try { await AsyncStorage.setItem('squad_members', JSON.stringify(updated)); } catch {}
+    try { await pSetItem('squad_members', JSON.stringify(updated)); } catch {}
   }
 
   const myTotalBev = Object.values(myBreakdown).reduce((a, b) => a + b, 0);
@@ -995,24 +1044,24 @@ export default function PartnersScreen() {
 
         {/* My Profile Card */}
         <View style={s.card}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <AvatarCircle value={avatar} size={58} onPress={() => setShowEmoji(true)} />
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              if (activeProfile) openEditor({ mode: 'edit', profile: activeProfile });
+            }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 }}
+          >
+            <AvatarCircle value={avatar} size={58} />
             <View style={{ flex: 1 }}>
-              <TextInput
-                value={username}
-                onChangeText={saveUsername}
-                placeholder="Set your display name..."
-                placeholderTextColor="rgba(255,255,255,0.3)"
-                style={s.usernameInput}
-                maxLength={24}
-                returnKeyType="done"
-                onSubmitEditing={Keyboard.dismiss}
-              />
+              <Text style={s.usernameDisplay} numberOfLines={1}>
+                {username || 'No Hero name set'}
+              </Text>
               <Text style={{ color: 'rgba(255,255,255,0.3)', fontSize: 10, marginTop: 2 }}>
-                Tap avatar to change • Tap name to edit
+                {username ? 'Name & avatar come from your profile' : 'Tap to set a name & avatar'}
               </Text>
             </View>
-          </View>
+            {!username && <Text style={{ color: GOLD, fontSize: 18, paddingHorizontal: 4 }}>✏️</Text>}
+          </TouchableOpacity>
 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
             <MiniDropFill pct={myPct} />
@@ -1023,7 +1072,7 @@ export default function PartnersScreen() {
               {myStreak > 0 ? `🔥 ${myStreak} day streak` : 'No streak yet'}
             </Text>
             <View style={{ flex: 1 }} />
-            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Goal: {myGoal} oz</Text>
+            <Text style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>Goal: {myGoal} oz · {ozToMl(myGoal)} ml</Text>
           </View>
 
           {myTotalBev > 0 && (
@@ -1034,7 +1083,7 @@ export default function PartnersScreen() {
           <WeekDots history={myWeekHist} />
 
           <TouchableOpacity style={[s.actionBtn, { backgroundColor: GOLD, marginTop: 14 }]} onPress={generateCode}>
-            <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>📤 Share My Progress</Text>
+            <Text style={[s.actionBtnTxt, { color: '#0a0520', fontWeight: '800' }]}>💧 Invite to Squad</Text>
           </TouchableOpacity>
         </View>
 
@@ -1042,7 +1091,7 @@ export default function PartnersScreen() {
         <Text style={s.sectionTitle}>➕ ADD A SQUAD MEMBER</Text>
         <View style={s.card}>
           <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, marginBottom: 10 }}>
-            Ask a friend to share their progress code, then paste it here.
+            Got an invite from a friend? Tap their link, or paste/scan their code here.
           </Text>
           <TouchableOpacity style={s.actionBtn} onPress={() => { setIsUpdateFor(null); setShowAdd(true); }}>
             <Text style={s.actionBtnTxt}>📋 Paste a Progress Code</Text>
@@ -1053,15 +1102,23 @@ export default function PartnersScreen() {
           >
             <Text style={s.actionBtnTxt}>📷 Scan QR Code</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.actionBtn, { marginTop: 8 }]}
-            onPress={() => Share.share({
-              message: `Hey!${username ? ` ${username} here —` : ''} I'm using Hydro Hero to track my hydration and I want you on my squad. Download it here: https://apps.apple.com/app/id6764692053`,
-            })}
-          >
-            <Text style={s.actionBtnTxt}>✉️ Invite a Friend</Text>
-          </TouchableOpacity>
         </View>
+
+        {/* Family at a Glance — read-only summary of other profiles on this
+            device. No actions (Cheer/Request only make sense for off-device
+            members). Refreshes each time the tab regains focus via loadAll. */}
+        {profiles.filter(p => p.id !== activeProfile?.id).length > 0 && (
+          <>
+            <Text style={s.sectionTitle}>👪 FAMILY AT A GLANCE</Text>
+            <View style={s.card}>
+              {profiles
+                .filter(p => p.id !== activeProfile?.id)
+                .map(p => (
+                  <FamilyGlanceRow key={p.id} profile={p} refreshKey={familyRefresh} />
+                ))}
+            </View>
+          </>
+        )}
 
         {/* Squad Members or Empty State */}
         {members.length === 0 ? (
@@ -1103,11 +1160,6 @@ export default function PartnersScreen() {
 
       {/* Modals */}
       <ShareCodeModal visible={showShare} code={myCode} onClose={() => setShowShare(false)} />
-
-      <EmojiPickerModal
-        visible={showEmoji} current={avatar}
-        onPick={pickAvatar} onClose={() => setShowEmoji(false)}
-      />
 
       <PasteCodeModal
         visible={showAdd}
@@ -1176,14 +1228,18 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 
-  usernameInput: {
+  usernameDisplay: {
     color: '#fff', fontSize: 17, fontWeight: '700',
-    borderBottomWidth: 1, borderBottomColor: 'rgba(255,215,0,0.3)',
     paddingVertical: 4,
   },
 
   memberName: { color: GOLD, fontSize: 15, fontWeight: '800' },
   memberSub:  { color: 'rgba(255,255,255,0.45)', fontSize: 11, marginTop: 1 },
+
+  familyGlanceRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 8, paddingHorizontal: 4, marginBottom: 4,
+  },
 
   cardBtn: {
     flex: 1, height: 34, borderRadius: 8, borderWidth: 1,
@@ -1246,15 +1302,6 @@ const s = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   cancelBtnTxt: { color: 'rgba(255,255,255,0.55)', fontSize: 15 },
-
-  emojiBtn: {
-    width: 52, height: 52, borderRadius: 26,
-    backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center',
-  },
-  emojiBtnActive: {
-    backgroundColor: 'rgba(255,215,0,0.15)', borderColor: GOLD,
-  },
 
   previewCard: {
     backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 12, padding: 14,

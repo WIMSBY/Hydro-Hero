@@ -1,0 +1,319 @@
+/**
+ * contexts/ProfileContext.tsx
+ *
+ * Family Mode — Day 2 UI glue. Holds the live list of profiles + active
+ * profile in React state so the avatar pill, switcher sheet, and editor
+ * modal share one source of truth. `profileVersion` bumps on every active-
+ * profile switch; root layout keys the <Stack> off it so every screen
+ * remounts and re-reads from namespaced storage against the new profile.
+ *
+ * ProfileSwitcherSheet, ProfileEditorModal, and FamilyWelcomeModal are
+ * rendered at provider level so they survive the remount.
+ */
+
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  Profile,
+  FREE_PROFILE_CAP,
+  PRO_PROFILE_CAP,
+  ensureBootstrap,
+  loadProfiles,
+  addProfile as addProfileStore,
+  updateProfile as updateProfileStore,
+  deleteProfile as deleteProfileStore,
+  setActiveProfileId as setActiveProfileIdStore,
+  loadActiveProfileId,
+} from '../utils/ProfileStore';
+import { useProContext } from './ProContext';
+import { endTankActivity } from '../utils/LiveActivitySync';
+import { loadHero, saveHero } from '../utils/HeroStore';
+import { ProfileSwitcherSheet } from '../components/family/ProfileSwitcherSheet';
+import { ProfileEditorModal } from '../components/family/ProfileEditorModal';
+import { FamilyWelcomeModal } from '../components/family/FamilyWelcomeModal';
+
+const FAMILY_WELCOME_KEY = 'family_welcome_seen_v1';
+
+type EditorState =
+  | { mode: 'add' }
+  | { mode: 'edit'; profile: Profile }
+  | null;
+
+interface ProfileContextValue {
+  profiles: Profile[];
+  activeProfile: Profile | null;
+  profileVersion: number;
+  cap: number;
+  isAtCap: boolean;
+  openSwitcher: () => void;
+  closeSwitcher: () => void;
+  openEditor: (state: Exclude<EditorState, null>) => void;
+  switchProfile: (id: string) => Promise<void>;
+  addProfile: (p: { name: string; avatarKey: string }) => Promise<Profile | null>;
+  updateProfile: (id: string, patch: Partial<Pick<Profile, 'name' | 'avatarKey'>>) => Promise<void>;
+  deleteProfile: (id: string) => Promise<void>;
+  syncActiveProfileName: (name: string) => Promise<void>;
+}
+
+const ProfileContext = createContext<ProfileContextValue>({
+  profiles: [],
+  activeProfile: null,
+  profileVersion: 0,
+  cap: FREE_PROFILE_CAP,
+  isAtCap: false,
+  openSwitcher: () => {},
+  closeSwitcher: () => {},
+  openEditor: () => {},
+  switchProfile: async () => {},
+  addProfile: async () => null,
+  updateProfile: async () => {},
+  deleteProfile: async () => {},
+  syncActiveProfileName: async () => {},
+});
+
+export function useProfile() {
+  return useContext(ProfileContext);
+}
+
+export function ProfileProvider({ children }: { children: React.ReactNode }) {
+  const { isPro, openPaywall } = useProContext();
+
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
+  const [profileVersion, setProfileVersion] = useState(0);
+
+  const [switcherVisible, setSwitcherVisible] = useState(false);
+  const [editor, setEditor] = useState<EditorState>(null);
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
+
+  const cap = isPro ? PRO_PROFILE_CAP : FREE_PROFILE_CAP;
+  const isAtCap = profiles.length >= cap;
+
+  // Initial load: bootstrap → mirror into state.
+  useEffect(() => {
+    (async () => {
+      const { created } = await ensureBootstrap();
+      const list = await loadProfiles();
+      const activeId = await loadActiveProfileId();
+      const active = list.find((p) => p.id === activeId) ?? list[0] ?? null;
+      setProfiles(list);
+      setActiveProfile(active);
+
+      // Welcome-modal trigger: first time on Build 33+. For brand-new users
+      // (created==true here), let Onboarding finish first by gating on the
+      // returning-user path; brand-new installs see the welcome after their
+      // first session ends and they re-open the app. Worth the simpler logic.
+      if (!created) {
+        try {
+          const seen = await AsyncStorage.getItem(FAMILY_WELCOME_KEY);
+          if (seen !== '1') setWelcomeVisible(true);
+        } catch {}
+      } else {
+        // Brand-new install: mark welcome as seen so the modal never appears
+        // for first-time users (they don't need a what's-new tour).
+        try { await AsyncStorage.setItem(FAMILY_WELCOME_KEY, '1'); } catch {}
+      }
+    })();
+  }, []);
+
+  const refreshProfiles = useCallback(async () => {
+    const list = await loadProfiles();
+    setProfiles(list);
+    const activeId = activeProfile?.id ?? null;
+    const stillActive = list.find((p) => p.id === activeId);
+    if (stillActive) {
+      setActiveProfile(stillActive);
+    } else if (list[0]) {
+      setActiveProfile(list[0]);
+      await setActiveProfileIdStore(list[0].id);
+    }
+  }, [activeProfile?.id]);
+
+  const switchProfile = useCallback(async (id: string) => {
+    if (id === activeProfile?.id) return;
+    const target = profiles.find((p) => p.id === id);
+    if (!target) return;
+    // End any Live Activity from the previous profile — the tank percentage
+    // on the Lock Screen is for the profile that opted in, not the one we're
+    // switching to. New profile starts with LA opt-in defaulted to off; the
+    // user re-taps the chip on Home if they want it on for this profile.
+    endTankActivity().catch(() => {});
+    await setActiveProfileIdStore(id);
+    setActiveProfile(target);
+    // Bumping profileVersion remounts the Stack, which re-runs Home's
+    // sendHydrationUpdate / syncSiriCatalog / syncSiriUnit effects against
+    // the new profile's namespaced storage. That's the Watch + Siri sync
+    // path on profile switch — no explicit push needed here.
+    setProfileVersion((v) => v + 1);
+  }, [activeProfile?.id, profiles]);
+
+  const addProfile = useCallback(async (p: { name: string; avatarKey: string }) => {
+    if (profiles.length >= cap) {
+      if (!isPro) openPaywall('family-cap');
+      return null;
+    }
+    const created = await addProfileStore(p);
+    setProfiles((prev) => [...prev, created]);
+    return created;
+  }, [profiles.length, cap, isPro, openPaywall]);
+
+  const updateProfile = useCallback(async (id: string, patch: Partial<Pick<Profile, 'name' | 'avatarKey'>>) => {
+    await updateProfileStore(id, patch);
+    setProfiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+    setActiveProfile((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+    // Profile name is the single source of truth for identity. Mirror it onto
+    // the Hero so the Missions badge + Squad share card show the new name
+    // without forcing the user to re-edit the Hero separately. Only when the
+    // edited profile is the active one (Hero is profile-namespaced storage).
+    if (patch.name && id === activeProfile?.id) {
+      try {
+        const existing = await loadHero();
+        if (existing && existing.name !== patch.name) {
+          await saveHero({ ...existing, name: patch.name });
+        }
+      } catch {}
+    }
+  }, [activeProfile?.id]);
+
+  const deleteProfile = useCallback(async (id: string) => {
+    await deleteProfileStore(id);
+    // Pick a replacement if we just nuked the active profile.
+    let nextActiveId: string | null = activeProfile?.id ?? null;
+    const remaining = profiles.filter((p) => p.id !== id);
+    if (id === activeProfile?.id) {
+      nextActiveId = remaining[0]?.id ?? null;
+      if (nextActiveId) await setActiveProfileIdStore(nextActiveId);
+      setActiveProfile(remaining[0] ?? null);
+      setProfileVersion((v) => v + 1);
+    }
+    setProfiles(remaining);
+  }, [activeProfile?.id, profiles]);
+
+  // Hero name = single source of truth: HeroSetupModal's save flow calls this
+  // so the avatar pill + switcher show the same name the user just typed.
+  const syncActiveProfileName = useCallback(async (name: string) => {
+    if (!activeProfile) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === activeProfile.name) return;
+    await updateProfile(activeProfile.id, { name: trimmed });
+  }, [activeProfile, updateProfile]);
+
+  const openSwitcher = useCallback(() => setSwitcherVisible(true), []);
+  const closeSwitcher = useCallback(() => setSwitcherVisible(false), []);
+  const openEditor = useCallback((state: Exclude<EditorState, null>) => setEditor(state), []);
+  const closeEditor = useCallback(() => setEditor(null), []);
+
+  // iOS RN can't render two <Modal>s back-to-back: opening the editor while
+  // the switcher is still on-screen leaves the touch responder stuck and the
+  // app appears frozen. Close one, wait past the slide-out animation, then
+  // open the next. See [[feedback-ios-modal-stacking]].
+  const MODAL_HANDOFF_MS = 350;
+
+  const dismissWelcome = useCallback(async () => {
+    setWelcomeVisible(false);
+    try { await AsyncStorage.setItem(FAMILY_WELCOME_KEY, '1'); } catch {}
+  }, []);
+
+  const value = useMemo<ProfileContextValue>(() => ({
+    profiles,
+    activeProfile,
+    profileVersion,
+    cap,
+    isAtCap,
+    openSwitcher,
+    closeSwitcher,
+    openEditor,
+    switchProfile,
+    addProfile,
+    updateProfile,
+    deleteProfile,
+    syncActiveProfileName,
+  }), [
+    profiles, activeProfile, profileVersion, cap, isAtCap,
+    openSwitcher, closeSwitcher, openEditor,
+    switchProfile, addProfile, updateProfile, deleteProfile, syncActiveProfileName,
+  ]);
+
+  return (
+    <ProfileContext.Provider value={value}>
+      {children}
+      <ProfileSwitcherSheet
+        visible={switcherVisible}
+        profiles={profiles}
+        activeProfileId={activeProfile?.id ?? null}
+        cap={cap}
+        isPro={isPro}
+        onClose={closeSwitcher}
+        onSwitch={async (id) => {
+          await switchProfile(id);
+          setSwitcherVisible(false);
+        }}
+        onAdd={() => {
+          if (profiles.length >= cap) {
+            if (!isPro) {
+              setSwitcherVisible(false);
+              openPaywall('family-cap');
+              return;
+            }
+          }
+          setSwitcherVisible(false);
+          setTimeout(() => setEditor({ mode: 'add' }), MODAL_HANDOFF_MS);
+        }}
+        onEdit={(profile) => {
+          setSwitcherVisible(false);
+          setTimeout(() => setEditor({ mode: 'edit', profile }), MODAL_HANDOFF_MS);
+        }}
+      />
+      <ProfileEditorModal
+        state={editor}
+        canDelete={profiles.length > 1}
+        onClose={() => {
+          setEditor(null);
+          setTimeout(() => setSwitcherVisible(true), MODAL_HANDOFF_MS);
+        }}
+        onSave={async (patch) => {
+          if (!editor) return;
+          if (editor.mode === 'add') {
+            const created = await addProfile(patch);
+            if (created) {
+              setEditor(null);
+              // Don't auto-switch — let the user pick from the sheet so the
+              // switch is intentional (avoids accidental data-context blip
+              // right after the editor closes).
+              setTimeout(() => setSwitcherVisible(true), MODAL_HANDOFF_MS);
+            }
+          } else {
+            await updateProfile(editor.profile.id, patch);
+            setEditor(null);
+            // Edit-save is a committed action — land the user on Home where
+            // the avatar pill already reflects the change. No switcher reopen.
+          }
+        }}
+        onDelete={async () => {
+          if (!editor || editor.mode !== 'edit') return;
+          await deleteProfile(editor.profile.id);
+          setEditor(null);
+          // Delete is a committed action — land the user on Home instead of
+          // reopening the switcher. They can tap the avatar pill if they
+          // want to keep managing.
+        }}
+      />
+      <FamilyWelcomeModal
+        visible={welcomeVisible}
+        onDismiss={dismissWelcome}
+        onMeetFamily={() => {
+          dismissWelcome();
+          setSwitcherVisible(true);
+        }}
+      />
+    </ProfileContext.Provider>
+  );
+}
