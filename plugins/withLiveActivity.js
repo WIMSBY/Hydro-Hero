@@ -53,6 +53,20 @@ class LLLiveActivity: NSObject {
   // restarts, and (b) prior debug sessions / interrupted starts can leave
   // orphan activities that we still need to update or end.
 
+  // Next local midnight — used as the LA staleDate so iOS marks the activity
+  // as stale after date rollover. The widget renders a "new day, open the
+  // app" state for stale content instead of yesterday's fill when the phone
+  // sleeps through the app's midnight rollover timer. Computed here (not on
+  // the JS side) so the JS/native signature stays stable across binaries.
+  private static func nextLocalMidnight() -> Date {
+    let cal = Calendar.current
+    let now = Date()
+    if let tomorrowStart = cal.date(bySettingHour: 0, minute: 0, second: 0, of: cal.date(byAdding: .day, value: 1, to: now) ?? now) {
+      return tomorrowStart
+    }
+    return now.addingTimeInterval(24 * 60 * 60)
+  }
+
   @objc(startActivity:goalOz:resolver:rejecter:)
   func startActivity(hydrationOz: Double,
                      goalOz: Double,
@@ -72,6 +86,7 @@ class LLLiveActivity: NSObject {
     let state = HydrationActivityAttributes.ContentState(
       hydrationOz: hydrationOz, goalOz: goalOz, pct: pct
     )
+    let staleDate = LLLiveActivity.nextLocalMidnight()
     Task {
       // End any existing activities first so we don't pile up duplicates
       // (orphans from prior debug starts, hot reloads, interrupted ends).
@@ -81,7 +96,7 @@ class LLLiveActivity: NSObject {
       do {
         let activity = try Activity<HydrationActivityAttributes>.request(
           attributes: attrs,
-          content: .init(state: state, staleDate: nil)
+          content: .init(state: state, staleDate: staleDate)
         )
         resolve(activity.id)
       } catch {
@@ -100,10 +115,11 @@ class LLLiveActivity: NSObject {
     let state = HydrationActivityAttributes.ContentState(
       hydrationOz: hydrationOz, goalOz: goalOz, pct: pct
     )
+    let staleDate = LLLiveActivity.nextLocalMidnight()
     Task {
       let activities = Activity<HydrationActivityAttributes>.activities
       for activity in activities {
-        await activity.update(.init(state: state, staleDate: nil))
+        await activity.update(.init(state: state, staleDate: staleDate))
       }
       resolve(!activities.isEmpty)
     }
@@ -135,11 +151,13 @@ const OBJC_SOURCE = `
 
 RCT_EXTERN_METHOD(startActivity:(double)hydrationOz
                   goalOz:(double)goalOz
+                  staleAtMs:(double)staleAtMs
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(updateActivity:(double)hydrationOz
                   goalOz:(double)goalOz
+                  staleAtMs:(double)staleAtMs
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 

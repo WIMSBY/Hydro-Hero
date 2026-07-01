@@ -62,29 +62,77 @@ struct HydrationLockScreenView: View {
     }
 }
 
+// Rendered when ActivityKit flags the content stale — set by the app to the
+// next local midnight so the Lock Screen doesn't display yesterday's fill
+// after date rollover when the phone slept through the app's midnight timer.
+@available(iOS 16.2, *)
+struct HydrationStaleLockScreenView: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            FilledWaterDrop(pct: 0, size: 52)
+                .opacity(0.55)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("New day")
+                    .font(.system(size: 22, weight: .black, design: .rounded))
+                    .foregroundColor(gold)
+                Text("Open Hydro Hero to track today")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            Spacer()
+            Text("HYDRO HERO")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundColor(gold.opacity(0.6))
+                .kerning(1.4)
+        }
+        .padding(14)
+    }
+}
+
 // MARK: - Live Activity Widget
 
 @available(iOS 16.2, *)
 struct HydrationLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: HydrationActivityAttributes.self) { context in
-            HydrationLockScreenView(state: context.state)
-                .activityBackgroundTint(appBg)
-                .activitySystemActionForegroundColor(.white)
+            Group {
+                if context.isStale {
+                    HydrationStaleLockScreenView()
+                } else {
+                    HydrationLockScreenView(state: context.state)
+                }
+            }
+            .activityBackgroundTint(appBg)
+            .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
-            DynamicIsland {
+            // Once stale (past midnight rollover with no app update), hide the
+            // pct display so it doesn't lie about today; show a neutral "new
+            // day" cue instead. Compact + minimal show a dimmed empty drop.
+            let stale = context.isStale
+            let displayPct = stale ? 0.0 : context.state.pct
+            return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    FilledWaterDrop(pct: context.state.pct, size: 44)
+                    FilledWaterDrop(pct: displayPct, size: 44)
+                        .opacity(stale ? 0.55 : 1.0)
                         .padding(.leading, 4)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(pctInt(context.state.pct))%")
-                            .font(.system(size: 28, weight: .black, design: .rounded))
-                            .foregroundColor(gold)
-                        Text(remainingText(context.state))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.7))
+                        if stale {
+                            Text("New day")
+                                .font(.system(size: 22, weight: .black, design: .rounded))
+                                .foregroundColor(gold)
+                            Text("Open Hydro Hero")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.7))
+                        } else {
+                            Text("\(pctInt(context.state.pct))%")
+                                .font(.system(size: 28, weight: .black, design: .rounded))
+                                .foregroundColor(gold)
+                            Text(remainingText(context.state))
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
                     }
                     .padding(.trailing, 4)
                 }
@@ -96,7 +144,7 @@ struct HydrationLiveActivity: Widget {
                                 .frame(height: 4)
                             Capsule()
                                 .fill(gold)
-                                .frame(width: geo.size.width * CGFloat(min(context.state.pct, 1.0)),
+                                .frame(width: geo.size.width * CGFloat(min(displayPct, 1.0)),
                                        height: 4)
                         }
                     }
@@ -105,13 +153,20 @@ struct HydrationLiveActivity: Widget {
                     .padding(.top, 2)
                 }
             } compactLeading: {
-                FilledWaterDrop(pct: context.state.pct, size: 20)
+                FilledWaterDrop(pct: displayPct, size: 20)
+                    .opacity(stale ? 0.55 : 1.0)
             } compactTrailing: {
-                Text("\(pctInt(context.state.pct))%")
-                    .font(.system(size: 13, weight: .black, design: .rounded))
-                    .foregroundColor(gold)
+                if stale {
+                    Text("💧")
+                        .font(.system(size: 13, weight: .black, design: .rounded))
+                } else {
+                    Text("\(pctInt(context.state.pct))%")
+                        .font(.system(size: 13, weight: .black, design: .rounded))
+                        .foregroundColor(gold)
+                }
             } minimal: {
-                FilledWaterDrop(pct: context.state.pct, size: 18)
+                FilledWaterDrop(pct: displayPct, size: 18)
+                    .opacity(stale ? 0.55 : 1.0)
             }
             .widgetURL(URL(string: "hydrationstation://"))
             .keylineTint(waterBlue)

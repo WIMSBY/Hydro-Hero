@@ -28,6 +28,10 @@ export function liveActivityAvailable(): boolean {
   return Platform.OS === 'ios' && !!LLLiveActivity;
 }
 
+// Note: the LA's staleDate (next local midnight) is computed on the Swift
+// side so this JS wrapper stays byte-compatible with older binaries that
+// don't ship the staleDate change — safe for OTA rollout ahead of the
+// binary bump.
 export async function startTankActivity(
   hydrationOz: number,
   goalOz: number,
