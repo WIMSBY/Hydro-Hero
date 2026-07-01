@@ -111,13 +111,10 @@ function formatOz(oz: number): string {
 const POPULAR_PRESETS = [
   { oz: 8,    label: "8oz",   sub: "small glass" },
   { oz: 12,   label: "12oz",  sub: "can" },
-  { oz: 16,   label: "16oz",  sub: "med bottle" },
   { oz: 16.9, label: "16.9oz",sub: "std bottle" },
   { oz: 20,   label: "20oz",  sub: "lg bottle" },
-  { oz: 24,   label: "24oz",  sub: "lg cup" },
   { oz: 32,   label: "32oz",  sub: "Stanley sm" },
   { oz: 40,   label: "40oz",  sub: "Stanley lg" },
-  { oz: 64,   label: "64oz",  sub: "half gallon" },
 ];
 
 interface Preset { id: string; label: string; oz: number; category: BevCategory; }
@@ -1618,9 +1615,15 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
   const [focused, setFocused] = useState<number | null>(null);
   const inputRefs = useRef<(import("react-native").TextInput | null)[]>([]);
 
-  // Sync drafts when modal opens
+  // Sync drafts when modal opens; auto-select Button 1 so tapping a preset
+  // has an obvious target without popping the keyboard.
   useEffect(() => {
-    if (visible) setDrafts(currentAmounts.map((oz) => formatOz(oz)));
+    if (visible) {
+      setDrafts(currentAmounts.map((oz) => formatOz(oz)));
+      setFocused(0);
+    } else {
+      setFocused(null);
+    }
   }, [visible, currentAmounts]);
 
   function setSlot(i: number, val: string) {
@@ -1668,7 +1671,7 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                       <Text style={{ color: "rgba(255,255,255,0.6)", fontSize: 20, lineHeight: 22 }}>✕</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Tap a slot to edit, then tap a preset to fill it</Text>
+                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 4 }}>Tap a button, then a preset — or type your own amount</Text>
                 </View>
 
                 <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
@@ -1680,16 +1683,21 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                       const valid = isValid(val);
                       const mlVal = valid ? `${ozToMl(parseFloat(val))} ml` : "—";
                       return (
-                        <View key={i} style={{ marginBottom: 10 }}>
+                        <TouchableOpacity
+                          key={i}
+                          activeOpacity={0.85}
+                          onPress={() => setFocused(i)}
+                          style={{ marginBottom: 10 }}
+                        >
                           <View style={{
                             flexDirection: "row", alignItems: "center",
-                            backgroundColor: "rgba(255,215,0,0.08)",
+                            backgroundColor: isFocused ? "rgba(255,215,0,0.20)" : "rgba(255,215,0,0.08)",
                             borderRadius: 12, borderWidth: 1.5,
                             borderColor: isFocused ? "#c8a000" : (valid ? "rgba(200,160,0,0.35)" : "#FF6B6B"),
                             paddingHorizontal: 12,
                             minHeight: 52,
                           }}>
-                            <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700", width: 48 }}>Slot {i + 1}</Text>
+                            <Text style={{ color: "#c8a000", fontSize: 12, fontWeight: "700", width: 60 }}>Button {i + 1}</Text>
                             <TextInput
                               ref={(r) => { inputRefs.current[i] = r; }}
                               value={val}
@@ -1704,21 +1712,22 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
                             />
                             <Text style={{ color: "#888888", fontSize: 12, marginRight: 10, minWidth: 54, textAlign: "right" }}>{mlVal}</Text>
                             <TouchableOpacity onPress={() => resetSlot(i)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                              style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(0,0,0,0.08)", alignItems: "center", justifyContent: "center" }}>
-                              <Text style={{ color: "#888888", fontSize: 13, lineHeight: 16 }}>✕</Text>
+                              accessibilityLabel={`Reset Button ${i + 1} to default`}
+                              style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(0,0,0,0.08)", alignItems: "center", justifyContent: "center" }}>
+                              <Text style={{ color: "#888888", fontSize: 15, lineHeight: 18 }}>↺</Text>
                             </TouchableOpacity>
                           </View>
                           {!valid && val.length > 0 && (
                             <Text style={{ color: "#CC2200", fontSize: 11, marginTop: 3, marginLeft: 4 }}>Enter a value between 1 and 128 oz</Text>
                           )}
-                        </View>
+                        </TouchableOpacity>
                       );
                     })}
 
                     {/* Popular Sizes */}
                     <View style={{ marginTop: 8, marginBottom: 4 }}>
                       <Text style={{ color: "#c8a000", fontSize: 11, fontWeight: "800", letterSpacing: 0.8, marginBottom: 10 }}>
-                        POPULAR SIZES{focused !== null ? `  →  filling Slot ${focused + 1}` : "  (tap a slot to select it)"}
+                        POPULAR SIZES{focused !== null ? `  →  filling Button ${focused + 1}` : "  (tap a button above first)"}
                       </Text>
                       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7 }}>
                         {POPULAR_PRESETS.map((p) => (
