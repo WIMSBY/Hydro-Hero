@@ -34,6 +34,17 @@ export interface HydrationUpdatePayload {
   pct:               number;    // 0–1+ (unbounded so Watch can show >100%)
   streak:            number;
   selectedBeverages: string[];  // BevCategory keys currently active
+  // Optional preset catalog mirror — pushed so watch-side Siri can offer
+  // "Log <preset> in Hydro Hero" via LogPresetIntent. Omit to leave the
+  // watch's cached copy untouched (see applyContext on the watch side).
+  siriPresets?:      WatchPresetEntry[];
+}
+
+export interface WatchPresetEntry {
+  id:       string;
+  label:    string;
+  oz:       number;
+  beverage: string;  // BevCategory key
 }
 
 export interface WatchLogCommand {
@@ -125,13 +136,15 @@ export async function sendHydrationUpdate(data: HydrationUpdatePayload): Promise
   if (!isWatchAvailable || !watchModule) return;
   try {
     if (typeof watchModule.updateApplicationContext !== 'function') return;
-    await watchModule.updateApplicationContext({
+    const ctx: Record<string, unknown> = {
       hydrationOz:       data.hydrationOz,
       goalOz:            data.goalOz,
       pct:               data.pct,
       streak:            data.streak,
       selectedBeverages: data.selectedBeverages,
-    });
+    };
+    if (data.siriPresets) ctx.siriPresets = data.siriPresets;
+    await watchModule.updateApplicationContext(ctx);
   } catch {}
 }
 

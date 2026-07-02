@@ -1,9 +1,15 @@
 import AppIntents
 
-// Watch-target AppShortcutsProvider — same 9 beverages as the phone, but
-// no LogPreset (presets live in the phone's App Group, watch has no
-// catalog yet). Spoken phrases use the same `(.applicationName)` pattern
-// so they read "Log water in Hydro Hero" on both phone and watch Siri.
+// Watch-target AppShortcutsProvider — same 9 beverages as the phone plus
+// LogPreset. Preset catalog is synced from the phone via WCSession (see
+// WatchConnectivityManager.applyContext) into local UserDefaults, then
+// read by PresetEntityQuery when Siri surfaces the shortcut. Spoken
+// phrases use the same `(.applicationName)` pattern so they read
+// "Log water in Hydro Hero" on both phone and watch Siri.
+//
+// Preset phrase MUST include the literal keyword "preset" before the
+// `(.$preset)` binding, or Siri hijacks preset names like "Circa Water"
+// into LogWaterIntent (see feedback-appshortcut-preset-keyword-anchor).
 @available(watchOS 9.0, *)
 struct HydroHeroAppShortcuts: AppShortcutsProvider {
   static var appShortcuts: [AppShortcut] {
@@ -69,6 +75,15 @@ struct HydroHeroAppShortcuts: AppShortcutsProvider {
       ],
       shortTitle: "Log Cocktail",
       systemImageName: "wineglass.fill"
+    )
+    AppShortcut(
+      intent: LogPresetIntent(),
+      phrases: [
+        "Log preset \(\.$preset) in \(.applicationName)",
+        "Log \(\.$preset) preset in \(.applicationName)",
+      ],
+      shortTitle: "Log Preset",
+      systemImageName: "star.fill"
     )
   }
 }
