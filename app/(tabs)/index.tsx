@@ -983,6 +983,37 @@ function AnimatedWaterSVG({
   );
 }
 
+// Tank text overlay — tracks fillAnim live so %/oz count up with the water.
+// Isolated so only this leaf re-renders per animation tick, not the whole vault.
+function TankStats({
+  fillAnim, goal, preferredUnit,
+}: {
+  fillAnim: Animated.Value; goal: number; preferredUnit: 'oz' | 'ml';
+}) {
+  const initial = (fillAnim as unknown as { _value: number })._value ?? 0;
+  const [pct, setPct] = useState(initial);
+  useEffect(() => {
+    const id = fillAnim.addListener(({ value }) => {
+      setPct((prev) => Math.round(prev * 100) === Math.round(value * 100) ? prev : value);
+    });
+    return () => fillAnim.removeListener(id);
+  }, [fillAnim]);
+  const oz = pct * goal;
+  return (
+    <>
+      <Text style={{ fontSize: 26, fontWeight: "900", color: "#FFD700" }}>
+        {`${Math.round(pct * 100)}%`}
+      </Text>
+      <Text style={{ fontSize: 11, fontWeight: "700", color: "rgba(200,240,255,0.92)", marginTop: 4 }}>
+        {`${fmtAmount(oz, preferredUnit)} hydrated`}
+      </Text>
+      <Text style={{ fontSize: 9, color: "rgba(255,215,0,0.7)", marginTop: 3 }}>
+        {preferredUnit === 'ml' ? `${oz.toFixed(1)} oz` : `${ozToMl(oz)} ml`}
+      </Text>
+    </>
+  );
+}
+
 function ArtDecoVault({
   pct, oz, goal: vGoal,
   loggedCategory, lastReelOz, logNonce,
@@ -1187,15 +1218,7 @@ function ArtDecoVault({
           width: AD_GLASS_W, height: AD_GLASS_H,
           alignItems: "center", justifyContent: "center",
         }}>
-          <Text style={{ fontSize: 26, fontWeight: "900", color: "#FFD700" }}>
-            {`${Math.round(pct * 100)}%`}
-          </Text>
-          <Text style={{ fontSize: 11, fontWeight: "700", color: "rgba(200,240,255,0.92)", marginTop: 4 }}>
-            {`${fmtAmount(oz, preferredUnit)} hydrated`}
-          </Text>
-          <Text style={{ fontSize: 9, color: "rgba(255,215,0,0.7)", marginTop: 3 }}>
-            {preferredUnit === 'ml' ? `${oz.toFixed(1)} oz` : `${ozToMl(oz)} ml`}
-          </Text>
+          <TankStats fillAnim={fillAnim} goal={vGoal} preferredUnit={preferredUnit} />
         </View>
 
       </View>
