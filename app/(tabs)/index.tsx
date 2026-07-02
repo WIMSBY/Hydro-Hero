@@ -5371,7 +5371,13 @@ export default function WaterTracker() {
                   </View>
 
                   {/* Body */}
-                  <View style={{ paddingHorizontal: 22, paddingTop: 18, paddingBottom: 22 }}>
+                  <ScrollView
+                    style={{ flexShrink: 1 }}
+                    contentContainerStyle={{ paddingHorizontal: 22, paddingTop: 18, paddingBottom: 22 }}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled
+                  >
 
             {/* Tabs — segmented control, navy fill on active */}
             <View style={{ flexDirection: "row", backgroundColor: "rgba(0,0,0,0.05)", borderRadius: 12, marginBottom: 20, padding: 4 }}>
@@ -5722,7 +5728,7 @@ export default function WaterTracker() {
                 </View>
               </View>
             )}
-                  </View>
+                  </ScrollView>
                 </View>
               {/* Android: floating Done toolbar above keyboard */}
               {Platform.OS === "android" && kbHeight > 0 && (
