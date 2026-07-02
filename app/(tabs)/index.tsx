@@ -3079,8 +3079,11 @@ export default function WaterTracker() {
       pct: goal > 0 ? totalHydration / goal : 0,
       streak: s,
       selectedBeverages,
+      siriPresets: presets.map((p) => ({
+        id: p.id, label: p.label, oz: p.oz, beverage: p.category,
+      })),
     }).catch(() => {});
-  }, [totalHydration, goal, goalHistory, selectedBeverages]);
+  }, [totalHydration, goal, goalHistory, selectedBeverages, presets]);
 
   async function checkOnboarding() {
     try {
@@ -5056,83 +5059,6 @@ export default function WaterTracker() {
         )}
       </Modal>
 
-      {/* Save as Preset Modal — custom (not Alert.prompt) so we can
-          pre-select the default name via TextInput selectTextOnFocus. */}
-      <Modal
-        visible={showSavePresetModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowSavePresetModal(false)}
-      >
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalOverlay}>
-              <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
-                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
-                  <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💾 Save as Preset</Text>
-                    <TouchableOpacity onPress={() => setShowSavePresetModal(false)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                      <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>{savePresetSubtitle}</Text>
-                </View>
-                <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
-                  <TextInput
-                    value={savePresetName}
-                    onChangeText={setSavePresetName}
-                    autoFocus
-                    selectTextOnFocus
-                    returnKeyType="done"
-                    onSubmitEditing={() => {
-                      const payload = savePresetPayloadRef.current;
-                      if (payload) {
-                        const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
-                        savePreset(name, payload.oz, payload.cat);
-                      }
-                      setShowSavePresetModal(false);
-                    }}
-                    placeholder="Preset name"
-                    placeholderTextColor="#a8a8a8"
-                    style={{
-                      backgroundColor: "#ffffff",
-                      color: LIGHT_NAVY_DEEP,
-                      borderRadius: 12,
-                      paddingHorizontal: 14,
-                      paddingVertical: 14,
-                      fontSize: 16,
-                      borderWidth: 1,
-                      borderColor: "rgba(0,0,0,0.12)",
-                      marginBottom: 18,
-                    }}
-                  />
-                  <View style={{ flexDirection: "row", gap: 10 }}>
-                    <TouchableOpacity
-                      style={lightCancelBtn}
-                      onPress={() => setShowSavePresetModal(false)}
-                    >
-                      <Text style={lightCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={lightPrimaryBtn}
-                      onPress={() => {
-                        const payload = savePresetPayloadRef.current;
-                        if (payload) {
-                          const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
-                          savePreset(name, payload.oz, payload.cat);
-                        }
-                        setShowSavePresetModal(false);
-                      }}
-                    >
-                      <Text style={lightPrimaryText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
 
       {/* Confirm Drink Modal */}
       <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => { setPendingBetOz(null); setPendingQty(1); }}>
@@ -5268,6 +5194,83 @@ export default function WaterTracker() {
               <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 14 }}>Cancel</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Save as Preset overlay — inline (not a separate Modal) because
+              iOS RN Modal-over-Modal silently fails. See
+              feedback_ios_modal_stacking. */}
+          {showSavePresetModal && (
+            <KeyboardAvoidingView
+              style={StyleSheet.absoluteFill}
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+            >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 20 }]}>
+                  <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                    <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💾 Save as Preset</Text>
+                        <TouchableOpacity onPress={() => setShowSavePresetModal(false)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                          <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>{savePresetSubtitle}</Text>
+                    </View>
+                    <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
+                      <TextInput
+                        value={savePresetName}
+                        onChangeText={setSavePresetName}
+                        autoFocus
+                        selectTextOnFocus
+                        returnKeyType="done"
+                        onSubmitEditing={() => {
+                          const payload = savePresetPayloadRef.current;
+                          if (payload) {
+                            const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
+                            savePreset(name, payload.oz, payload.cat);
+                          }
+                          setShowSavePresetModal(false);
+                        }}
+                        placeholder="Preset name"
+                        placeholderTextColor="#a8a8a8"
+                        style={{
+                          backgroundColor: "#ffffff",
+                          color: LIGHT_NAVY_DEEP,
+                          borderRadius: 12,
+                          paddingHorizontal: 14,
+                          paddingVertical: 14,
+                          fontSize: 16,
+                          borderWidth: 1,
+                          borderColor: "rgba(0,0,0,0.12)",
+                          marginBottom: 18,
+                        }}
+                      />
+                      <View style={{ flexDirection: "row", gap: 10 }}>
+                        <TouchableOpacity
+                          style={lightCancelBtn}
+                          onPress={() => setShowSavePresetModal(false)}
+                        >
+                          <Text style={lightCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={lightPrimaryBtn}
+                          onPress={() => {
+                            const payload = savePresetPayloadRef.current;
+                            if (payload) {
+                              const name = savePresetName.trim() || `My ${CATEGORIES.find((c) => c.key === payload.cat)?.label ?? "Drink"}`;
+                              savePreset(name, payload.oz, payload.cat);
+                            }
+                            setShowSavePresetModal(false);
+                          }}
+                        >
+                          <Text style={lightPrimaryText}>Save</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </KeyboardAvoidingView>
+          )}
         </View>
       </Modal>
 
