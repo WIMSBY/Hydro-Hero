@@ -44,8 +44,11 @@ import { refreshCustomSounds } from "../utils/SoundManager";
 const LIGHT_BODY = "#F0F2F5";
 const LIGHT_NAVY = "#1a0a3a";
 const LIGHT_NAVY_DEEP = "#1a1a2e";
-const ACCENT_WATER_TINT = "rgba(0,136,255,0.10)";
-const ACCENT_WATER_BORDER = "rgba(0,136,255,0.42)";
+const GOLD_TITLE = "#F4C40A";
+const GOLD_HOME_BORDER = "#FFD700";
+const HEADER_SUBTEXT = "#B4ACC7";
+const ACCENT_WATER_TINT = "rgba(26,10,58,0.08)";
+const ACCENT_WATER_BORDER = "rgba(26,10,58,0.35)";
 
 interface RoleMeta {
   role: CustomizableRole;
@@ -505,11 +508,11 @@ function RecordSheet({
 
 const s = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 18, height: "92%", borderTopWidth: 1, borderColor: "rgba(255,215,0,0.28)" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" },
-  headerBack: { color: LIGHT_NAVY, fontSize: 14, fontWeight: "700" },
-  headerTitle: { color: LIGHT_NAVY_DEEP, fontSize: 17, fontWeight: "800" },
-  headerDone: { color: LIGHT_NAVY, fontSize: 15, fontWeight: "800" },
+  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 20, paddingTop: 18, height: "92%", borderTopWidth: 1, borderColor: "rgba(255,215,0,0.55)", overflow: "hidden" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, marginHorizontal: -20, marginTop: -18, paddingTop: 16, paddingHorizontal: 16, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  headerBack: { color: GOLD_TITLE, fontSize: 14, fontWeight: "700" },
+  headerTitle: { color: GOLD_TITLE, fontSize: 17, fontWeight: "800" },
+  headerDone: { color: GOLD_TITLE, fontSize: 15, fontWeight: "800" },
   subtitle: { color: "#666666", fontSize: 13, lineHeight: 19, marginBottom: 20 },
   roleCard: { backgroundColor: "#ffffff", borderRadius: 16, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: "rgba(0,0,0,0.08)" },
   roleHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 12 },
@@ -532,14 +535,14 @@ const s = StyleSheet.create({
 
 const recStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "center", alignItems: "center", padding: 24 },
-  sheet: { backgroundColor: LIGHT_BODY, borderRadius: 22, padding: 24, width: "100%", maxWidth: 360, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,215,0,0.28)" },
+  sheet: { backgroundColor: LIGHT_BODY, borderRadius: 22, padding: 24, width: "100%", maxWidth: 360, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,215,0,0.55)" },
   title: { color: LIGHT_NAVY_DEEP, fontSize: 16, fontWeight: "800", marginBottom: 4 },
   subtitle: { color: "#666666", fontSize: 12, marginBottom: 18, textAlign: "center" },
   micWrap: { width: 92, height: 92, alignItems: "center", justifyContent: "center", marginBottom: 12 },
   micPulse: { position: "absolute", width: 92, height: 92, borderRadius: 46, backgroundColor: "rgba(192,21,42,0.20)" },
   micIcon: { fontSize: 52 },
   timer: { color: LIGHT_NAVY_DEEP, fontSize: 16, fontWeight: "700", marginBottom: 20 },
-  primaryBtn: { backgroundColor: LIGHT_NAVY, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, alignItems: "center", minWidth: 220 },
+  primaryBtn: { backgroundColor: LIGHT_NAVY, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, alignItems: "center", minWidth: 220, borderWidth: 2, borderColor: GOLD_HOME_BORDER },
   primaryBtnText: { color: "#ffffff", fontSize: 15, fontWeight: "800", letterSpacing: 0.5 },
   reviewRow: { flexDirection: "row", gap: 10 },
   reviewBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: "rgba(0,0,0,0.12)", backgroundColor: "#ffffff", alignItems: "center" },
