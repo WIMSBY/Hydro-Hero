@@ -474,8 +474,15 @@ const GOLD_DIM = "#c8a000";
 const LIGHT_BODY = "#F0F2F5";
 const LIGHT_NAVY = "#1a0a3a";
 const LIGHT_NAVY_DEEP = "#1a1a2e";
-const ACCENT_WATER_TINT = "rgba(0,136,255,0.10)";
-const ACCENT_WATER_BORDER = "rgba(0,136,255,0.42)";
+// Header (navy) tokens for the modal-hero-header pattern (2026-07-02 palette).
+const GOLD_TITLE = "#F4C40A";           // header title text on navy
+const GOLD_HOME_BORDER = "#FFD700";     // Home-style gold outline on primary CTA
+const HEADER_SUBTEXT = "#B4ACC7";       // subtext + close X on navy header
+// Highlight card + selected-tile fill (repurposed from earlier blue).
+// Was `rgba(0,136,255,X)` — swapped 2026-07-02 to navy-tint so it reads as brand
+// accent on the light body instead of a competing blue.
+const ACCENT_WATER_TINT = "rgba(26,10,58,0.08)";
+const ACCENT_WATER_BORDER = "rgba(26,10,58,0.35)";
 // --- Star Particles ---
 function StarParticles() {
   const N = 14;
@@ -1508,18 +1515,18 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
 }
 const cbStyles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%", borderTopWidth: 1, borderColor: "rgba(255,215,0,0.28)" },
-  header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" },
-  title: { color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800" },
-  subtitle: { color: "#666666", fontSize: 12, marginTop: 3 },
+  sheet: { backgroundColor: LIGHT_BODY, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 20, paddingHorizontal: 20, maxHeight: "88%", minHeight: "85%", borderTopWidth: 1, borderColor: "rgba(255,215,0,0.55)", overflow: "hidden" },
+  header: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, paddingTop: 14, paddingHorizontal: 14, marginHorizontal: -20, marginTop: -20, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  title: { color: GOLD_TITLE, fontSize: 18, fontWeight: "800" },
+  subtitle: { color: HEADER_SUBTEXT, fontSize: 12, marginTop: 3 },
   counter: { fontSize: 13, fontWeight: "700", marginTop: 6 },
   closeBtn: { minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
-  closeTxt: { color: "#888888", fontSize: 18 },
+  closeTxt: { color: HEADER_SUBTEXT, fontSize: 18 },
   actionRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
   actionBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: "rgba(255,215,0,0.35)", alignItems: "center", backgroundColor: "#ffffff" },
   actionTxt: { color: "#c8a000", fontSize: 12, fontWeight: "700" },
   hint: { color: "#C0152A", fontSize: 12, fontWeight: "600", marginBottom: 8 },
-  divider: { height: 1, backgroundColor: "rgba(255,215,0,0.22)", marginVertical: 8 },
+  divider: { height: 1, backgroundColor: "rgba(255,215,0,0.5)", marginVertical: 8 },
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10, marginBottom: 4, borderWidth: 1, borderColor: "transparent", gap: 12 },
   rowSel: { backgroundColor: "#ffffff", borderColor: "rgba(0,0,0,0.08)" },
   rowActive: { backgroundColor: "rgba(0,136,255,0.12)", borderColor: "rgba(0,136,255,0.55)", borderWidth: 1.5, shadowColor: LIGHT_NAVY, shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
@@ -1729,16 +1736,16 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={() => {}}>
-              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.55)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
                 {/* Header */}
-                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
+                <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
                   <View style={{ flexDirection: "row", alignItems: "center" }}>
-                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
+                    <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>✏️ Customize Quick Add</Text>
                     <TouchableOpacity onPress={onCancel} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                      <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                      <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>Tap a button to edit its amount</Text>
+                  <Text style={{ color: HEADER_SUBTEXT, fontSize: 12, marginTop: 4 }}>Tap a button to edit its amount</Text>
                 </View>
 
                 <ScrollView
@@ -4971,15 +4978,15 @@ export default function WaterTracker() {
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
-                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
+                <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.55)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
+                      <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Enter Amount</Text>
                       <TouchableOpacity onPress={closeCustomModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                        <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                        <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>Type a custom amount to log</Text>
+                    <Text style={{ color: HEADER_SUBTEXT, fontSize: 12, marginTop: 4 }}>Type a custom amount to log</Text>
                   </View>
 
                   <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
@@ -5205,15 +5212,15 @@ export default function WaterTracker() {
             >
               <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 20 }]}>
-                  <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
-                    <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
+                  <View onStartShouldSetResponder={() => true} style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.55)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                    <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
                       <View style={{ flexDirection: "row", alignItems: "center" }}>
-                        <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💾 Save as Preset</Text>
+                        <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>💾 Save as Preset</Text>
                         <TouchableOpacity onPress={() => setShowSavePresetModal(false)} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                          <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                          <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
                         </TouchableOpacity>
                       </View>
-                      <Text style={{ color: "#666666", fontSize: 12, marginTop: 4 }}>{savePresetSubtitle}</Text>
+                      <Text style={{ color: HEADER_SUBTEXT, fontSize: 12, marginTop: 4 }}>{savePresetSubtitle}</Text>
                     </View>
                     <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
                       <TextInput
@@ -5356,16 +5363,16 @@ export default function WaterTracker() {
               tab's ScrollPickers. iOS users dismiss the keyboard via the
               InputAccessoryView Done button below. */}
           <View style={styles.modalOverlay}>
-              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.28)", padding: 0, overflow: "hidden" }]}>
+              <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.55)", padding: 0, overflow: "hidden" }]}>
                   {/* Header */}
-                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
                     <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Set Daily Goal</Text>
+                      <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>💧 Set Daily Goal</Text>
                       <TouchableOpacity onPress={closeGoalModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-                        <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                        <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={{ color: "#666666", fontSize: 12, marginTop: 4, lineHeight: 17 }}>
+                    <Text style={{ color: HEADER_SUBTEXT, fontSize: 12, marginTop: 4, lineHeight: 17 }}>
                       Hydration needs vary. Use goals as a guide, avoid forcing fluids, and follow medical guidance if you have health concerns.
                     </Text>
                   </View>
@@ -5807,15 +5814,15 @@ export default function WaterTracker() {
         onRequestClose={() => setShowSettingsModal(false)}
       >
         <View style={{ flex: 1, backgroundColor: LIGHT_BODY }}>
-          <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.22)" }}>
+          <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
+              <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
               <TouchableOpacity
                 onPress={() => setShowSettingsModal(false)}
                 activeOpacity={0.7}
                 style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
               >
-                <Text style={{ color: "#888888", fontSize: 20, lineHeight: 22 }}>✕</Text>
+                <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -6497,9 +6504,9 @@ export default function WaterTracker() {
 // (LIGHT_BODY / LIGHT_NAVY / LIGHT_NAVY_DEEP / ACCENT_WATER_*) are declared
 // near the top of the file so they're in scope for early StyleSheet.create
 // blocks; the form tokens below only need to be in scope for JSX.
-// Pale water-blue accent for selected chip fills. Kept the ACCENT_YELLOW
-// identifier from an earlier experiment to minimize churn across modals.
-const ACCENT_YELLOW = "#B3DDFA";
+// Soft neutral chip fill (was pale water-blue #B3DDFA — swapped 2026-07-02).
+// Name kept to minimize churn across consumers.
+const ACCENT_YELLOW = "#DDE5EE";
 const lightCancelBtn = {
   flex: 1 as const,
   backgroundColor: "transparent",
@@ -6518,6 +6525,8 @@ const lightPrimaryBtn = {
   height: 52,
   justifyContent: "center" as const,
   alignItems: "center" as const,
+  borderWidth: 2,
+  borderColor: GOLD_HOME_BORDER,
 };
 const lightPrimaryText = { color: "#ffffff", fontWeight: "800" as const, fontSize: 16 };
 const lightFieldLabel = { color: LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "600" as const };
@@ -6545,7 +6554,7 @@ const lightValidationError = { color: "#c0152a", fontSize: 11, marginTop: 3, mar
 const settingsSection = { color: "#c8a000", fontSize: 11, fontWeight: "800" as const, letterSpacing: 1, marginBottom: 14 };
 const settingsRowTitle = { color: "#1a1a2e", fontSize: 15, fontWeight: "600" as const, marginBottom: 3 };
 const settingsRowSub = { color: "#666666", fontSize: 12, lineHeight: 18 };
-const settingsDivider = { marginTop: 10, height: 1, backgroundColor: "rgba(255,215,0,0.22)" };
+const settingsDivider = { marginTop: 10, height: 1, backgroundColor: "rgba(255,215,0,0.5)" };
 // Navy "on" — Chanda's call: toggles navy, tinted highlights stay blue.
 const settingsSwitchTrack = { false: "rgba(0,0,0,0.15)", true: "#1a0a3a" };
 
