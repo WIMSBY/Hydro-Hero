@@ -82,5 +82,14 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate, ObservableObj
         s.streak             = ctx["streak"]      as? Int    ?? 0
         s.selectedBeverages  = ctx["selectedBeverages"] as? [String] ?? ["water"]
         self.state = s
+
+        // Mirror the phone's Siri preset catalog to local UserDefaults so
+        // watch-side LogPresetIntent can enumerate presets even when the
+        // watch app is not foregrounded. Only overwrite when the phone
+        // actually sent the key — an update without siriPresets should
+        // leave the cached copy alone.
+        if let presets = ctx["siriPresets"] as? [[String: Any]] {
+            UserDefaults.standard.set(presets, forKey: "siri_catalog")
+        }
     }
 }
