@@ -1,5 +1,6 @@
 import WatchConnectivity
 import SwiftUI
+import AppIntents
 
 // ─── Shared data model ────────────────────────────────────────────────────────
 
@@ -90,6 +91,12 @@ final class WatchConnectivityManager: NSObject, WCSessionDelegate, ObservableObj
         // leave the cached copy alone.
         if let presets = ctx["siriPresets"] as? [[String: Any]] {
             UserDefaults.standard.set(presets, forKey: "siri_catalog")
+            // Force watchOS to re-query PresetEntityQuery.suggestedEntities()
+            // so Siri's phrase grammar picks up the newly-synced presets —
+            // same reason as the phone-side call in LLSiriQueue.writeCatalog.
+            if #available(watchOS 9.0, *) {
+                HydroHeroAppShortcuts.updateAppShortcutParameters()
+            }
         }
     }
 }

@@ -3,7 +3,7 @@
     "name": "Hydro Hero",
     "slug": "hydration-station",
     "description": "Track your daily water intake with Hydro Hero",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -16,7 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.wimsby.hydrationstation",
       "appleTeamId": "2GPWB6H7M2",
-      "buildNumber": "37",
+      "buildNumber": "38",
       "infoPlist": {
         "NSHealthShareUsageDescription": "Hydro Hero reads health data to provide personalized hydration insights",
         "NSHealthUpdateUsageDescription": "Hydro Hero saves your water intake to Apple Health to keep all your health data in one place",
