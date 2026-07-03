@@ -151,13 +151,11 @@ const OBJC_SOURCE = `
 
 RCT_EXTERN_METHOD(startActivity:(double)hydrationOz
                   goalOz:(double)goalOz
-                  staleAtMs:(double)staleAtMs
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
 RCT_EXTERN_METHOD(updateActivity:(double)hydrationOz
                   goalOz:(double)goalOz
-                  staleAtMs:(double)staleAtMs
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
