@@ -221,7 +221,7 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label, variant = "l
       <ScrollView
         ref={scrollRef}
         style={{ height: PICKER_ITEM_H * PICKER_VISIBLE }}
-        contentContainerStyle={{ paddingVertical: PICKER_ITEM_H * 2 }}
+        contentContainerStyle={{ paddingVertical: PICKER_ITEM_H }}
         snapToInterval={PICKER_ITEM_H}
         decelerationRate="fast"
         showsVerticalScrollIndicator={false}

@@ -43,6 +43,9 @@ app-example
 /android
 targets/*/Assets.xcassets/
 
+# Android/Play credentials — local only, never ship
+pc-api-key.json
+
 # Admin tools — local only, never ship
 admin/
 
