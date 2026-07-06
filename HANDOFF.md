@@ -1,86 +1,48 @@
-# Handoff — 2026-07-02 afternoon (Chanda → next session)
+# Handoff — 2026-07-06 (Chanda → next session)
 
 ## TL;DR
 
-**Build 38 / v1.1.2 is submitted for App Review.** Single-fix release on top of the currently-live v1.1.1 (which Apple approved same-day as Build 37 was submitted). Fix: the watch-side WCSession handler now calls `HydroHeroAppShortcuts.updateAppShortcutParameters()` immediately after writing `siri_catalog`, so watchOS re-indexes Siri's LogPreset phrase grammar and "Hey Siri, log preset [name] in Hydro Hero" on the wrist actually resolves to real preset names.
-
-Working tree is clean. Branch `2026-06-19-bdv9` pushed. Main is caught up.
+**v1.1.2 / Build 39 is APPROVED and live on the App Store.** On top of it, the **one-off drink logging feature** shipped today as an OTA to the production channel (runtime 1.1.2) — commit `f74bcb6`, pushed to `origin/main`. Working tree is clean.
 
 ## Where things are
 
-- **In review:** Build 38, v1.1.2, submitted 2026-07-02 afternoon
-- **Live on App Store:** Build 37, v1.1.1 (approved 2026-07-02 early)
-- **Orphans in ASC Builds pool:** Build 36 (uploaded but never attached) — harmless
+- **Live on App Store:** Build 39, v1.1.2 (approved 2026-07-06 or earlier)
+- **Live OTA on production channel:** one-off logging, update group `10c2a4bf-db0a-4c92-b245-0c5bcd6ecb5c` (published 2026-07-06)
+- **Prior OTA still relevant:** ScrollPicker off-by-one fix (2026-07-04, both v1.1.1 + v1.1.2 channels)
+- **Android port:** Phase 0/1 in flight — see `~/.claude/.../memory/project_android_port.md` + `project_handoff_2026_07_04.md` for the EAS dev build ID, SHA-256 verification steps, and Play Console API-access unlock checklist
 
-**Branch:** `2026-06-19-bdv9`. Build 38 commit is `b9f3cd4`.
+**Branch:** `main` at `f74bcb6`.
 
-## What Build 38 actually changed
+## What shipped today: one-off drink logging (JS-only, single file `app/(tabs)/index.tsx`)
 
-One 7-line diff in one file:
+Free path to log a beverage that isn't on the home-screen grid — conversion bet: repeated one-off use of a Pro-locked beverage sells the "add it to your home screen" upgrade.
 
-```swift
-// targets/watch/WatchConnectivityManager.swift
-import WatchConnectivity
-import SwiftUI
-import AppIntents   // ← added
+- **"Log once" button** on every *unselected* row in the Customize Your Beverages sheet (all users, free + Pro). Locked rows keep dimmed content + paywall-on-row-tap; the button stays full-opacity and free.
+- Tapping it closes the sheet, waits 350 ms (iOS Modal-over-Modal landmine), then opens a **one-off amount modal** (light theme per design tokens: navy header, gold title). Quick-add chips + custom amount in preferred unit → **Log It**.
+- Logging runs the normal pipeline via a new optional param: `handleBet(oz, categoryOverride?)`. The grid (`selectedBeverages`) is never touched.
+- **PRO nudge:** 3rd one-off log of the same beverage, only if `!isPro && !DEFAULT_VISIBLE_BEVS.includes(cat)` → one-time-per-beverage-per-profile Alert → "See PRO" opens paywall. Storage keys (profile-namespaced): `oneoff_log_count_<bev>`, `oneoff_nudge_shown_<bev>`. Free defaults (incl. Soda) never nudge; Pro users never nudge.
 
-// inside applyContext, after UserDefaults.standard.set(presets, forKey: "siri_catalog"):
-if #available(watchOS 9.0, *) {
-    HydroHeroAppShortcuts.updateAppShortcutParameters()
-}
-```
+### Discovered during this work
 
-Mirrors the iPhone-side call at `ios/LLSiriQueue.swift:33`. That's it — no other files changed on the tracked side. The `ios/` bumps (Info.plist `CFBundleVersion 38` / `CFBundleShortVersionString 1.1.2`, pbxproj `CURRENT_PROJECT_VERSION 38` 4× / `MARKETING_VERSION 1.1.2` 6×) are in the working tree but gitignored.
+The old **"What did you drink?" category-picker Modal** (`index.tsx` ~line 5300, `showCategoryModal`) is dead code — `setShowCategoryModal(true)` is never called anywhere. Pre-Build-25 leftover. Candidate for deletion in a cleanup pass.
 
-## Diagnosis path (for future watch-Siri bugs)
+## If something goes sideways with the OTA
 
-The watch had all the right pieces from Build 36's Siri LogPreset landing:
-- `HydroHeroAppShortcuts` declares LogPreset with `"Log preset (.$preset) in Hydro Hero"` phrase
-- `PresetEntityQuery.suggestedEntities()` reads `UserDefaults.standard[siri_catalog]`
-- `WatchConnectivityManager.applyContext` populates that catalog from phone WCSession pushes
-- Compiled `Metadata.appintents` (inspected via `strings HydroHeroWatch.app/Metadata.appintents/extract.actionsdata`) correctly registers the intent, entity, query, and phrases
+- JS-only fix → patch on `main`, `npx eas update --branch production --platform ios` (ALWAYS `--platform ios` — web export crashes on expo-secure-store SSR).
+- Roll back = republish the previous update group from the EAS dashboard.
 
-But there was never a call to tell watchOS "the entity list changed, please re-query." The phone side has always had that call in `LLSiriQueue.writeCatalog`. Watch was missing the mirror.
+## Post-approval parking lot
 
-## Verification landmines during this session
-
-- **watchOS simulator has no `linkd` daemon** — `updateAppShortcutParameters()` fails with "Failed to connect to linkd" in the sim, so watch-Siri fixes can't be end-to-end verified there. Real Apple Watch install required. Log-scrape verification (grep `subsystem == "com.apple.AppIntents"` for the linkd error) at least confirms the API call is reached. Documented in `feedback_watchos_sim_no_linkd.md`.
-- **Workspace build fails on `watchsimulator` SDK** with expo-dev-menu-interface errors. Use `xcodebuild -project HydroHero.xcodeproj -target HydroHeroWatch -sdk watchsimulator` to skip Pods when compile-checking the watch target only.
-
-## ASC copy shipped
-
-**What's New (v1.1.2):**
-```
-v1.1.2 — Apple Watch Siri fix
-
-Fixed: "Hey Siri, log preset [name] in Hydro Hero" on Apple Watch
-now recognizes your saved presets. In v1.1.1 the Watch's Siri
-wasn't refreshing its preset list after new presets synced over
-from the phone, so voice invocation could return "no matching
-preset" even when the preset existed. Now the Watch re-indexes
-automatically.
-```
-
-**Reviewer Notes:** references `HydroHeroAppShortcuts.updateAppShortcutParameters()` mirror of `LLSiriQueue.writeCatalog`. Explicitly states no new permissions / IAPs / Info.plist / UI changes and same runtime version policy.
-
-**Promo text + Description add-on:** reused verbatim from v1.1.1 — the Siri-on-Watch pitch is still accurate, it just actually works now.
-
-## If review comes back with feedback
-
-- **JS-only fix possible** → patch on `2026-06-19-bdv9`, `npx eas update --branch production --platform ios`. No new binary.
-- **Native or first-launch blocker** → bump buildNumber to 39, same archive checklist. But note v1.1.2 train stays open until Apple approves — one more build in the same train is fine.
-
-## Post-approval parking lot (unchanged from v1.1.1 handoff)
-
+- **Android port next steps** — check EAS dev build, SHA-256 → Play Console developer verification, service-account walk-through (user wants one screen at a time). Full checklist in `project_handoff_2026_07_04.md`.
 - **Screenshot refresh** — ASC screenshots still show pre-refresh modal palette. Not a rejection risk.
-- **Siri onboarding** — contextual tip after first preset save + Settings > Voice Shortcuts section. Deferred.
-- **EAS Build migration** — `eas.json` production block missing `SENTRY_AUTH_TOKEN` + `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`. ~1h setup + verification if we want to move off local Xcode.
+- **Siri onboarding** — contextual tip after first preset save. Deferred.
+- **Dead code cleanup** — the unreachable "What did you drink?" modal.
+- **EAS Build migration (iOS)** — `eas.json` production block missing `SENTRY_AUTH_TOKEN` + `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`.
 
 ## Pointers
 
-- Latest build state: `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/project_build38_contents.md` (auto-loaded)
-- Prev shipping build: `project_build37_contents.md`
-- Quick state catch-up: `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/MEMORY.md` (auto-loaded)
-- Watch-sim gotcha: `feedback_watchos_sim_no_linkd.md`
-- Archive landmines: `feedback_prebuild_wipes_xcode_env_local.md` + `feedback_local_archive_buildnumber.md` + `feedback_prebuild_needs_clean.md`
+- Feature details: `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/project_oneoff_logging.md`
+- Pro-gate map (now includes the free Log-once bypass on gate #1): `memory/project_pro_gate_map.md`
+- Quick state catch-up: `memory/MEMORY.md` (auto-loaded)
+- Archive landmines (if a new binary is ever needed): `feedback_prebuild_wipes_xcode_env_local.md` + `feedback_local_archive_buildnumber.md` + `feedback_prebuild_needs_clean.md`
 - TestFlight + ASC dashboard links: `reference_external_dashboards.md`
