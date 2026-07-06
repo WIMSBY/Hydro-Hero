@@ -1305,10 +1305,11 @@ interface ChooseBevsModalProps {
   showAlcoholic: boolean;
   isPro: boolean;
   onPaywallTrigger: () => void;
+  onLogOnce: (key: BevCategory) => void;
   onSave: (selection: BevCategory[]) => void;
   onCancel: () => void;
 }
-function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPaywallTrigger, onSave, onCancel }: ChooseBevsModalProps) {
+function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPaywallTrigger, onLogOnce, onSave, onCancel }: ChooseBevsModalProps) {
   const pickerCategories = useMemo(
     () => (showAlcoholic ? CATEGORIES : CATEGORIES.filter((b) => !ALCOHOLIC_BEVS.has(b.key))),
     [showAlcoholic],
@@ -1468,7 +1469,7 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
                       return (
                         <TouchableOpacity
                           key={bev.key}
-                          style={[cbStyles.row, isLocked && { opacity: 0.45 }]}
+                          style={cbStyles.row}
                           onPress={() => {
                             if (isLocked) { onPaywallTrigger(); return; }
                             toggle(bev.key);
@@ -1476,15 +1477,25 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
                           activeOpacity={0.75}
                         >
                           <View style={cbStyles.dragHandlePlaceholder} />
-                          <Text style={cbStyles.rowEmoji}>{bev.emoji}</Text>
-                          <View style={{ flex: 1 }}>
+                          <Text style={[cbStyles.rowEmoji, isLocked && { opacity: 0.45 }]}>{bev.emoji}</Text>
+                          <View style={{ flex: 1, opacity: isLocked ? 0.45 : 1 }}>
                             <Text style={cbStyles.rowName}>{bev.label}</Text>
                             <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
                           </View>
+                          {/* One-off log — free for everyone; the beverage never
+                              joins the home-screen grid. */}
+                          <TouchableOpacity
+                            style={cbStyles.logOnceBtn}
+                            onPress={() => onLogOnce(bev.key)}
+                            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={cbStyles.logOnceTxt}>Log once</Text>
+                          </TouchableOpacity>
                           {isLocked && (
                             <View style={{
                               backgroundColor: LIGHT_NAVY, borderRadius: 5,
-                              paddingHorizontal: 6, paddingVertical: 2,
+                              paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6,
                             }}>
                               <Text style={{ color: "#ffffff", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
                             </View>
@@ -1537,6 +1548,8 @@ const cbStyles = StyleSheet.create({
   rowEmoji: { fontSize: 22, width: 30, textAlign: "center" },
   rowName: { color: LIGHT_NAVY_DEEP, fontSize: 14, fontWeight: "600" },
   rowEff: { color: "#666666", fontSize: 11, marginTop: 1 },
+  logOnceBtn: { borderWidth: 1, borderColor: "rgba(255,215,0,0.5)", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: "#ffffff" },
+  logOnceTxt: { color: "#c8a000", fontSize: 12, fontWeight: "700" },
   check: { color: LIGHT_NAVY, fontSize: 18, fontWeight: "800" },
   btnRow: { paddingVertical: 16 },
   saveBtn: { paddingVertical: 14, borderRadius: 12, backgroundColor: LIGHT_NAVY, alignItems: "center" },
@@ -2698,6 +2711,11 @@ export default function WaterTracker() {
   const [customAmount, setCustomAmount] = useState("");
   const [customUnit, setCustomUnit] = useState<"oz" | "ml">("oz");
   const [showCustomModal, setShowCustomModal] = useState(false);
+  // One-off log: beverage picked from the Customize sheet's "Log once" button.
+  // Logs a drink without ever joining the home-screen grid.
+  const [oneOffBev, setOneOffBev] = useState<BevCategory | null>(null);
+  const [oneOffOz, setOneOffOz] = useState<number | null>(null);
+  const [oneOffCustomAmt, setOneOffCustomAmt] = useState("");
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [lastEntry, setLastEntry] = useState<number | null>(null);
   const [newGoal, setNewGoal] = useState("");
@@ -2722,6 +2740,7 @@ export default function WaterTracker() {
   const [kbHeight, setKbHeight] = useState(0);
   const KB_ACCESSORY_ID = "modal-kb-done";
   const CUSTOM_ACCESSORY_ID = "custom-kb-done";
+  const ONEOFF_ACCESSORY_ID = "oneoff-kb-done";
 
   const [pendingOz, setPendingOz] = useState<number | null>(null);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -4159,14 +4178,15 @@ export default function WaterTracker() {
     return isJackpot;
   }
 
-  async function handleBet(oz: number) {
+  async function handleBet(oz: number, categoryOverride?: BevCategory) {
     if (spinning || jackpotSpinning) return;
+    const category = categoryOverride ?? selectedCategory;
     setResultMessage(null);
     setLastReelOz(oz);
-    setLastLoggedCategory(selectedCategory);
-    const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
-    const hydrated = calcHydratedOz(oz, selectedCategory);
-    const triggersJackpot = await addWater(oz, selectedCategory);
+    setLastLoggedCategory(category);
+    const cat = CATEGORIES.find((c) => c.key === category) ?? CATEGORIES[0];
+    const hydrated = calcHydratedOz(oz, category);
+    const triggersJackpot = await addWater(oz, category);
 
     haptic(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
 
@@ -4352,6 +4372,59 @@ export default function WaterTracker() {
     setShowCustomModal(false);
     setCustomAmount("");
     setCustomUnit("oz");
+  }
+
+  function closeOneOffModal() {
+    setOneOffBev(null);
+    setOneOffOz(null);
+    setOneOffCustomAmt("");
+  }
+
+  async function handleOneOffLog() {
+    if (oneOffBev === null) return;
+    const custom = parseFloat(oneOffCustomAmt);
+    let oz: number | null = null;
+    if (!isNaN(custom) && custom > 0) {
+      oz = preferredUnit === "ml" ? Math.round((custom / 29.5735) * 10) / 10 : custom;
+    } else if (oneOffOz !== null) {
+      oz = oneOffOz;
+    }
+    if (oz === null || oz <= 0) {
+      Alert.alert("Please pick or enter an amount");
+      return;
+    }
+    const cat = oneOffBev;
+    playButtonTapSound();
+    closeOneOffModal();
+    handleBet(oz, cat);
+
+    // Conversion nudge: 3rd one-off log of the same Pro-locked beverage →
+    // one-time "add it to your home screen" prompt. Defaults are free to
+    // re-add, so no nudge for those.
+    if (!isPro && !DEFAULT_VISIBLE_BEVS.includes(cat)) {
+      try {
+        const countKey = `oneoff_log_count_${cat}`;
+        const shownKey = `oneoff_nudge_shown_${cat}`;
+        const count = parseInt((await pGetItem(countKey)) ?? "0", 10) + 1;
+        await pSetItem(countKey, String(count));
+        if (count >= 3 && (await pGetItem(shownKey)) !== "1") {
+          await pSetItem(shownKey, "1");
+          const label = getBev(cat).label;
+          // Wait out handleBet's tank-fill (and possible jackpot celebration)
+          // sequence before covering the screen with an alert.
+          setTimeout(() => {
+            Alert.alert(
+              `Drinking ${label} often?`,
+              `That's ${count} ${label} logs. Add it to your home screen with PRO for one-tap logging.`,
+              [
+                { text: "Not Now", style: "cancel" },
+                { text: "See PRO", onPress: () => openPaywall() },
+              ],
+            );
+          }, 4200);
+        }
+      } catch {}
+    }
   }
 
   /** Reschedule notifications immediately after a goal change. */
@@ -5066,6 +5139,88 @@ export default function WaterTracker() {
         )}
       </Modal>
 
+      {/* One-Off Drink Modal — logs a beverage picked via "Log once" in the
+          Customize sheet without adding it to the home-screen grid. */}
+      <Modal visible={oneOffBev !== null} transparent animationType="fade" onRequestClose={closeOneOffModal}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={[styles.modalBox, { backgroundColor: LIGHT_BODY, borderColor: "rgba(255,215,0,0.55)", paddingVertical: 0, paddingHorizontal: 0, overflow: "hidden" }]}>
+                  <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>
+                        {oneOffBev !== null ? `${getBev(oneOffBev).emoji} Log ${getBev(oneOffBev).label}` : ""}
+                      </Text>
+                      <TouchableOpacity onPress={closeOneOffModal} style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+                        <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ color: HEADER_SUBTEXT, fontSize: 12, marginTop: 4 }}>One-off drink — won't be added to your home screen</Text>
+                  </View>
+
+                  <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
+                    <Text style={{ color: LIGHT_NAVY_DEEP, fontSize: 13, fontWeight: "600", marginBottom: 10 }}>How much?</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+                      {quickAddAmounts.map((oz) => {
+                        const active = oneOffOz === oz && oneOffCustomAmt === "";
+                        const chipLabel = preferredUnit === "ml" ? `${ozToMl(oz)} ml` : `${oz} oz`;
+                        return (
+                          <TouchableOpacity
+                            key={oz}
+                            style={{
+                              paddingVertical: 11, paddingHorizontal: 14, borderRadius: 10,
+                              backgroundColor: active ? LIGHT_NAVY : "#ffffff",
+                              borderWidth: 1, borderColor: active ? LIGHT_NAVY : "rgba(0,0,0,0.12)",
+                            }}
+                            onPress={() => { setOneOffOz(oz); setOneOffCustomAmt(""); Keyboard.dismiss(); }}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={{ color: active ? "#ffffff" : LIGHT_NAVY_DEEP, fontSize: 15, fontWeight: "700" }}>{chipLabel}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+
+                    <TextInput
+                      style={{
+                        backgroundColor: "#ffffff", color: LIGHT_NAVY_DEEP, borderRadius: 12,
+                        paddingHorizontal: 16, paddingVertical: 16, fontSize: 18,
+                        borderWidth: 1, borderColor: "rgba(0,0,0,0.12)",
+                      }}
+                      placeholder={`Custom amount in ${preferredUnit}...`}
+                      placeholderTextColor="#a8a8a8"
+                      keyboardType="decimal-pad"
+                      inputAccessoryViewID={ONEOFF_ACCESSORY_ID}
+                      value={oneOffCustomAmt}
+                      onChangeText={(t) => { setOneOffCustomAmt(t); setOneOffOz(null); }}
+                    />
+
+                    <View style={{ flexDirection: "row", gap: 10, marginTop: 20 }}>
+                      <TouchableOpacity style={lightCancelBtn} onPress={closeOneOffModal}>
+                        <Text style={lightCancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={lightPrimaryBtn} onPress={handleOneOffLog}>
+                        <Text style={lightPrimaryText}>Log It</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
+        {Platform.OS === "ios" && (
+          <InputAccessoryView nativeID={ONEOFF_ACCESSORY_ID}>
+            <View style={styles.iosKbBar}>
+              <TouchableOpacity onPress={Keyboard.dismiss}>
+                <Text style={[styles.iosKbDone, { color: GOLD_DIM }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </InputAccessoryView>
+        )}
+      </Modal>
+
 
       {/* Confirm Drink Modal */}
       <Modal visible={pendingBetOz !== null} transparent animationType="slide" onRequestClose={() => { setPendingBetOz(null); setPendingQty(1); }}>
@@ -5338,6 +5493,11 @@ export default function WaterTracker() {
           // its slide-out, then open the paywall so it actually renders.
           setShowChooseBevs(false);
           setTimeout(() => openPaywall(), 350);
+        }}
+        onLogOnce={(key) => {
+          // Same Modal-over-Modal dance as the paywall trigger above.
+          setShowChooseBevs(false);
+          setTimeout(() => setOneOffBev(key), 350);
         }}
         onSave={async (bevs) => {
           setSelectedBeverages(bevs);
