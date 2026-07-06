@@ -12,16 +12,22 @@
 
 // ─── Module-level load (Expo Go safe) ────────────────────────────────────────
 
+import { Platform } from 'react-native';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let watchModule: any = null;
 let isWatchAvailable = false;
 
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  watchModule = require('react-native-watch-connectivity');
-  // Unwrap default export if present
-  if (watchModule?.default) watchModule = watchModule.default;
-  isWatchAvailable = true;
+  // Android excluded via react-native.config.js — native module never exists
+  // there, but the JS require can still succeed, so gate explicitly.
+  if (Platform.OS === 'ios') {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    watchModule = require('react-native-watch-connectivity');
+    // Unwrap default export if present
+    if (watchModule?.default) watchModule = watchModule.default;
+    isWatchAvailable = true;
+  }
 } catch {
   isWatchAvailable = false;
 }
