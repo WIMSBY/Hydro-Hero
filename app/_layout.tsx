@@ -33,9 +33,10 @@ function handleDeepLink(url: string) {
 Sentry.init({
   dsn: 'https://b3b652b828712e84d9a453721a530e58@o4511469395181568.ingest.de.sentry.io/4511469420281936',
 
-  // Adds more context data to events (IP address, cookies, user, etc.)
-  // For more information, visit: https://docs.sentry.io/platforms/react-native/data-management/data-collected/
-  sendDefaultPii: true,
+  // Do NOT auto-attach IP address / user context / cookies to events —
+  // we don't need any of that for crash triage, and disclosing IP under
+  // Google Play Data Safety is a gray area we can just avoid.
+  sendDefaultPii: false,
 
   // Enable Logs
   enableLogs: false,
