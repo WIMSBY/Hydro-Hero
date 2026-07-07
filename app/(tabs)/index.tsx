@@ -557,6 +557,14 @@ function MarqueeHeader({ goal, hydration, preferredUnit }: { goal: number; hydra
     };
   }, [focused, lightAnims, pulseAnim]);
   const won = hydration >= goal;
+  // Delay the GOAL REACHED flip until the droplet lands in the tank
+  // (fillAnim takes ~1.2s — see handleBet). Instant flip on tap felt early.
+  const [showWon, setShowWon] = useState(won);
+  useEffect(() => {
+    if (!won) { setShowWon(false); return; }
+    const t = setTimeout(() => setShowWon(true), 1300);
+    return () => clearTimeout(t);
+  }, [won]);
   const remainingOz = Math.max(0, goal - hydration);
   const remaining = preferredUnit === 'ml' ? `${ozToMl(remainingOz)} ml` : `${remainingOz.toFixed(1)} oz`;
   return (
@@ -573,8 +581,8 @@ function MarqueeHeader({ goal, hydration, preferredUnit }: { goal: number; hydra
         <Text style={mqStyles.star}>⭐</Text>
       </View>
       <Animated.View style={[mqStyles.badge, { transform: [{ scale: pulseAnim }] }]}>
-        <Text style={won ? mqStyles.wonText : mqStyles.remainText}>
-          {won ? "🎯 GOAL REACHED! 🎯" : `💧 ${remaining} to go`}
+        <Text style={showWon ? mqStyles.wonText : mqStyles.remainText}>
+          {showWon ? "🎯 GOAL REACHED! 🎯" : `💧 ${remaining} to go`}
         </Text>
       </Animated.View>
       <View style={mqStyles.lightsRow}>
@@ -4130,9 +4138,12 @@ export default function WaterTracker() {
       } catch {}
     } catch {}
 
-    // Fire immediate threshold notifications (once per day each)
+    // Fire immediate threshold notifications (once per day each).
+    // Gate 50%/80% on newHydration < goal, not just !isJackpot: a single log
+    // that crosses 0→100% skips both without writing their dedup flags, so
+    // every post-goal log (isJackpot=false, pct capped at 1) would fire them.
     const todayKey2 = getTodayKey();
-    if (!isJackpot && newHydPct >= 0.5) {
+    if (newHydration < goal && newHydPct >= 0.5) {
       fireImmediateNotifOnce(
         `notif_50pct_fired_${todayKey2}`,
         "Halfway to your goal! 💧",
@@ -4140,7 +4151,7 @@ export default function WaterTracker() {
         notifProgressEnabled,
       );
     }
-    if (!isJackpot && newHydPct >= 0.8) {
+    if (newHydration < goal && newHydPct >= 0.8) {
       fireImmediateNotifOnce(
         `notif_80pct_fired_${todayKey2}`,
         "So close to your goal! 💪",
