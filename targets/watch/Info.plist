@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+  <!-- Required by App Store processing (ITMS-90768): a standalone-capable
+       version of the watch app has shipped, so this key can never be removed. -->
+  <key>WKRunsIndependentlyOfCompanionApp</key>
+  <true/>
+</dict>
 </plist>
