@@ -224,6 +224,7 @@ function ScrollPicker({ items, selectedIndex, onIndexChange, label, variant = "l
         contentContainerStyle={{ paddingVertical: PICKER_ITEM_H }}
         snapToInterval={PICKER_ITEM_H}
         decelerationRate="fast"
+        nestedScrollEnabled
         showsVerticalScrollIndicator={false}
         onMomentumScrollEnd={(e) => snapToIndex(e.nativeEvent.contentOffset.y)}
         onScrollEndDrag={(e) => snapToIndex(e.nativeEvent.contentOffset.y)}
@@ -1399,8 +1400,8 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
               <Text style={cbStyles.title}>Customize Your Beverages</Text>
               <Text style={cbStyles.subtitle}>Long-press a tile to drag and reorder</Text>
               <Text style={cbStyles.counter}>
-                <Text style={{ color: LIGHT_NAVY }}>{selected.length}</Text>
-                <Text style={{ color: "#666666" }}> of 20 selected</Text>
+                <Text style={{ color: GOLD_TITLE }}>{selected.length}</Text>
+                <Text style={{ color: HEADER_SUBTEXT }}> of 20 selected</Text>
               </Text>
             </View>
             <TouchableOpacity onPress={onCancel} style={cbStyles.closeBtn}>
@@ -1749,7 +1750,7 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={() => {}}>
@@ -5051,7 +5052,7 @@ export default function WaterTracker() {
 
       {/* Custom Amount Modal */}
       <Modal visible={showCustomModal} transparent animationType="fade" onRequestClose={closeCustomModal}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback onPress={() => {}}>
@@ -5146,7 +5147,7 @@ export default function WaterTracker() {
       {/* One-Off Drink Modal — logs a beverage picked via "Log once" in the
           Customize sheet without adding it to the home-screen grid. */}
       <Modal visible={oneOffBev !== null} transparent animationType="fade" onRequestClose={closeOneOffModal}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
             <View style={styles.modalOverlay}>
               <TouchableWithoutFeedback onPress={() => {}}>
@@ -5367,7 +5368,7 @@ export default function WaterTracker() {
           {showSavePresetModal && (
             <KeyboardAvoidingView
               style={StyleSheet.absoluteFill}
-              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
             >
               <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
                 <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 20 }]}>
@@ -5520,7 +5521,7 @@ export default function WaterTracker() {
       <Modal visible={showGoalModal} transparent animationType="fade" onRequestClose={closeGoalModal}>
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           {/* No backdrop tap-to-dismiss wrapper here: TouchableWithoutFeedback
               claims the iOS gesture responder and silently blocks the Suggest
