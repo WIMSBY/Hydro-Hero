@@ -1492,14 +1492,18 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
                           >
                             <Text style={cbStyles.logOnceTxt}>Log once</Text>
                           </TouchableOpacity>
-                          {isLocked && (
-                            <View style={{
-                              backgroundColor: LIGHT_NAVY, borderRadius: 5,
-                              paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6,
-                            }}>
-                              <Text style={{ color: "#ffffff", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
-                            </View>
-                          )}
+                          {/* Fixed-width badge slot on every row so the Log once
+                              buttons align in a single column. */}
+                          <View style={{ width: 38, marginLeft: 6, alignItems: "flex-end" }}>
+                            {isLocked && (
+                              <View style={{
+                                backgroundColor: LIGHT_NAVY, borderRadius: 5,
+                                paddingHorizontal: 6, paddingVertical: 2,
+                              }}>
+                                <Text style={{ color: "#ffffff", fontSize: 9, fontWeight: "900", letterSpacing: 0.5 }}>PRO</Text>
+                              </View>
+                            )}
+                          </View>
                         </TouchableOpacity>
                       );
                     })}
@@ -6011,7 +6015,7 @@ export default function WaterTracker() {
                       <Switch
                         value={healthSyncEnabled && healthPermissionGranted}
                         onValueChange={handleHealthToggle}
-                        trackColor={{ false: "rgba(255,255,255,0.15)", true: "#34C759" }}
+                        trackColor={settingsSwitchTrack}
                         thumbColor="#ffffff"
                         ios_backgroundColor="rgba(0,0,0,0.10)"
                       />
