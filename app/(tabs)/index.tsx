@@ -1010,7 +1010,15 @@ function TankStats({
   const [pct, setPct] = useState(initial);
   useEffect(() => {
     const id = fillAnim.addListener(({ value }) => {
-      setPct((prev) => Math.round(prev * 100) === Math.round(value * 100) ? prev : value);
+      // Throttle to whole-percent changes to keep this leaf cheap, but always
+      // update on the terminal 0 / 1 frame — otherwise the last few sub-1%
+      // frames of a drain animation (Reset Today) round to 0% and get
+      // skipped, leaving the oz/ml labels pinned at a tiny tail value
+      // (e.g. tank shows 0% but "0.2 oz hydrated / 5 ml" lingers).
+      setPct((prev) => {
+        if (value === 0 || value === 1) return value;
+        return Math.round(prev * 100) === Math.round(value * 100) ? prev : value;
+      });
     });
     return () => fillAnim.removeListener(id);
   }, [fillAnim]);
