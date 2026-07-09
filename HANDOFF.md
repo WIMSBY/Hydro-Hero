@@ -1,56 +1,81 @@
-# Handoff — 2026-07-06 PM (Chanda → next session)
+# Handoff — 2026-07-08 PM (Chanda → next session)
 
 ## TL;DR
 
-**v1.1.2 / Build 39 is APPROVED and live on the App Store** with the one-off logging OTA on top (commit `f74bcb6`). **Android Phase 0 is COMPLETE** as of this afternoon: service account created + wired to Play Console and RevenueCat, SHA-256 key submitted (in review), and a replacement dev build is in the EAS queue after the first one failed on a broken library stub (fixed in commit `58edf1c` — **not yet pushed**).
+**Internal testing track is LIVE on Play Console.** Release 1.1.3 (versionCode 1), commit `ede1ecf`, EAS build `6ad744b6-7e38-4cbd-adc1-7f9e31a33787`, rolled out 6:40 PM.
+
+**Blocked on two Google-side clocks** before the paywall works end-to-end:
+1. **App content review** — Chanda submitted the App content forms tonight (Data safety, etc.); waiting on Google review (typically hours). Until this clears, tester install returns "Item not found" on the phone.
+2. **Google Payments merchant account micro-deposits** — profile submitted tonight; Google will send 2 small deposits to Dylan's bank in 1-3 business days for verification. Merchant account must be Verified before Play IAP products can be created, which blocks the paywall.
+
+**Absolute fastest realistic ship date: ~3 weeks from 2026-07-08** — dominated by Google's 12-testers × 14-days Closed testing requirement for personal developer accounts (see [[feedback-play-personal-account-12-14-rule]]).
 
 ## Where things are
 
-- **Live on App Store:** Build 39, v1.1.2 (approved 2026-07-06 or earlier)
-- **Live OTA on production channel:** one-off logging, update group `10c2a4bf-db0a-4c92-b245-0c5bcd6ecb5c` (published 2026-07-06)
-- **Prior OTA still relevant:** ScrollPicker off-by-one fix (2026-07-04, both v1.1.1 + v1.1.2 channels)
-- **Android port:** Phase 0 DONE. Dev build `fe0d2a51-1a69-41a8-a196-9b9d0575f231` was IN_PROGRESS at session end — check with `npx eas-cli build:view fe0d2a51-1a69-41a8-a196-9b9d0575f231 --json`. If FINISHED → download APK → install on Pixel 7 emulator → Phase 2 smoke test.
+- **iOS App Store LIVE:** v1.1.2 Build 39 (v1.1.3 Build 41 status unknown — check ASC this session)
+- **Android Internal testing LIVE:** v1.1.3 / versionCode 1 / build `6ad744b6` / commit `ede1ecf`
+- **Android SHA-256:** both fingerprints Verified in Play Console → Android developer verification (checked 2026-07-08)
+- **Play merchant account:** submitted, awaiting micro-deposit verification (Dylan's bank)
+- **App content review:** submitted 2026-07-08 evening, in review
+- **Internal testers list:** Chanda + Dylan added; opt-in link retrievable from Play Console → Testing → Internal testing → Testers tab
+- **Branch:** `main` — clean at session end (only HANDOFF.md itself modified)
 
-**Branch:** `main` at `58edf1c` — 1 commit ahead of origin (push not yet authorized).
+## Blockers → sequence to unblock
 
-## Android session notes (2026-07-06 PM)
+1. **Wait for App content review to clear** (hours) → check Play Store on phone every 15-30 min; when the direct URL `https://play.google.com/store/apps/details?id=com.wimsby.hydrationstation` returns an install page instead of 404, tester install works.
+2. **Wait for micro-deposits to land** (1-3 business days) → go back to Payments profile → enter the two exact deposit amounts → merchant account becomes Verified.
+3. **Create Play IAP products** (Monetize → Products → Subscriptions + In-app products): Monthly subscription $1.99 + Lifetime one-time $9.99 (mirror iOS SKUs by ID where possible for RC alignment).
+4. **Wire RC Android offerings** — RC dashboard → Products tab attaches the new Play SKUs (may need up to 15 min sync); then Offerings tab adds packages.
+5. **Self-verify paywall on Chanda's phone** — install Internal build, tap Upgrade, confirm both products render with correct prices, complete a test purchase (Play test accounts get free real purchases while in Internal).
+6. **Create Closed testing track**, upload same AAB, invite 12+ testers → this starts the 14-day active-testing clock.
+7. **After 14 days + Google verifies active-tester metric** → promote to production.
 
-- First dev build `77488959` ERRORED: `react-native-watch-connectivity@2.0.0` ships a broken Android Kotlin stub. Fix in `58edf1c`: `react-native.config.js` excludes it from Android autolinking; `utils/WatchManager.ts` requires it only on iOS.
-- Play Console's "API access" page no longer exists. New flow (completed): GCP project `hydro-hero-501622` → enabled Google Play Android Developer API → service account `hydro-hero-eas-submit@hydro-hero-501622.iam.gserviceaccount.com` → JSON key saved as `pc-api-key.json` at repo root (gitignored) → invited via Play Console Users and permissions (financial, orders, drafts, store presence, release-to-tracks).
-- Same JSON uploaded to RevenueCat (Play Store app). RC's "Could not validate access to Google Play subscription purchases" warning = Google permission propagation, self-clears within ~36h.
-- SHA-256: EAS keystore fingerprint added in Android Developer Verification console (a different auto-synced key `F5:ED:41:A6:2...` was already Verified). Status "being reviewed" — confirm it flips to Verified.
+## Parallel work Chanda can do while waiting
 
-## What shipped today: one-off drink logging (JS-only, single file `app/(tabs)/index.tsx`)
+- **Recruit 15-20 closed testers with Android phones + gmail addresses.** Aim for 15-20 yeses to comfortably clear 12 active over 14 days. This is the real-world gating factor — engineering is mostly done or blocked on Google.
+- **Draft the tester welcome email** — full draft is in this session's transcript (in memory too if needed). Not sending until App content review clears.
 
-Free path to log a beverage that isn't on the home-screen grid — conversion bet: repeated one-off use of a Pro-locked beverage sells the "add it to your home screen" upgrade.
+## Config landmines carrying over
 
-- **"Log once" button** on every *unselected* row in the Customize Your Beverages sheet (all users, free + Pro). Locked rows keep dimmed content + paywall-on-row-tap; the button stays full-opacity and free.
-- Tapping it closes the sheet, waits 350 ms (iOS Modal-over-Modal landmine), then opens a **one-off amount modal** (light theme per design tokens: navy header, gold title). Quick-add chips + custom amount in preferred unit → **Log It**.
-- Logging runs the normal pipeline via a new optional param: `handleBet(oz, categoryOverride?)`. The grid (`selectedBeverages`) is never touched.
-- **PRO nudge:** 3rd one-off log of the same beverage, only if `!isPro && !DEFAULT_VISIBLE_BEVS.includes(cat)` → one-time-per-beverage-per-profile Alert → "See PRO" opens paywall. Storage keys (profile-namespaced): `oneoff_log_count_<bev>`, `oneoff_nudge_shown_<bev>`. Free defaults (incl. Soda) never nudge; Pro users never nudge.
+- **`react-native-watch-connectivity` Android autolinking exclusion** (`react-native.config.js`, commit `58edf1c`) — production Android build depends on it. If a fresh `eas build -p android` errors on `compileDebugKotlin`, the fix got reverted.
+- **`pc-api-key.json`** at repo root is gitignored and required by `eas submit -p android`. Don't move or rename. Regenerate from GCP → service account `hydro-hero-eas-submit@hydro-hero-501622.iam.gserviceaccount.com`.
+- **EAS production Android profile** = `buildType: "app-bundle"` (AAB). Dev/preview = APK.
+- **Merchant account must match developer account owner = Dylan.** Chanda can fill the form but Dylan's legal name / SSN / bank must go on it. See [[feedback-play-merchant-owner-match]].
+- **iOS archive landmines** unchanged for any hotfix build: `feedback_prebuild_wipes_xcode_env_local.md`, `feedback_local_archive_buildnumber.md`, `feedback_local_archive_runtime_version.md`, `feedback_local_archive_ota_channel.md`.
 
-### Discovered during this work
+## Task checklist snapshot
 
-The old **"What did you drink?" category-picker Modal** (`index.tsx` ~line 5300, `showCategoryModal`) is dead code — `setShowCategoryModal(true)` is never called anywhere. Pre-Build-25 leftover. Candidate for deletion in a cleanup pass.
+Full task tracker from tonight's session:
 
-## If something goes sideways with the OTA
+- [x] Verify Android Developer SHA-256 status
+- [x] Build production AAB via EAS
+- [x] Create Internal testing track in Play Console
+- [x] Submit AAB to Internal testing track
+- [x] Add tester email list in Play Console
+- [ ] Opt in as tester + verify Play Store install works — **blocked on App content review**
+- [ ] Set up Play in-app products (monthly + lifetime) — **blocked on merchant account**
+- [ ] Send tester welcome email + opt-in link
+- [ ] Configure RevenueCat Android offerings — **blocked on Play IAP products**
+- [ ] Create Closed testing track + recruit 12+ testers — start recruiting NOW
+- [ ] Verify Play micro-deposits when they land (1-3 business days)
+- [ ] Recruit 15-20 closed testers with Android devices
+- [ ] Promote to production after 14-day closed test window
 
-- JS-only fix → patch on `main`, `npx eas update --branch production --platform ios` (ALWAYS `--platform ios` — web export crashes on expo-secure-store SSR).
-- Roll back = republish the previous update group from the EAS dashboard.
+## Parking lot
 
-## Post-approval parking lot
-
-- **Android Phase 2** — smoke-test the dev build APK on the Pixel 7 emulator (golden path + layout audit sites listed in `project_android_port.md`).
-- **Push `58edf1c`** to origin once authorized.
-- **Screenshot refresh** — ASC screenshots still show pre-refresh modal palette. Not a rejection risk.
-- **Siri onboarding** — contextual tip after first preset save. Deferred.
-- **Dead code cleanup** — the unreachable "What did you drink?" modal.
-- **EAS Build migration (iOS)** — `eas.json` production block missing `SENTRY_AUTH_TOKEN` + `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`.
+- iOS Build 41 v1.1.3 status in ASC — was mid-fill end of 07-06.
+- Android SKU IDs need to mirror iOS ones for RC to unify (check ASC subscription IDs before creating in Play).
+- iOS screenshot refresh — ASC screenshots still show pre-refresh modal palette (cosmetic).
+- Siri onboarding tip after first preset save.
+- Dead code cleanup: unreachable "What did you drink?" modal.
+- EAS Build migration for iOS: `eas.json` production block still missing `SENTRY_AUTH_TOKEN` + `EXPO_PUBLIC_REVENUECAT_IOS_API_KEY`.
 
 ## Pointers
 
-- Feature details: `~/.claude/projects/-Users-wimsby1-MyFirstApp/memory/project_oneoff_logging.md`
-- Pro-gate map (now includes the free Log-once bypass on gate #1): `memory/project_pro_gate_map.md`
+- Tonight's session state (Internal testing rollout, blockers): `memory/project_handoff_2026_07_08.md`
+- Play Console main store listing (assets, copy, gotchas): `memory/project_play_store_listing.md`
+- Android port phase state (Phase 2 smoke test details): `memory/project_android_port.md`
+- Prior handoff (Play listing done, pre-testing): `memory/project_handoff_2026_07_06.md`
+- Play 12/14 rule: `memory/feedback_play_personal_account_12_14_rule.md`
+- Merchant owner-match rule: `memory/feedback_play_merchant_owner_match.md`
 - Quick state catch-up: `memory/MEMORY.md` (auto-loaded)
-- Archive landmines (if a new binary is ever needed): `feedback_prebuild_wipes_xcode_env_local.md` + `feedback_local_archive_buildnumber.md` + `feedback_prebuild_needs_clean.md`
-- TestFlight + ASC dashboard links: `reference_external_dashboards.md`
