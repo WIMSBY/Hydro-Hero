@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -11,6 +12,7 @@ import { requestOpenSettings } from '../../utils/settingsModal';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const insets = useSafeAreaInsets();
   const [pendingBadges, setPendingBadges] = useState(0);
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
         tabBarLabelStyle: { fontSize: 10, marginTop: -2 },
         tabBarIconStyle: { marginTop: 2 },
-        tabBarStyle: { height: 65, paddingTop: 4, paddingHorizontal: 12 },
+        tabBarStyle: { height: 65 + insets.bottom, paddingTop: 4, paddingBottom: insets.bottom, paddingHorizontal: 12 },
       }}>
       <Tabs.Screen
         name="index"
