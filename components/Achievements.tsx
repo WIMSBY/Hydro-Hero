@@ -528,7 +528,7 @@ const dtStyles = StyleSheet.create({
   name: { fontSize: 18, fontWeight: "800", color: GOLD, marginBottom: 10, textAlign: "center" },
   nameLocked: { color: "rgba(255,255,255,0.45)" },
   howTo: { fontSize: 11, fontWeight: "800", color: GOLD, letterSpacing: 1, marginBottom: 6 },
-  desc: { fontSize: 13, color: "rgba(255,255,255,0.72)", textAlign: "center", lineHeight: 20, marginBottom: 14 },
+  desc: { fontSize: 13, color: "rgba(255,255,255,0.72)", textAlign: "center", lineHeight: 20, marginBottom: 14, alignSelf: "stretch" },
   dateRow: { flexDirection: "row", marginBottom: 14 },
   dateLbl: { fontSize: 12, color: "rgba(255,255,255,0.45)" },
   dateVal: { fontSize: 12, color: GOLD, fontWeight: "700" },
