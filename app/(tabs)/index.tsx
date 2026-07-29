@@ -66,6 +66,7 @@ import Reanimated, {
   Easing as REasing,
 } from "react-native-reanimated";
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   ActivityIndicator,
   Alert,
@@ -1010,18 +1011,24 @@ function TankStats({
   const [pct, setPct] = useState(initial);
   useEffect(() => {
     const id = fillAnim.addListener(({ value }) => {
-      // Throttle to whole-percent changes to keep this leaf cheap, but always
-      // update on the terminal 0 / 1 frame — otherwise the last few sub-1%
-      // frames of a drain animation (Reset Today) round to 0% and get
-      // skipped, leaving the oz/ml labels pinned at a tiny tail value
-      // (e.g. tank shows 0% but "0.2 oz hydrated / 5 ml" lingers).
+      // Throttle to keep this leaf cheap, but always update on the terminal
+      // 0 / 1 frame — otherwise the last few sub-1% frames of a drain
+      // animation (Reset Today) round to 0% and get skipped, leaving the
+      // oz/ml labels pinned at a tiny tail value (e.g. tank shows 0% but
+      // "0.2 oz hydrated / 5 ml" lingers).
+      // Gate on BOTH whole-percent AND tenth-oz — a percent-only gate would
+      // capture the first mid-animation frame in a percent bucket (say 24.7%
+      // = 15.7 oz) and skip the true terminal frame (24.9% = 15.8 oz),
+      // leaving the oz label stuck a tenth low.
       setPct((prev) => {
         if (value === 0 || value === 1) return value;
-        return Math.round(prev * 100) === Math.round(value * 100) ? prev : value;
+        const samePct = Math.round(prev * 100) === Math.round(value * 100);
+        const sameOz  = Math.round(prev * goal * 10) === Math.round(value * goal * 10);
+        return samePct && sameOz ? prev : value;
       });
     });
     return () => fillAnim.removeListener(id);
-  }, [fillAnim]);
+  }, [fillAnim, goal]);
   const oz = pct * goal;
   return (
     <>
@@ -1408,7 +1415,7 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
       {visible ? (
-      <View style={cbStyles.overlay}>
+      <GestureHandlerRootView style={cbStyles.overlay}>
         <View style={cbStyles.sheet}>
           {/* Header */}
           <View style={cbStyles.header}>
@@ -1540,7 +1547,7 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </GestureHandlerRootView>
       ) : null}
     </Modal>
   );
