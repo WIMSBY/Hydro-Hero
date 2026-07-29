@@ -21,9 +21,12 @@ type Props = {
   onClose: () => void;
   onStart: () => void;
   onAbandon: () => void;
+  // Live per-hour oz totals for today. Used by hourlyMinimum missions so the
+  // progress row shows "3/5 hours" instead of the generic "Day 0/1".
+  todayHourBuckets?: Record<number, number>;
 };
 
-export function MissionDetailModal({ visible, mission, progress, onClose, onStart, onAbandon }: Props) {
+export function MissionDetailModal({ visible, mission, progress, onClose, onStart, onAbandon, todayHourBuckets }: Props) {
   if (!mission) {
     return (
       <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -40,6 +43,23 @@ export function MissionDetailModal({ visible, mission, progress, onClose, onStar
   const isAbandoned = progress?.status === "abandoned";
   const hasProgress = isActive || isCompleted || isFailed || isAbandoned;
 
+  // Hourly-pacing missions read the rule + today's per-hour totals directly,
+  // so the modal can render "3/5 hours" and hourly-specific copy instead of
+  // the generic day-based language.
+  const isHourly = mission.rule.kind === "hourlyMinimum";
+  const hourlyRule = isHourly ? mission.rule as { kind: "hourlyMinimum"; amountOz: number; hours: number } : null;
+  const hoursHit = hourlyRule && todayHourBuckets
+    ? Object.values(todayHourBuckets).filter((oz) => oz >= hourlyRule.amountOz).length
+    : 0;
+  const durationLabel = hourlyRule
+    ? `${hourlyRule.hours} HOURS TODAY`
+    : `${mission.durationDays} ${mission.durationDays === 1 ? "DAY" : "DAYS"}`;
+  const progressPct = isActive
+    ? hourlyRule
+      ? Math.min(hoursHit / hourlyRule.hours, 1)
+      : progress && Math.min(progress.daysCompleted / mission.durationDays, 1)
+    : 0;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -48,8 +68,8 @@ export function MissionDetailModal({ visible, mission, progress, onClose, onStar
           <ScrollView showsVerticalScrollIndicator={false}>
             <Text style={styles.eyebrow}>
               {mission.chain
-                ? `${mission.difficulty.toUpperCase()} · ${mission.durationDays} DAYS`
-                : `${mission.durationDays} DAYS`}
+                ? `${mission.difficulty.toUpperCase()} · ${durationLabel}`
+                : durationLabel}
             </Text>
             <View style={styles.headerRow}>
               <Text style={styles.emblem}>{mission.emblem}</Text>
@@ -64,7 +84,9 @@ export function MissionDetailModal({ visible, mission, progress, onClose, onStar
               <Text style={styles.ruleText}>{mission.ruleText}</Text>
               <Text style={styles.shieldHint}>
                 {mission.shieldsGranted === 0
-                  ? "🛡 No shields — Hardcore. One missed day ends the mission."
+                  ? isHourly
+                    ? "🛡 No shields — miss any hour and the mission ends today."
+                    : "🛡 No shields — Hardcore. One missed day ends the mission."
                   : `🛡 Shields: ${mission.shieldsGranted} — you can miss up to ${mission.shieldsGranted} ${mission.shieldsGranted === 1 ? "day" : "days"} without failing. Bonus shields from completed missions stack on top.`}
               </Text>
             </View>
@@ -73,9 +95,16 @@ export function MissionDetailModal({ visible, mission, progress, onClose, onStar
               <View style={styles.progressBox}>
                 <Text style={styles.ruleLabel}>YOUR PROGRESS</Text>
                 <Text style={styles.progressLine}>
-                  Day {progress.daysCompleted}/{mission.durationDays}
+                  {hourlyRule
+                    ? `${hoursHit}/${hourlyRule.hours} hours`
+                    : `Day ${progress.daysCompleted}/${mission.durationDays}`}
                   {isActive && ` · 🛡 ${progress.shieldsRemaining} left`}
                 </Text>
+                {isActive && (
+                  <View style={styles.progressTrack}>
+                    <View style={[styles.progressFill, { width: `${(progressPct || 0) * 100}%` }]} />
+                  </View>
+                )}
                 <Text style={styles.statusLine}>
                   {isActive && "🟢 Active"}
                   {isCompleted && "🏆 Completed"}
@@ -175,7 +204,15 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,215,0,0.30)",
   },
   progressLine: { color: "#ffffff", fontSize: 15, fontWeight: "800" },
-  statusLine: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 4, fontWeight: "700" },
+  progressTrack: {
+    height: 6,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderRadius: 3,
+    marginTop: 8,
+    overflow: "hidden",
+  },
+  progressFill: { height: "100%", backgroundColor: GOLD, borderRadius: 3 },
+  statusLine: { color: "rgba(255,255,255,0.65)", fontSize: 12, marginTop: 6, fontWeight: "700" },
 
   rewards: {
     backgroundColor: "rgba(255,255,255,0.04)",

@@ -67,6 +67,7 @@ import Reanimated, {
 } from "react-native-reanimated";
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from "react-native-draggable-flatlist";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaView } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -6005,18 +6006,21 @@ export default function WaterTracker() {
         onRequestClose={() => setShowSettingsModal(false)}
       >
         <View style={{ flex: 1, backgroundColor: LIGHT_BODY }}>
-          <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)", backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
-            <View style={{ flexDirection: "row", alignItems: "center" }}>
-              <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
-              <TouchableOpacity
-                onPress={() => setShowSettingsModal(false)}
-                activeOpacity={0.7}
-                style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
-              >
-                <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
-              </TouchableOpacity>
+          <SafeAreaView edges={['top']} style={{ backgroundColor: LIGHT_NAVY, borderTopLeftRadius: 24, borderTopRightRadius: 24 }}>
+            <View style={{ paddingTop: 18, paddingBottom: 14, paddingHorizontal: 22, borderBottomWidth: 1, borderBottomColor: "rgba(255,215,0,0.5)" }}>
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={{ color: GOLD_TITLE, fontSize: 18, fontWeight: "800", flex: 1 }}>⚙️ Settings</Text>
+                <TouchableOpacity
+                  onPress={() => setShowSettingsModal(false)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+                >
+                  <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </SafeAreaView>
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={{ padding: 20, paddingBottom: 60 }}

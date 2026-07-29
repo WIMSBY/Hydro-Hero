@@ -106,6 +106,32 @@ export function applyDay(
     next.shieldsRemaining = progress.shieldsRemaining - 1;
     next.shieldsUsedOn = [...progress.shieldsUsedOn, day.date];
     next.daysCompleted = progress.daysCompleted + 1;
+  } else if (mission.id === "heros-journey-bronze") {
+    // Origin Story auto-restarts on failure — the entry mission shouldn't
+    // sit in a "❌ Failed · tap to restart" dead state that friction-blocks
+    // new users. Reset in-place so catchUp continues advancing through
+    // subsequent days with a fresh streak counter.
+    // startedAt = day after the failure (parsed from day.date) so display
+    // stays truthful even during multi-day catchup after a long absence.
+    const parts = day.date.split("_");
+    const startedAt = parts.length === 4
+      ? addDays(new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3])), 1).toISOString()
+      : new Date().toISOString();
+    return {
+      missionId: progress.missionId,
+      startedAt,
+      daysCompleted: 0,
+      lastEvaluatedDate: day.date,
+      shieldsRemaining: mission.shieldsGranted,
+      shieldsUsedOn: [],
+      status: "active",
+      // Remember how far they got so the card can show "Last streak: X days".
+      // Keep the older value if the new failure was on day 0 — otherwise a
+      // day-0 restart-then-fail loop would erase a meaningful previous run.
+      lastFailedStreak: progress.daysCompleted > 0
+        ? progress.daysCompleted
+        : progress.lastFailedStreak,
+    };
   } else {
     next.status = "failed";
     return next;

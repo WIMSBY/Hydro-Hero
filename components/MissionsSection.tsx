@@ -35,6 +35,10 @@ type Props = {
   progresses: ProgressMap;
   onProgressesChange: (next: ProgressMap) => void;
   showAlcoholicDrinks: boolean;
+  // Live per-hour oz totals for today. Passed down so hourlyMinimum cards
+  // can render "hours hit / hours needed" instead of the vestigial 0/1
+  // days count that the generic row would otherwise show.
+  todayHourBuckets?: Record<number, number>;
 };
 
 type TierState = {
@@ -43,7 +47,7 @@ type TierState = {
   locked: boolean;
 };
 
-export function MissionsSection({ progresses, onProgressesChange, showAlcoholicDrinks }: Props) {
+export function MissionsSection({ progresses, onProgressesChange, showAlcoholicDrinks, todayHourBuckets }: Props) {
   const [openMissionId, setOpenMissionId] = useState<string | null>(null);
 
   const visibleChains = MISSION_CHAINS.filter((chain) => {
@@ -100,6 +104,7 @@ export function MissionsSection({ progresses, onProgressesChange, showAlcoholicD
               mission={mission}
               progress={progress}
               locked={locked}
+              todayHourBuckets={todayHourBuckets}
               onPress={() => {
                 if (locked) return;
                 setOpenMissionId(mission.id);
@@ -113,6 +118,7 @@ export function MissionsSection({ progresses, onProgressesChange, showAlcoholicD
         visible={openMissionId !== null}
         mission={openMission}
         progress={openProgress}
+        todayHourBuckets={todayHourBuckets}
         onClose={() => setOpenMissionId(null)}
         onStart={() => openMissionId && handleStart(openMissionId)}
         onAbandon={() => openMissionId && handleAbandon(openMissionId)}
@@ -127,11 +133,13 @@ function MissionCard({
   mission,
   progress,
   locked,
+  todayHourBuckets,
   onPress,
 }: {
   mission: Mission;
   progress: MissionProgress | undefined;
   locked: boolean;
+  todayHourBuckets?: Record<number, number>;
   onPress: () => void;
 }) {
   const isActive    = progress?.status === "active";
@@ -139,8 +147,18 @@ function MissionCard({
   const isFailed    = progress?.status === "failed";
   const isAbandoned = progress?.status === "abandoned";
 
+  // Hourly-pacing missions: show hours-hit-today / hours-needed instead of
+  // the generic daysCompleted / durationDays row (which is 0/1 all day).
+  const isHourly = mission.rule.kind === "hourlyMinimum";
+  const hourlyRule = isHourly ? mission.rule as { kind: "hourlyMinimum"; amountOz: number; hours: number } : null;
+  const hoursHit = hourlyRule && todayHourBuckets
+    ? Object.values(todayHourBuckets).filter((oz) => oz >= hourlyRule.amountOz).length
+    : 0;
+
   const pct = progress && isActive
-    ? Math.min(progress.daysCompleted / mission.durationDays, 1)
+    ? isHourly && hourlyRule
+      ? Math.min(hoursHit / hourlyRule.hours, 1)
+      : Math.min(progress.daysCompleted / mission.durationDays, 1)
     : 0;
 
   return (
@@ -168,14 +186,23 @@ function MissionCard({
               <View style={[cardStyles.progressFill, { width: `${pct * 100}%` }]} />
             </View>
             <Text style={cardStyles.meta}>
-              Day {progress.daysCompleted}/{mission.durationDays}
+              {isHourly && hourlyRule
+                ? `${hoursHit}/${hourlyRule.hours} hours`
+                : `Day ${progress.daysCompleted}/${mission.durationDays}`}
               {mission.shieldsGranted > 0 && ` · 🛡 ${progress.shieldsRemaining}`}
             </Text>
+            {progress.lastFailedStreak !== undefined && progress.lastFailedStreak > 0 && (
+              <Text style={cardStyles.lastStreak}>
+                Last streak: {progress.lastFailedStreak} day{progress.lastFailedStreak === 1 ? "" : "s"}
+              </Text>
+            )}
           </>
         )}
         {!isActive && !isCompleted && !isFailed && !isAbandoned && !locked && (
           <Text style={cardStyles.meta}>
-            {mission.durationDays === 1 ? "single-day challenge" : `${mission.durationDays} days`}
+            {isHourly && hourlyRule
+              ? `${hourlyRule.hours} hours today`
+              : mission.durationDays === 1 ? "single-day challenge" : `${mission.durationDays} days`}
             {mission.shieldsGranted > 0 && ` · 🛡 ${mission.shieldsGranted}`}
           </Text>
         )}
@@ -237,6 +264,7 @@ const cardStyles = StyleSheet.create({
   },
   tagline: { color: "rgba(255,255,255,0.55)", fontSize: 12, lineHeight: 16, marginTop: 2 },
   meta: { color: "rgba(255,255,255,0.65)", fontSize: 11, marginTop: 8, fontWeight: "700" },
+  lastStreak: { color: "rgba(255,255,255,0.42)", fontSize: 10, marginTop: 3, fontStyle: "italic" },
   progressTrack: {
     height: 5,
     backgroundColor: "rgba(255,255,255,0.10)",

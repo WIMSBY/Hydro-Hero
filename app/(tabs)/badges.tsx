@@ -55,12 +55,14 @@ export default function BadgesScreen() {
   const [missionProgresses, setMissionProgresses] = useState<ProgressMap>({});
   const [showAlcoholicDrinks, setShowAlcoholicDrinks] = useState(false);
 
+  const [todayHourBuckets, setTodayHourBuckets] = useState<Record<number, number>>({});
+
   useFocusEffect(useCallback(() => {
     (async () => {
       const [
         rawGoalHist, rawTotalHyd, rawTodayIntake, rawGoal, rawBreakdown,
         rawLifeOz, rawLifeJp, rawLifeCoffee, rawLifeBeer, rawFirstDrink,
-        progresses, rawAlc,
+        progresses, rawAlc, rawEntries,
       ] = await Promise.all([
         pGetItem('goal_history'),
         pGetItem('water_total_hydration'),
@@ -74,9 +76,25 @@ export default function BadgesScreen() {
         pGetItem('first_drink_time'),
         loadProgresses(),
         pGetItem('show_alcoholic_drinks'),
+        pGetItem('water_log_entries'),
       ]);
       setMissionProgresses(progresses);
       setShowAlcoholicDrinks(rawAlc === 'true');
+
+      // Bucket today's drink entries by hour so Hourly Hydration cards can
+      // show live "hours hit / hours needed" instead of the vestigial 0/1
+      // days count on the generic card row.
+      const nowDay = new Date().toDateString();
+      const buckets: Record<number, number> = {};
+      try {
+        const entries: { oz: number; timestamp: number }[] = rawEntries ? JSON.parse(rawEntries) : [];
+        for (const e of entries) {
+          if (new Date(e.timestamp).toDateString() !== nowDay) continue;
+          const h = new Date(e.timestamp).getHours();
+          buckets[h] = (buckets[h] ?? 0) + (e.oz ?? 0);
+        }
+      } catch {}
+      setTodayHourBuckets(buckets);
 
       // Tolerant parse: a single corrupt key (Sentry HYDRO-HERO-9 saw
       // "Unexpected character in number: -" here) used to abort the whole
@@ -129,6 +147,7 @@ export default function BadgesScreen() {
             progresses={missionProgresses}
             onProgressesChange={setMissionProgresses}
             showAlcoholicDrinks={showAlcoholicDrinks}
+            todayHourBuckets={todayHourBuckets}
           />
           <SigilCase progresses={missionProgresses} />
           <TrophyCase goalHistory={data.goalHistory} />

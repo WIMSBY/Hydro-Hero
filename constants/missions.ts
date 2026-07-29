@@ -75,6 +75,10 @@ export type MissionProgress = {
   shieldsRemaining: number;
   shieldsUsedOn: string[];    // getDateKey strings
   status: MissionStatus;
+  // For missions that auto-restart on failure (currently only Origin Story):
+  // daysCompleted at the moment of the most recent failure, so the card can
+  // show "Last streak: X days" instead of silently resetting to Day 0.
+  lastFailedStreak?: number;
 };
 
 // ─── Chain metadata ──────────────────────────────────────────────────────────
