@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { pGetItem, pSetItem, pRemoveItem, pMultiGet } from "../../utils/profileStorage";
-import { BevCategory, BevDef, BEVERAGES, ALCOHOLIC_BEVS } from "../../constants/beverages";
+import { BevCategory, BevDef, BEVERAGES, ALCOHOLIC_BEVS, tracksSeparately, TRACKED_SEPARATELY_SHORT, TRACKED_SEPARATELY_SUBTITLE, ALCOHOL_HINT } from "../../constants/beverages";
 import { LastDrinkReveal, type LastDrinkRevealHandle } from "../../components/hydration/LastDrinkReveal";
 import { HandoffDroplet, type HandoffDropletHandle } from "../../components/hydration/HandoffDroplet";
 import Constants from "expo-constants";
@@ -140,8 +140,14 @@ const EMPTY_BREAKDOWN: Record<BevCategory, number> = {
   beer: 0, wine: 0, cocktail: 0, energy: 0, kombucha: 0, hotchoc: 0, spirits: 0,
 };
 
+// 2-decimal precision on purpose: the tank accumulates these per-drink values,
+// and rounding each drink to a tenth made the tank drift a tenth below the
+// DrinkLog aggregate (2 × 7.84 stored as 7.8 + 7.8 = 15.6 vs true 15.68).
+// Round to 1 decimal at display only.
 function calcHydratedOz(oz: number, category: BevCategory): number {
-  return Math.round(oz * getBev(category).eff * 10) / 10;
+  const bev = getBev(category);
+  if (bev.contribution === 'trackedSeparately') return 0;
+  return Math.round(oz * bev.eff * 100) / 100;
 }
 
 /** Safely merge stored breakdown (may have only 7 old keys) with the full 20-key default */
@@ -1162,6 +1168,9 @@ function ArtDecoVault({
   // Ring filled — measure both anchors and ask Home to launch the overlay.
   const handleHandoffStart = useCallback(async () => {
     if (!onLaunchDroplet) return;
+    // Belt-and-suspenders: the reveal never fires handoff for tracked-
+    // separately drinks, but a stale closure must not pour one into the tank.
+    if (beverage.contribution === 'trackedSeparately') return;
     const ringPos = await revealRef.current?.measureRing();
     if (!ringPos) return;
     const anchor = vaultWaterAnchorRef.current;
@@ -1170,7 +1179,7 @@ function ArtDecoVault({
     anchor.measureInWindow((x, y, w, h) => {
       onLaunchDroplet(ringPos, { x: x + w / 2, y: y + h / 2 }, onReachTank);
     });
-  }, [onLaunchDroplet, onReachTank]);
+  }, [onLaunchDroplet, onReachTank, beverage.contribution]);
 
   return (
     <View style={{ alignItems: "center", marginTop: 8, marginBottom: 4 }}
@@ -1230,6 +1239,7 @@ function ArtDecoVault({
               beverage={beverage}
               ozLogged={lastReelOz}
               hydratedOz={hydOz}
+              trackedSeparately={beverage.contribution === 'trackedSeparately'}
               preferredUnit={preferredUnit}
               onHandoffStart={handleHandoffStart}
             />
@@ -1404,7 +1414,11 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
             <Text style={cbStyles.rowEmoji}>{item.emoji}</Text>
             <View style={{ flex: 1 }}>
               <Text style={cbStyles.rowName}>{item.label}</Text>
-              <Text style={cbStyles.rowEff}>{Math.round(item.eff * 100)}% hydration</Text>
+              <Text style={cbStyles.rowEff}>
+                {item.contribution === 'trackedSeparately'
+                  ? TRACKED_SEPARATELY_SUBTITLE
+                  : `${Math.round(item.eff * 100)}% hydration credit`}
+              </Text>
             </View>
             <Text style={cbStyles.check}>✓</Text>
           </TouchableOpacity>
@@ -1505,7 +1519,11 @@ function ChooseBevsModal({ visible, current, usage, showAlcoholic, isPro, onPayw
                           <Text style={[cbStyles.rowEmoji, isLocked && { opacity: 0.45 }]}>{bev.emoji}</Text>
                           <View style={{ flex: 1, opacity: isLocked ? 0.45 : 1 }}>
                             <Text style={cbStyles.rowName}>{bev.label}</Text>
-                            <Text style={cbStyles.rowEff}>{Math.round(bev.eff * 100)}% hydration</Text>
+                            <Text style={cbStyles.rowEff}>
+                              {bev.contribution === 'trackedSeparately'
+                                ? TRACKED_SEPARATELY_SUBTITLE
+                                : `${Math.round(bev.eff * 100)}% hydration credit`}
+                            </Text>
                           </View>
                           {/* One-off log — free for everyone; the beverage never
                               joins the home-screen grid. */}
@@ -1968,9 +1986,10 @@ function QuickAddCustomModal({ visible, currentAmounts, onSave, onCancel }: Quic
 
 // --- Result Box ---
 function ResultBox({ message }: { message: string | null }) {
-  const rawOzMatch = message?.match(/\+([\d.]+) oz/);
+  const rawOzMatch = message?.match(/\+?([\d.]+) oz/);
   const rawOzNum = rawOzMatch ? parseFloat(rawOzMatch[1]) : 0;
   const isJackpot = !!message?.includes("GOAL");
+  const isTracked = !!message?.includes(TRACKED_SEPARATELY_SHORT);
   return (
     <View style={[rbStyles.wrapper, !message && rbStyles.wrapperIdle]}>
       <Text style={message ? rbStyles.result : rbStyles.idle}>
@@ -1980,7 +1999,9 @@ function ResultBox({ message }: { message: string | null }) {
         <Text style={rbStyles.sub}>
           {isJackpot
             ? `${rawOzNum} oz (${ozToMl(rawOzNum)} ml) • tank is full! 🏆`
-            : `${rawOzNum} oz (${ozToMl(rawOzNum)} ml) consumed • tank is filling up!`}
+            : isTracked
+              ? `${rawOzNum} oz (${ozToMl(rawOzNum)} ml) consumed • saved to your log`
+              : `${rawOzNum} oz (${ozToMl(rawOzNum)} ml) consumed • tank is filling up!`}
         </Text>
       )}
     </View>
@@ -2072,13 +2093,20 @@ function DrinkLog({ breakdown, intake: dlIntake, entries: logEntries = [], prefe
             const raw = breakdown[cat.key];
             const hyd = calcHydratedOz(raw, cat.key);
             const share = dlIntake > 0 ? Math.round((raw / dlIntake) * 100) : 0;
+            const tracked = cat.contribution === 'trackedSeparately';
             return (
               <View key={cat.key} style={dlStyles.row}>
                 <View style={[dlStyles.dot, { backgroundColor: cat.color }]} />
                 <Text style={[dlStyles.name, { color: colors.text }]}>{cat.emoji} {cat.label}</Text>
                 <Text style={[dlStyles.raw, { color: colors.textSub }]}>{preferredUnit === 'ml' ? `${ozToMl(raw)} ml` : `${raw.toFixed(1)} oz`}</Text>
-                <Text style={[dlStyles.effTxt, { color: colors.textMuted }]}>{Math.round(getBev(cat.key).eff * 100)}%</Text>
-                <Text style={[dlStyles.hyd, { color: isDark ? "#88ccff" : "#0066cc" }]}>→{preferredUnit === 'ml' ? `${ozToMl(hyd)}ml` : `${hyd.toFixed(1)}oz`}</Text>
+                {tracked ? (
+                  <Text style={[dlStyles.trackedTxt, { color: colors.textMuted }]}>{TRACKED_SEPARATELY_SHORT}</Text>
+                ) : (
+                  <>
+                    <Text style={[dlStyles.effTxt, { color: colors.textMuted }]}>{Math.round(getBev(cat.key).eff * 100)}%</Text>
+                    <Text style={[dlStyles.hyd, { color: isDark ? "#88ccff" : "#0066cc" }]}>→{preferredUnit === 'ml' ? `${ozToMl(hyd)}ml` : `${hyd.toFixed(1)}oz`}</Text>
+                  </>
+                )}
                 <Text style={[dlStyles.share, { color: cat.color }]}>{share}%</Text>
               </View>
             );
@@ -2119,6 +2147,8 @@ const dlStyles = StyleSheet.create({
   raw: { fontSize: 12, width: 44, textAlign: "right" },
   effTxt: { fontSize: 12, width: 32, textAlign: "center" },
   hyd: { fontSize: 12, width: 54, textAlign: "right" },
+  // spans the effTxt + hyd columns (32 + 54 + 5 gap)
+  trackedTxt: { fontSize: 11, width: 91, textAlign: "right", fontStyle: "italic" },
   share: { fontSize: 13, fontWeight: "700", width: 34, textAlign: "right" },
   entriesDivider: { height: 1, marginVertical: 8 },
   entriesLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 1, marginBottom: 6 },
@@ -3479,10 +3509,12 @@ export default function WaterTracker() {
     // hourlyMinimum-rule missions (Hourly Hydration chain) can evaluate at
     // midnight rollover. The water_log_entries key gets cleared below, so
     // this is the only chance to snapshot the timestamped data.
-    const prevEntries: { oz: number; timestamp: number }[]
+    const prevEntries: { oz: number; timestamp: number; category?: BevCategory }[]
                        = rawEntries ? (() => { try { return JSON.parse(rawEntries); } catch { return []; } })() : [];
     const hourBuckets: Record<number, number> = {};
     for (const e of prevEntries) {
+      // Tracked-separately drinks (alcohol) never advance hydration missions.
+      if (e.category && tracksSeparately(e.category)) continue;
       const h = new Date(e.timestamp).getHours();
       hourBuckets[h] = (hourBuckets[h] ?? 0) + (e.oz ?? 0);
     }
@@ -4035,7 +4067,8 @@ export default function WaterTracker() {
   async function addWater(oz: number, category: BevCategory): Promise<boolean> {
     const newIntake = intake + oz;
     const hydratedOz = calcHydratedOz(oz, category);
-    const newHydration = Math.round((totalHydration + hydratedOz) * 10) / 10;
+    const trackedSeparate = tracksSeparately(category);
+    const newHydration = Math.round((totalHydration + hydratedOz) * 100) / 100;
     setIntake(newIntake);
     setTotalHydration(newHydration);
     const newBreakdown = { ...categoryBreakdown, [category]: categoryBreakdown[category] + oz };
@@ -4044,7 +4077,9 @@ export default function WaterTracker() {
     setLastEntryHydratedOz(hydratedOz);
     setLastEntryCategory(category);
 
-    const isJackpot = newHydration >= goal && !jackpotFiredToday;
+    // Tracked-separately drinks (alcohol) never trigger goal events, even in
+    // edge states (e.g. goal lowered below current hydration mid-day).
+    const isJackpot = !trackedSeparate && newHydration >= goal && !jackpotFiredToday;
     if (isJackpot) {
       setJackpotFiredToday(true);
     }
@@ -4086,8 +4121,10 @@ export default function WaterTracker() {
     })();
     rescheduleSmartNotifications(newHydPct, streakNow, newRemOz);
 
-    // Sync raw consumed oz to Apple Health (silently, never blocks the return)
-    if (healthSyncEnabled && healthPermissionGranted && isHealthAvailable) {
+    // Sync raw consumed oz to Apple Health (silently, never blocks the return).
+    // Tracked-separately drinks stay out of Health — alcohol volume written as
+    // dietary Water would be the same false precision this model removes.
+    if (!trackedSeparate && healthSyncEnabled && healthPermissionGranted && isHealthAvailable) {
       saveWaterSample(oz).then((timestamp) => {
         if (timestamp) {
           setLastHealthSampleTime(timestamp);
@@ -4098,7 +4135,7 @@ export default function WaterTracker() {
 
     // Update lifetime achievement stats
     try {
-      const newLifeHyd    = Math.round((lifetimeHydrationOz + hydratedOz) * 10) / 10;
+      const newLifeHyd    = Math.round((lifetimeHydrationOz + hydratedOz) * 100) / 100;
       const newLifeJack   = lifetimeJackpots + (isJackpot ? 1 : 0);
       const newLifeCoffee = lifetimeCoffeeLogs + (category === "coffee" ? 1 : 0);
       const newLifeBeer   = lifetimeBeerLogs   + (category === "beer"   ? 1 : 0);
@@ -4159,7 +4196,7 @@ export default function WaterTracker() {
     // that crosses 0→100% skips both without writing their dedup flags, so
     // every post-goal log (isJackpot=false, pct capped at 1) would fire them.
     const todayKey2 = getTodayKey();
-    if (newHydration < goal && newHydPct >= 0.5) {
+    if (!trackedSeparate && newHydration < goal && newHydPct >= 0.5) {
       fireImmediateNotifOnce(
         `notif_50pct_fired_${todayKey2}`,
         "Halfway to your goal! 💧",
@@ -4167,7 +4204,7 @@ export default function WaterTracker() {
         notifProgressEnabled,
       );
     }
-    if (newHydration < goal && newHydPct >= 0.8) {
+    if (!trackedSeparate && newHydration < goal && newHydPct >= 0.8) {
       fireImmediateNotifOnce(
         `notif_80pct_fired_${todayKey2}`,
         "So close to your goal! 💪",
@@ -4280,7 +4317,11 @@ export default function WaterTracker() {
       }, 3800));
     } else {
       bt.push(setTimeout(() => {
-        setResultMessage(`${cat.emoji} +${oz} oz ${cat.label} → ${hydrated} oz hydration`);
+        setResultMessage(
+          tracksSeparately(category)
+            ? `${cat.emoji} ${oz} oz ${cat.label} logged · ${TRACKED_SEPARATELY_SHORT}`
+            : `${cat.emoji} +${oz} oz ${cat.label} → ${formatOz(hydrated)} oz hydration`
+        );
         setSpinning(false);
       }, 900));
     }
@@ -4310,7 +4351,7 @@ export default function WaterTracker() {
             const undoneCategory = lastEntryCategory;
             const wasJackpot = (await pGetItem("water_last_was_jackpot")) === "1";
             const newIntake = Math.max(0, intake - lastEntry);
-            const newHydration = Math.max(0, Math.round((totalHydration - undoneHydratedOz) * 10) / 10);
+            const newHydration = Math.max(0, Math.round((totalHydration - undoneHydratedOz) * 100) / 100);
             setIntake(newIntake);
             setTotalHydration(newHydration);
             setDisplayedHydration(newHydration);
@@ -4338,7 +4379,7 @@ export default function WaterTracker() {
             }
 
             // Roll back lifetime stats so badges keyed off them can revalidate.
-            const newLifeHyd = Math.max(0, Math.round((lifetimeHydrationOz - undoneHydratedOz) * 10) / 10);
+            const newLifeHyd = Math.max(0, Math.round((lifetimeHydrationOz - undoneHydratedOz) * 100) / 100);
             const newLifeCoffee = undoneCategory === "coffee" ? Math.max(0, lifetimeCoffeeLogs - 1) : lifetimeCoffeeLogs;
             const newLifeBeer = undoneCategory === "beer" ? Math.max(0, lifetimeBeerLogs - 1) : lifetimeBeerLogs;
             const newLifeJack = wasJackpot ? Math.max(0, lifetimeJackpots - 1) : lifetimeJackpots;
@@ -4953,7 +4994,7 @@ export default function WaterTracker() {
         >
           <Text style={[undoStyles.btnText, lastEntry === null && undoStyles.btnTextDisabled]}>
             {lastEntry !== null && lastEntryCategory
-              ? `↩ Undo last: +${preferredUnit === 'ml' ? `${ozToMl(lastEntry)} ml` : `${formatOz(lastEntry)} oz`} ${CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? ""}`
+              ? `↩ Undo last: ${tracksSeparately(lastEntryCategory) ? "" : "+"}${preferredUnit === 'ml' ? `${ozToMl(lastEntry)} ml` : `${formatOz(lastEntry)} oz`} ${CATEGORIES.find((c) => c.key === lastEntryCategory)?.label ?? ""}`
               : lastEntry !== null
               ? `↩ Undo last: +${preferredUnit === 'ml' ? `${ozToMl(lastEntry)} ml` : `${formatOz(lastEntry)} oz`}`
               : "↩ No entry to undo"}
@@ -5188,7 +5229,11 @@ export default function WaterTracker() {
                         <Text style={{ color: HEADER_SUBTEXT, fontSize: 20, lineHeight: 22 }}>✕</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={{ color: HEADER_SUBTEXT, fontSize: 12, marginTop: 4 }}>One-off drink — won't be added to your home screen</Text>
+                    <Text style={{ color: HEADER_SUBTEXT, fontSize: 12, marginTop: 4 }}>
+                      {oneOffBev !== null && tracksSeparately(oneOffBev)
+                        ? `${TRACKED_SEPARATELY_SUBTITLE} — won't be added to your home screen`
+                        : "One-off drink — won't be added to your home screen"}
+                    </Text>
                   </View>
 
                   <View style={{ paddingHorizontal: 22, paddingTop: 20, paddingBottom: 22 }}>
@@ -5275,28 +5320,40 @@ export default function WaterTracker() {
             {/* Chosen drink */}
             {(() => {
               const cat = CATEGORIES.find((c) => c.key === selectedCategory) ?? CATEGORIES[0];
+              const tracked = cat.contribution === 'trackedSeparately';
               const baseOz = pendingBetOz ?? 0;
               const totalOz = baseOz * pendingQty;
               const baseDisplay = preferredUnit === 'ml' ? `${ozToMl(baseOz)} ml` : `${baseOz} oz`;
               const totalDisplay = preferredUnit === 'ml' ? `${ozToMl(totalOz)} ml` : `${totalOz} oz`;
               return (
+                <>
                 <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,215,0,0.08)", borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "rgba(255,215,0,0.3)" }}>
                   <Text style={{ fontSize: 40, marginRight: 14 }}>{cat.emoji}</Text>
                   <View style={{ flex: 1 }}>
                     <Text style={{ color: "#ffffff", fontSize: 18, fontWeight: "800" }}>{cat.label}</Text>
                     <Text style={{ color: "rgba(255,255,255,0.55)", fontSize: 12, marginTop: 2 }}>
-                      {Math.round(getBev(cat.key).eff * 100)}% hydration efficiency
+                      {tracked
+                        ? TRACKED_SEPARATELY_SUBTITLE
+                        : `${Math.round(getBev(cat.key).eff * 100)}% hydration credit`}
                     </Text>
                   </View>
                   <View style={{ alignItems: "flex-end" }}>
                     <Text style={{ color: GOLD, fontSize: 26, fontWeight: "900" }}>{totalDisplay}</Text>
-                    <Text style={{ color: "rgba(255,215,0,0.6)", fontSize: 11, marginTop: 2 }}>
-                      {pendingQty > 1
-                        ? `${pendingQty} × ${baseDisplay}`
-                        : `→ ${calcHydratedOz(totalOz, selectedCategory)} oz hydrated`}
-                    </Text>
+                    {(pendingQty > 1 || !tracked) && (
+                      <Text style={{ color: "rgba(255,215,0,0.6)", fontSize: 11, marginTop: 2 }}>
+                        {pendingQty > 1
+                          ? `${pendingQty} × ${baseDisplay}`
+                          : `→ ${formatOz(calcHydratedOz(totalOz, selectedCategory))} oz hydrated`}
+                      </Text>
+                    )}
                   </View>
                 </View>
+                {tracked && (
+                  <Text style={{ color: "rgba(255,255,255,0.45)", fontSize: 12, lineHeight: 17, textAlign: "center", marginTop: -6, marginBottom: 14 }}>
+                    {ALCOHOL_HINT}
+                  </Text>
+                )}
+                </>
               );
             })()}
 
@@ -6139,7 +6196,7 @@ export default function WaterTracker() {
                     <View style={{ flex: 1, marginRight: 16 }}>
                       <Text style={settingsRowTitle}>Show Alcoholic Drinks</Text>
                       <Text style={settingsRowSub}>
-                        Adds Beer, Wine, Cocktail and Spirits to the drink picker. Existing logs are unaffected.
+                        {"Adds Beer, Wine, Cocktail and Spirits to the drink picker. Alcoholic drinks are tracked separately — they're saved to your log but don't count toward your hydration goal. Existing logs are unaffected."}
                       </Text>
                     </View>
                     <Switch

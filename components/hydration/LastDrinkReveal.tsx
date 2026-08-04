@@ -36,6 +36,11 @@ type Props = {
   beverage: BevDef;
   ozLogged: number;
   hydratedOz: number;
+  /**
+   * Alcohol: no hydrated-oz number (a numeric credit would be dishonest) and
+   * no handoff droplet — the drink never pours into the tank.
+   */
+  trackedSeparately?: boolean;
   preferredUnit?: 'oz' | 'ml';
   /**
    * Fires when the ring is filled and it's time for the parent to launch the
@@ -87,7 +92,7 @@ function AnimatedNumber({
 }
 
 export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
-  ({ beverage, ozLogged, hydratedOz, preferredUnit = 'oz', onHandoffStart }, ref) => {
+  ({ beverage, ozLogged, hydratedOz, trackedSeparately = false, preferredUnit = 'oz', onHandoffStart }, ref) => {
     const unitFactor = preferredUnit === 'ml' ? 29.5735 : 1;
     const displayedLogged = ozLogged * unitFactor;
     const displayedHydrated = hydratedOz * unitFactor;
@@ -147,6 +152,10 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
         iconY.value = 30;
         numOpacity.value = 1;
         ozSV.value = withTiming(displayedLogged, { duration: 200 });
+        if (trackedSeparately) {
+          level.value = withTiming(1, { duration: 250 });
+          return;
+        }
         hydratedSV.value = withTiming(displayedHydrated, { duration: 200 });
         level.value = withTiming(1, { duration: 250 }, (done) => {
           'worklet';
@@ -203,6 +212,7 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
         )
       );
       numOpacity.value = withDelay(T.numberAppearAt, withTiming(1, { duration: 300 }));
+      if (trackedSeparately) return;
       hydratedSV.value = withDelay(
         T.numberAppearAt,
         withTiming(displayedHydrated, { duration: 500, easing: Easing.out(Easing.cubic) })
@@ -217,7 +227,7 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
           if (done) runOnJS(fireHandoff)();
         })
       );
-    }, [reduced, ozLogged, hydratedOz, fireHandoff, reset]);
+    }, [reduced, ozLogged, hydratedOz, trackedSeparately, fireHandoff, reset]);
 
     const measureRing = useCallback((): Promise<{ x: number; y: number } | null> => {
       return new Promise((resolve) => {
@@ -288,15 +298,23 @@ export const LastDrinkReveal = forwardRef<LastDrinkRevealHandle, Props>(
                 surfaceColor={beverage.surface}
               />
               <Animated.View style={[styles.ringNum, numStyle]} pointerEvents="none">
-                <AnimatedNumber
-                  value={hydratedSV}
-                  prefix="+"
-                  decimals={numDecimals}
-                  style={styles.ringNumText}
-                />
+                {trackedSeparately ? (
+                  <Text style={styles.ringNumText}>✓</Text>
+                ) : (
+                  <AnimatedNumber
+                    value={hydratedSV}
+                    prefix="+"
+                    decimals={numDecimals}
+                    style={styles.ringNumText}
+                  />
+                )}
               </Animated.View>
             </View>
-            <Text style={styles.label}>{preferredUnit === 'ml' ? 'HYDRATED ML' : 'HYDRATED OZ'}</Text>
+            <Text style={[styles.label, trackedSeparately && styles.labelWrap]}>
+              {trackedSeparately
+                ? 'TRACKED SEPARATELY'
+                : preferredUnit === 'ml' ? 'HYDRATED ML' : 'HYDRATED OZ'}
+            </Text>
           </Animated.View>
         </View>
 
@@ -323,6 +341,7 @@ const styles = StyleSheet.create({
     color: '#9B93C2',
     fontWeight: '700',
   },
+  labelWrap: { textAlign: 'center' },
   bigNum: {
     fontSize: 24,
     fontWeight: '900',

@@ -9,6 +9,7 @@ import { MissionsSection } from '../../components/MissionsSection';
 import { loadProgresses, type ProgressMap } from '../../utils/MissionEngine';
 import { playBadgeUnlockSound } from '../../utils/SoundManager';
 import { setPendingBadgeCount } from '../../utils/badgeDetection';
+import { tracksSeparately, type BevCategory } from '../../constants/beverages';
 
 const GOLD = '#FFD700';
 const BG = '#0a0520';
@@ -87,9 +88,11 @@ export default function BadgesScreen() {
       const nowDay = new Date().toDateString();
       const buckets: Record<number, number> = {};
       try {
-        const entries: { oz: number; timestamp: number }[] = rawEntries ? JSON.parse(rawEntries) : [];
+        const entries: { oz: number; timestamp: number; category?: BevCategory }[] = rawEntries ? JSON.parse(rawEntries) : [];
         for (const e of entries) {
           if (new Date(e.timestamp).toDateString() !== nowDay) continue;
+          // Tracked-separately drinks (alcohol) never advance hydration missions.
+          if (e.category && tracksSeparately(e.category)) continue;
           const h = new Date(e.timestamp).getHours();
           buckets[h] = (buckets[h] ?? 0) + (e.oz ?? 0);
         }
